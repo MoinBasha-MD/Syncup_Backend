@@ -13,7 +13,7 @@ class AIMessageService {
   /**
    * Initialize AI for a user (called when user registers or first uses AI)
    */
-  static async initializeAI(userId, aiName = 'Diya') {
+  static async initializeAI(userId, aiName = 'Maya') {
     try {
       // Check if AI already exists
       let ai = await AIAssistant.findByUserId(userId);

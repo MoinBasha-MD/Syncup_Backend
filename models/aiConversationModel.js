@@ -14,12 +14,12 @@ const aiConversationSchema = new mongoose.Schema({
   participants: {
     initiatorAI: {
       aiId: { type: String, required: true },
-      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      userId: { type: String, required: true }, // Changed to String to support UUIDs
       aiName: { type: String, required: true }
     },
     responderAI: {
       aiId: { type: String, required: true },
-      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      userId: { type: String, required: true }, // Changed to String to support UUIDs
       aiName: { type: String, required: true }
     }
   },
@@ -59,7 +59,7 @@ const aiConversationSchema = new mongoose.Schema({
     toAI: String, // aiId of receiver
     messageType: {
       type: String,
-      enum: ['request', 'response', 'info', 'confirmation', 'error'],
+      enum: ['request', 'response', 'info', 'confirmation', 'error', 'autonomous_response'],
       required: true
     },
     content: {
@@ -104,6 +104,8 @@ const aiConversationSchema = new mongoose.Schema({
 // Indexes
 aiConversationSchema.index({ 'participants.initiatorAI.aiId': 1 });
 aiConversationSchema.index({ 'participants.responderAI.aiId': 1 });
+aiConversationSchema.index({ 'participants.initiatorAI.userId': 1 });
+aiConversationSchema.index({ 'participants.responderAI.userId': 1 });
 aiConversationSchema.index({ status: 1 });
 aiConversationSchema.index({ createdAt: -1 });
 

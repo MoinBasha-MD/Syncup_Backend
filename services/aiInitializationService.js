@@ -31,7 +31,7 @@ class AIInitializationService {
       // Create new AI with default settings
       const aiData = {
         userId,
-        aiName: preferences.aiName || 'Diya',
+        aiName: preferences.aiName || 'Maya',
         personality: preferences.personality || 'friendly',
         privacySettings: {
           // Default privacy settings - conservative approach

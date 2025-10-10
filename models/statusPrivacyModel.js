@@ -72,12 +72,26 @@ statusPrivacySchema.index({ visibility: 1, userId: 1 });
 
 // Static method to get user's default privacy settings
 statusPrivacySchema.statics.getDefaultPrivacySettings = async function(userId) {
-  let defaultSettings = await this.findOne({ userId, isDefault: true });
+  // If userId is a UUID string, find the user first to get MongoDB ObjectId
+  const User = mongoose.model('User');
+  let userObjectId = userId;
+  
+  // Check if userId is a UUID (36 characters with dashes) vs MongoDB ObjectId (24 hex chars)
+  if (typeof userId === 'string' && userId.length === 36 && userId.includes('-')) {
+    const user = await User.findOne({ userId: userId });
+    if (!user) {
+      console.log(`User not found for userId: ${userId}`);
+      return null;
+    }
+    userObjectId = user._id;
+  }
+  
+  let defaultSettings = await this.findOne({ userId: userObjectId, isDefault: true });
   
   if (!defaultSettings) {
     // Create default privacy settings if they don't exist
     defaultSettings = await this.create({
-      userId,
+      userId: userObjectId,
       visibility: 'public',
       allowedGroups: [],
       allowedContacts: [],
@@ -233,22 +247,28 @@ statusPrivacySchema.statics.areUsersDeviceContacts = async function(userId1, use
     
     if (!user1 || !user2) return false;
     
-    // Check if user2's phone number is in user1's device contacts
-    const user1Contacts = user1.contacts || [];
-    const user2Phone = user2.phoneNumber;
-    
-    // Normalize phone numbers for comparison
-    const normalizePhone = (phone) => phone.replace(/[\s\-\(\)]/g, '');
-    const normalizedUser2Phone = normalizePhone(user2Phone);
-    const user2PhoneLast10 = normalizedUser2Phone.slice(-10);
+    console.log(`🔍 [Privacy] Checking device contact between ${user1.name} and ${user2.name}`);
     
     // Check if user2 is in user1's device contacts
+    const user1Contacts = user1.contacts || [];
+    console.log(`🔍 [Privacy] User1 has ${user1Contacts.length} device contacts`);
+    
     // The contacts array contains MongoDB ObjectIds of other users
     const isDeviceContact = user1Contacts.some(contactId => {
       return contactId.toString() === userId2.toString();
     });
     
-    console.log(`🔍 [Privacy] Device contact check: user1 contacts: ${user1Contacts.length}, user2: ${userId2}, match: ${isDeviceContact}`);
+    console.log(`🔍 [Privacy] Device contact result: ${isDeviceContact}`);
+    
+    // Also check the reverse relationship (bidirectional check)
+    if (!isDeviceContact) {
+      const user2Contacts = user2.contacts || [];
+      const isReverseDeviceContact = user2Contacts.some(contactId => {
+        return contactId.toString() === userId1.toString();
+      });
+      console.log(`🔍 [Privacy] Reverse device contact check: ${isReverseDeviceContact}`);
+      return isReverseDeviceContact;
+    }
     
     return isDeviceContact;
   } catch (error) {
@@ -262,21 +282,46 @@ statusPrivacySchema.statics.areUsersAppConnections = async function(userId1, use
   try {
     const User = mongoose.model('User');
     
-    // Get user1 and check their app connections
-    const user1 = await User.findById(userId1);
-    if (!user1) return false;
+    // Get both users
+    const [user1, user2] = await Promise.all([
+      User.findById(userId1),
+      User.findById(userId2)
+    ]);
+    
+    if (!user1 || !user2) return false;
+    
+    console.log(`🔍 [Privacy] Checking app connection between ${user1.name} and ${user2.name}`);
     
     // Check if user2 is in user1's app connections
     const appConnections = user1.appConnections || [];
+    console.log(`🔍 [Privacy] User1 has ${appConnections.length} app connections`);
     
-    // Get user2's userId to match against appConnections
-    const user2 = await User.findById(userId2).select('userId');
-    if (!user2) return false;
+    // Check multiple possible connection formats
+    let isAppConnection = false;
     
-    const isAppConnection = appConnections.some(connection => 
-      connection.userId === user2.userId
-    );
+    // Method 1: Check by userId
+    if (user2.userId) {
+      isAppConnection = appConnections.some(connection => 
+        connection.userId === user2.userId || connection === user2.userId
+      );
+    }
     
+    // Method 2: Check by MongoDB ObjectId
+    if (!isAppConnection) {
+      isAppConnection = appConnections.some(connection => 
+        connection.toString() === userId2.toString() || 
+        connection._id?.toString() === userId2.toString()
+      );
+    }
+    
+    // Method 3: Check by phone number (fallback)
+    if (!isAppConnection && user2.phoneNumber) {
+      isAppConnection = appConnections.some(connection => 
+        connection.phoneNumber === user2.phoneNumber
+      );
+    }
+    
+    console.log(`🔍 [Privacy] App connection result: ${isAppConnection}`);
     return isAppConnection;
   } catch (error) {
     console.error('Error checking app connection relationship:', error);
@@ -294,25 +339,18 @@ statusPrivacySchema.statics.isUserInAllowedGroups = async function(userId, allow
   console.log(`🔍 [Privacy] Checking if user ${userId} is in allowed groups:`, allowedGroups);
   
   const Group = mongoose.model('Group');
-  
-  // First, get the user's phone number since groups store members by phone number
   const User = mongoose.model('User');
+  
+  // Get the user's details
   const user = await User.findById(userId);
   if (!user) {
     console.log(`🔍 [Privacy] User ${userId} not found`);
     return false;
   }
   
-  const userPhone = user.phoneNumber;
-  console.log(`🔍 [Privacy] User ${userId} phone: ${userPhone}`);
+  console.log(`🔍 [Privacy] User ${userId} details: name=${user.name}, phone=${user.phoneNumber}, userId=${user.userId}`);
   
-  // Normalize phone number for comparison (remove spaces, dashes, etc.)
-  const normalizedUserPhone = userPhone.replace(/[\s\-\(\)]/g, '');
-  const userPhoneLast10 = normalizedUserPhone.slice(-10);
-  
-  console.log(`🔍 [Privacy] Normalized phone: ${normalizedUserPhone}, Last 10: ${userPhoneLast10}`);
-  
-  // Find groups where user is a member (by phone number with flexible matching)
+  // Find groups where user is a member
   const userGroups = await Group.find({
     _id: { $in: allowedGroups }
   });
@@ -320,31 +358,63 @@ statusPrivacySchema.statics.isUserInAllowedGroups = async function(userId, allow
   console.log(`🔍 [Privacy] Found ${userGroups.length} groups to check`);
   
   let foundInGroup = false;
-  userGroups.forEach(group => {
+  
+  for (const group of userGroups) {
     console.log(`📋 [Privacy] Checking group: ${group.name} (${group._id})`);
-    console.log(`📋 [Privacy] Group members:`, group.members.map(m => m.phoneNumber));
+    console.log(`📋 [Privacy] Group has ${group.members?.length || 0} members`);
     
-    // Check if user is in this group with flexible phone matching
-    const isMember = group.members.some(member => {
-      const memberPhone = member.phoneNumber.replace(/[\s\-\(\)]/g, '');
-      const memberPhoneLast10 = memberPhone.slice(-10);
-      
-      const isMatch = memberPhone === normalizedUserPhone || 
-                     memberPhoneLast10 === userPhoneLast10 ||
-                     member.phoneNumber === userPhone;
-      
-      if (isMatch) {
-        console.log(`✅ [Privacy] Found match: ${member.phoneNumber} matches ${userPhone}`);
-      }
-      
-      return isMatch;
-    });
-    
-    if (isMember) {
+    // Check if user is the group owner
+    if (group.userId && group.userId.toString() === userId.toString()) {
+      console.log(`✅ [Privacy] User ${userId} is owner of group ${group.name}`);
       foundInGroup = true;
-      console.log(`✅ [Privacy] User ${userId} is member of group ${group.name}`);
+      break;
     }
-  });
+    
+    // Check if user is in group admins
+    if (group.admins && group.admins.includes(user.userId)) {
+      console.log(`✅ [Privacy] User ${userId} is admin of group ${group.name}`);
+      foundInGroup = true;
+      break;
+    }
+    
+    // Check if user is in group members
+    if (group.members && Array.isArray(group.members)) {
+      const isMember = group.members.some(member => {
+        // Check by memberId (could be userId or phone)
+        if (member.memberId === user.userId || member.memberId === user.phoneNumber) {
+          console.log(`✅ [Privacy] Found match by memberId: ${member.memberId}`);
+          return true;
+        }
+        
+        // Check by userId field in member
+        if (member.userId === user.userId) {
+          console.log(`✅ [Privacy] Found match by userId: ${member.userId}`);
+          return true;
+        }
+        
+        // Check by phone number with normalization
+        if (member.phoneNumber && user.phoneNumber) {
+          const normalizePhone = (phone) => phone.replace(/[\s\-\(\)]/g, '');
+          const memberPhone = normalizePhone(member.phoneNumber);
+          const userPhone = normalizePhone(user.phoneNumber);
+          
+          if (memberPhone === userPhone || 
+              memberPhone.slice(-10) === userPhone.slice(-10)) {
+            console.log(`✅ [Privacy] Found match by phone: ${member.phoneNumber} matches ${user.phoneNumber}`);
+            return true;
+          }
+        }
+        
+        return false;
+      });
+      
+      if (isMember) {
+        foundInGroup = true;
+        console.log(`✅ [Privacy] User ${userId} is member of group ${group.name}`);
+        break;
+      }
+    }
+  }
   
   console.log(`🔍 [Privacy] Final result: User ${userId} found in groups: ${foundInGroup}`);
   return foundInGroup;

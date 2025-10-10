@@ -2,6 +2,7 @@ const User = require('../models/userModel');
 const StatusHistory = require('../models/statusHistoryModel');
 const { broadcastStatusUpdate } = require('../socketManager');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 
 // @desc    Register a new user
 // @route   POST /api/users
@@ -376,16 +377,31 @@ const getRegisteredUsers = async (req, res) => {
       }
     }
     
-    // Build query to exclude existing connections if userId provided
-    const query = excludedUserIds.length > 0 
-      ? { userId: { $nin: excludedUserIds } }
-      : {};
+    // Build query to exclude existing connections if userId provided AND only show public users
+    const query = {
+      isPublic: true, // CRITICAL FIX: Only show public users
+      ...(excludedUserIds.length > 0 && { userId: { $nin: excludedUserIds } })
+    };
     
     // Get filtered users but include profileImage and isPublic for contact display in HomeTab
     const users = await User.find(query).select('_id userId name phoneNumber profileImage status customStatus statusUntil isPublic username');
     
     console.log(`🔍 [REGISTERED USERS] Query: ${JSON.stringify(query)}`);
     console.log(`🔍 [REGISTERED USERS] Found ${users.length} users after filtering`);
+    
+    // CRITICAL DEBUG: Check how many users have isPublic: true in database
+    const totalPublicUsers = await User.countDocuments({ isPublic: true });
+    const totalUsers = await User.countDocuments({});
+    console.log(`🔍 [CRITICAL DEBUG] Database stats:`, {
+      totalUsers,
+      totalPublicUsers,
+      publicPercentage: totalUsers > 0 ? ((totalPublicUsers / totalUsers) * 100).toFixed(1) + '%' : '0%'
+    });
+    
+    if (totalPublicUsers === 0) {
+      console.log(`🚨 [CRITICAL ISSUE] NO USERS HAVE isPublic: true IN DATABASE!`);
+      console.log(`🚨 Users need to update their profile to set isPublic: true to appear in search`);
+    }
     
     console.log(`\n=== BACKEND STEP 1: DATABASE QUERY ===`);
     console.log(`Fetching ${users.length} registered users with profile images`);
@@ -846,6 +862,218 @@ const getAllUsersForAdmin = async (req, res) => {
   }
 };
 
+// @desc    Test endpoint to set user as public (for debugging)
+// @route   POST /api/users/set-public
+// @access  Private
+const setUserPublic = async (req, res) => {
+  try {
+    const { isPublic = true } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found' 
+      });
+    }
+
+    user.isPublic = isPublic;
+    await user.save();
+
+    console.log(`🔄 User ${user.name} (${user.userId}) set isPublic to: ${isPublic}`);
+
+    res.status(200).json({
+      success: true,
+      message: `Profile visibility set to ${isPublic ? 'public' : 'private'}`,
+      data: {
+        userId: user.userId,
+        name: user.name,
+        isPublic: user.isPublic
+      }
+    });
+  } catch (error) {
+    console.error('Error setting user public status:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error while updating profile visibility' 
+    });
+  }
+};
+
+// @desc    Set up chat encryption PIN
+// @route   POST /api/user/encryption-pin
+// @access  Private
+const setupEncryptionPin = async (req, res) => {
+  try {
+    const { pinHash, encryptionKey } = req.body;
+    
+    if (!pinHash || !encryptionKey) {
+      return res.status(400).json({ message: 'PIN hash and encryption key are required' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Update encryption settings
+    user.encryptionSettings = {
+      isEnabled: true,
+      pinHash: pinHash,
+      encryptionKey: encryptionKey,
+      updatedAt: new Date()
+    };
+
+    await user.save();
+
+    console.log(`🔐 [BACKEND] Encryption PIN set up for user: ${user.name}`);
+    
+    res.status(200).json({
+      message: 'Encryption PIN set up successfully',
+      encryptionEnabled: true
+    });
+  } catch (error) {
+    console.error('❌ [BACKEND] Error setting up encryption PIN:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Verify chat encryption PIN
+// @route   POST /api/user/encryption-verify
+// @access  Private
+const verifyEncryptionPin = async (req, res) => {
+  try {
+    const { pinHash } = req.body;
+    
+    if (!pinHash) {
+      return res.status(400).json({ message: 'PIN hash is required' });
+    }
+
+    const user = await User.findById(req.user.id).select('+encryptionSettings.pinHash +encryptionSettings.encryptionKey');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.encryptionSettings || !user.encryptionSettings.pinHash) {
+      return res.status(400).json({ message: 'No encryption PIN set up' });
+    }
+
+    // Verify PIN hash
+    const isValidPin = user.encryptionSettings.pinHash === pinHash;
+    
+    if (isValidPin) {
+      console.log(`✅ [BACKEND] Encryption PIN verified for user: ${user.name}`);
+      res.status(200).json({
+        message: 'PIN verified successfully',
+        encryptionKey: user.encryptionSettings.encryptionKey,
+        isEnabled: user.encryptionSettings.isEnabled
+      });
+    } else {
+      console.log(`❌ [BACKEND] Invalid encryption PIN for user: ${user.name}`);
+      res.status(401).json({ message: 'Invalid PIN' });
+    }
+  } catch (error) {
+    console.error('❌ [BACKEND] Error verifying encryption PIN:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Update chat encryption settings
+// @route   POST /api/user/encryption-settings
+// @access  Private
+const updateEncryptionSettings = async (req, res) => {
+  try {
+    const { encryptionEnabled } = req.body;
+    
+    if (typeof encryptionEnabled !== 'boolean') {
+      return res.status(400).json({ message: 'encryptionEnabled must be a boolean' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Update encryption enabled status
+    if (!user.encryptionSettings) {
+      user.encryptionSettings = {};
+    }
+    
+    user.encryptionSettings.isEnabled = encryptionEnabled;
+    user.encryptionSettings.updatedAt = new Date();
+
+    await user.save();
+
+    console.log(`🔐 [BACKEND] Encryption ${encryptionEnabled ? 'enabled' : 'disabled'} for user: ${user.name}`);
+    
+    res.status(200).json({
+      message: `Encryption ${encryptionEnabled ? 'enabled' : 'disabled'} successfully`,
+      encryptionEnabled: encryptionEnabled
+    });
+  } catch (error) {
+    console.error('❌ [BACKEND] Error updating encryption settings:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Get chat encryption settings
+// @route   GET /api/user/encryption-settings
+// @access  Private
+const getEncryptionSettings = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const settings = {
+      encryptionEnabled: user.encryptionSettings?.isEnabled || false,
+      hasPinSetup: !!(user.encryptionSettings?.pinHash),
+      updatedAt: user.encryptionSettings?.updatedAt || null
+    };
+
+    res.status(200).json(settings);
+  } catch (error) {
+    console.error('❌ [BACKEND] Error getting encryption settings:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Verify user password for PIN reset
+// @route   POST /api/users/verify-password
+// @access  Private
+const verifyUserPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+    
+    if (!password) {
+      return res.status(400).json({ message: 'Password is required' });
+    }
+
+    const user = await User.findById(req.user.id).select('+password');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Verify password
+    const isValidPassword = await user.matchPassword(password);
+    
+    if (isValidPassword) {
+      console.log(`✅ [BACKEND] Password verified for PIN reset: ${user.name}`);
+      res.status(200).json({
+        message: 'Password verified successfully',
+        verified: true
+      });
+    } else {
+      console.log(`❌ [BACKEND] Invalid password for PIN reset: ${user.name}`);
+      res.status(401).json({ message: 'Invalid password' });
+    }
+  } catch (error) {
+    console.error('❌ [BACKEND] Error verifying password:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -858,5 +1086,11 @@ module.exports = {
   getUserByPhone,
   updateUserProfileWithDiscovery,
   adminResetPassword,
-  getAllUsersForAdmin
+  getAllUsersForAdmin,
+  setUserPublic,
+  setupEncryptionPin,
+  verifyEncryptionPin,
+  updateEncryptionSettings,
+  getEncryptionSettings,
+  verifyUserPassword
 };

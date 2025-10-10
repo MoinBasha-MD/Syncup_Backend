@@ -40,16 +40,20 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const calendarRoutes = require('./routes/calendarRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const groupRoutes = require('./routes/groupRoutes');
+const groupChatRoutes = require('./routes/groupChatRoutes');
 const postRoutes = require('./routes/postRoutes');
 const storyRoutes = require('./routes/storyRoutes');
 const diyaRequestRoutes = require('./routes/diyaRequestRoutes');
 const diyaMemoryRoutes = require('./routes/diyaMemoryRoutes');
 const aiMessageRoutes = require('./routes/aiMessageRoutes');
+const aiInstanceRoutes = require('./routes/aiInstanceRoutes');
+const aiCommunicationRoutes = require('./routes/aiCommunicationRoutes');
 const globalSearchRoutes = require('./routes/globalSearchRoutes');
 const connectionRoutes = require('./routes/connectionRoutes');
 const blockRoutes = require('./routes/blockRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
+const { logStartup, serverLogger } = require('./utils/loggerSetup');
 
 // Load environment variables
 dotenv.config();
@@ -119,6 +123,13 @@ const profileImagesDir = path.join(uploadsDir, 'profile-images');
 if (!fs.existsSync(profileImagesDir)) {
   fs.mkdirSync(profileImagesDir, { recursive: true });
   console.log('📁 Created profile-images directory:', profileImagesDir);
+}
+
+// Create chat-images subdirectory if it doesn't exist
+const chatImagesDir = path.join(uploadsDir, 'chat-images');
+if (!fs.existsSync(chatImagesDir)) {
+  fs.mkdirSync(chatImagesDir, { recursive: true });
+  console.log('📁 Created chat-images directory:', chatImagesDir);
 }
 
 // Enhanced CORS configuration for better network accessibility
@@ -201,11 +212,14 @@ app.use('/api/upload', apiLimiter, uploadRoutes); // File upload routes
 app.use('/api/calendar', apiLimiter, calendarRoutes); // Calendar integration routes
 app.use('/api/chat', apiLimiter, chatRoutes); // Chat messaging routes
 app.use('/api/groups', apiLimiter, groupRoutes); // Contact group management routes
+app.use('/api/group-chats', apiLimiter, groupChatRoutes); // Group chat messaging routes
 app.use('/api/posts', apiLimiter, postRoutes); // User posts management routes
 app.use('/api/stories', apiLimiter, storyRoutes); // Stories management routes
 app.use('/api/diya', apiLimiter, diyaRequestRoutes); // Cross-user Diya communication routes
 app.use('/api/diya', apiLimiter, diyaMemoryRoutes); // Diya conversation memory routes
-app.use('/api/ai', apiLimiter, aiMessageRoutes); // AI-to-AI messaging routes
+app.use('/api/ai', apiLimiter, aiMessageRoutes); // AI-to-AI messaging routes (legacy)
+app.use('/api/ai', apiLimiter, aiInstanceRoutes); // AI instance management routes
+app.use('/api/ai', apiLimiter, aiCommunicationRoutes); // AI-to-AI communication routes
 app.use('/api/search', apiLimiter, globalSearchRoutes); // Global user search routes
 app.use('/api/connections', apiLimiter, connectionRoutes); // Connection request management routes
 app.use('/api/blocks', apiLimiter, blockRoutes); // User blocking management routes
@@ -242,7 +256,8 @@ app.get('/api', (req, res) => {
       calendar: '/api/calendar',
       chat: '/api/chat',
       stories: '/api/stories',
-      diya: '/api/diya'
+      diya: '/api/diya',
+      ai: '/api/ai'
     },
     documentation: '/api/docs',
     timestamp: new Date().toISOString()
@@ -335,6 +350,15 @@ if (process.env.NODE_ENV === 'production' && fs.existsSync('./ssl/key.pem') && f
     console.log(`🌐 Network access: http://${NETWORK_IP}:${PORT}`);
     console.log(`⚠️  Running in DEVELOPMENT mode. For production, set NODE_ENV=production and provide SSL certificates.`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+    
+    // Initialize enhanced logging system
+    logStartup();
+    serverLogger.info('Server started successfully', { 
+      port: PORT, 
+      host: HOST, 
+      environment: process.env.NODE_ENV || 'development',
+      aiSystemEnabled: process.env.AI_NETWORK_ENABLED === 'true'
+    });
   });
 }
 

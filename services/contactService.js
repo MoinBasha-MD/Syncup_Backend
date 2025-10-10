@@ -1,4 +1,5 @@
 const User = require('../models/userModel');
+const StatusPrivacy = require('../models/statusPrivacyModel');
 const { getAsync, setAsync } = require('../config/redis');
 
 /**
@@ -26,20 +27,45 @@ class ContactService {
         'name email phoneNumber profileImage userId status customStatus statusUntil'
       );
 
-      // Format the response
-      return contacts.map(contact => ({
-        _id: contact._id,
-        userId: contact.userId,
-        name: contact.name,
-        email: contact.email,
-        phoneNumber: contact.phoneNumber,
-        profileImage: contact.profileImage,
-        currentStatus: {
-          status: contact.status,
-          customStatus: contact.customStatus,
-          statusUntil: contact.statusUntil
+      // Apply privacy filtering for each contact
+      const filteredContacts = [];
+      for (const contact of contacts) {
+        console.log(`🔒 [Privacy] Checking privacy for contact ${contact.name} (${contact._id})`);
+        
+        // Check if the current user can see this contact's status
+        const canSeeStatus = await StatusPrivacy.canUserSeeStatus(contact._id, user._id);
+        console.log(`🔒 [Privacy] Can see ${contact.name}'s status: ${canSeeStatus}`);
+        
+        let statusInfo;
+        if (canSeeStatus) {
+          // User can see the actual status
+          statusInfo = {
+            status: contact.status,
+            customStatus: contact.customStatus,
+            statusUntil: contact.statusUntil
+          };
+        } else {
+          // User cannot see the status - show as "Available" or "Private"
+          console.log(`🔒 [Privacy] Hiding status for ${contact.name} due to privacy settings`);
+          statusInfo = {
+            status: 'available', // Show as available when privacy is restricted
+            customStatus: '',
+            statusUntil: null
+          };
         }
-      }));
+
+        filteredContacts.push({
+          _id: contact._id,
+          userId: contact.userId,
+          name: contact.name,
+          email: contact.email,
+          phoneNumber: contact.phoneNumber,
+          profileImage: contact.profileImage,
+          currentStatus: statusInfo
+        });
+      }
+
+      return filteredContacts;
     } catch (error) {
       console.error('Error getting contacts with status:', error);
       throw error;
@@ -86,11 +112,27 @@ class ContactService {
         await contact.save();
       }
 
-      return {
-        status: contact.status,
-        customStatus: contact.customStatus,
-        statusUntil: contact.statusUntil
-      };
+      // Check privacy permissions
+      console.log(`🔒 [Privacy] Checking privacy for contact status request: ${contactId} by user ${user._id}`);
+      const canSeeStatus = await StatusPrivacy.canUserSeeStatus(contactId, user._id);
+      console.log(`🔒 [Privacy] Can see contact's status: ${canSeeStatus}`);
+
+      if (canSeeStatus) {
+        // User can see the actual status
+        return {
+          status: contact.status,
+          customStatus: contact.customStatus,
+          statusUntil: contact.statusUntil
+        };
+      } else {
+        // User cannot see the status - show as "Available"
+        console.log(`🔒 [Privacy] Hiding contact status due to privacy settings`);
+        return {
+          status: 'available',
+          customStatus: '',
+          statusUntil: null
+        };
+      }
     } catch (error) {
       console.error('Error getting contact status:', error);
       throw error;
@@ -100,9 +142,10 @@ class ContactService {
   /**
    * Filter contacts by phone numbers
    * @param {Array} phoneNumbers - Array of phone numbers to filter by
+   * @param {string} requestingUserId - ID of the user making the request (for privacy filtering)
    * @returns {Promise<Array>} - Matching users with status information
    */
-  async filterContactsByPhone(phoneNumbers) {
+  async filterContactsByPhone(phoneNumbers, requestingUserId = null) {
     try {
       if (!Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
         return [];
@@ -143,18 +186,44 @@ class ContactService {
         '_id userId name phoneNumber email profileImage status customStatus statusUntil'
       );
       
-      // Format the response
-      return registeredUsers.map(user => ({
-        _id: user._id,
-        userId: user.userId,
-        name: user.name,
-        phoneNumber: user.phoneNumber,
-        email: user.email,
-        profileImage: user.profileImage,
-        status: user.status,
-        customStatus: user.customStatus,
-        statusUntil: user.statusUntil
-      }));
+      // Apply privacy filtering and format the response
+      const filteredUsers = [];
+      for (const user of registeredUsers) {
+        let statusInfo = {
+          status: user.status,
+          customStatus: user.customStatus,
+          statusUntil: user.statusUntil
+        };
+
+        if (requestingUserId) {
+          console.log(`🔒 [Privacy] Checking privacy for filtered contact ${user.name} (${user._id}) by user ${requestingUserId}`);
+          const canSeeStatus = await StatusPrivacy.canUserSeeStatus(user._id, requestingUserId);
+          console.log(`🔒 [Privacy] Can see ${user.name}'s status: ${canSeeStatus}`);
+
+          if (!canSeeStatus) {
+            console.log(`🔒 [Privacy] Hiding status for ${user.name} due to privacy settings`);
+            statusInfo = {
+              status: 'available',
+              customStatus: '',
+              statusUntil: null
+            };
+          }
+        }
+
+        filteredUsers.push({
+          _id: user._id,
+          userId: user.userId,
+          name: user.name,
+          phoneNumber: user.phoneNumber,
+          email: user.email,
+          profileImage: user.profileImage,
+          status: statusInfo.status,
+          customStatus: statusInfo.customStatus,
+          statusUntil: statusInfo.statusUntil
+        });
+      }
+
+      return filteredUsers;
     } catch (error) {
       console.error('Error filtering contacts by phone:', error);
       throw error;
@@ -164,9 +233,10 @@ class ContactService {
   /**
    * Get contact by phone number
    * @param {string} phoneNumber - Phone number to search for
+   * @param {string} requestingUserId - ID of the user making the request (for privacy filtering)
    * @returns {Promise<Object>} - User with status information
    */
-  async getContactByPhone(phoneNumber) {
+  async getContactByPhone(phoneNumber, requestingUserId = null) {
     try {
       if (!phoneNumber) {
         const error = new Error('Phone number is required');
@@ -223,6 +293,28 @@ class ContactService {
         }
       }
       
+      // Apply privacy filtering if requesting user is provided
+      let statusInfo = {
+        status: user.status,
+        customStatus: user.customStatus,
+        statusUntil: user.statusUntil
+      };
+
+      if (requestingUserId) {
+        console.log(`🔒 [Privacy] Checking privacy for phone lookup: ${phoneNumber} by user ${requestingUserId}`);
+        const canSeeStatus = await StatusPrivacy.canUserSeeStatus(user._id, requestingUserId);
+        console.log(`🔒 [Privacy] Can see user's status: ${canSeeStatus}`);
+
+        if (!canSeeStatus) {
+          console.log(`🔒 [Privacy] Hiding status for phone lookup due to privacy settings`);
+          statusInfo = {
+            status: 'available',
+            customStatus: '',
+            statusUntil: null
+          };
+        }
+      }
+      
       // Format the response
       return {
         _id: user._id,
@@ -231,9 +323,9 @@ class ContactService {
         phoneNumber: user.phoneNumber,
         email: user.email,
         profileImage: user.profileImage,
-        status: user.status,
-        customStatus: user.customStatus,
-        statusUntil: user.statusUntil
+        status: statusInfo.status,
+        customStatus: statusInfo.customStatus,
+        statusUntil: statusInfo.statusUntil
       };
     } catch (error) {
       console.error('Error getting contact by phone:', error);
@@ -244,9 +336,10 @@ class ContactService {
   /**
    * Get status for a list of contacts
    * @param {Array} contactIds - Array of contact IDs (can be MongoDB ObjectIds or UUIDs)
+   * @param {string} requestingUserId - ID of the user making the request (for privacy filtering)
    * @returns {Promise<Array>} - Array of contacts with their status information
    */
-  async getStatusForContacts(contactIds) {
+  async getStatusForContacts(contactIds, requestingUserId = null) {
     try {
       if (!Array.isArray(contactIds) || contactIds.length === 0) {
         return [];
@@ -267,7 +360,7 @@ class ContactService {
       
       // Process each batch
       for (const batch of contactBatches) {
-        const batchResults = await this._processContactBatch(batch);
+        const batchResults = await this._processContactBatch(batch, requestingUserId);
         allResults.push(...batchResults);
       }
       
@@ -281,10 +374,11 @@ class ContactService {
   /**
    * Process a batch of contact IDs to get their status
    * @param {Array} contactBatch - Batch of contact IDs to process
+   * @param {string} requestingUserId - ID of the user making the request (for privacy filtering)
    * @returns {Promise<Array>} - Contacts with their status information
    * @private
    */
-  async _processContactBatch(contactBatch) {
+  async _processContactBatch(contactBatch, requestingUserId = null) {
     // Check cache first for each contact
     const cachedResults = [];
     const uncachedIds = [];
@@ -370,6 +464,28 @@ class ContactService {
         await contact.save();
       }
       
+      // Apply privacy filtering if requesting user is provided
+      let statusInfo = {
+        status: contact.status,
+        customStatus: contact.customStatus,
+        statusUntil: contact.statusUntil
+      };
+
+      if (requestingUserId) {
+        console.log(`🔒 [Privacy] Checking privacy for batch contact ${contact.name} (${contact._id}) by user ${requestingUserId}`);
+        const canSeeStatus = await StatusPrivacy.canUserSeeStatus(contact._id, requestingUserId);
+        console.log(`🔒 [Privacy] Can see ${contact.name}'s status: ${canSeeStatus}`);
+
+        if (!canSeeStatus) {
+          console.log(`🔒 [Privacy] Hiding status for ${contact.name} due to privacy settings`);
+          statusInfo = {
+            status: 'available',
+            customStatus: '',
+            statusUntil: null
+          };
+        }
+      }
+      
       const contactData = {
         _id: contact._id,
         userId: contact.userId,
@@ -377,9 +493,9 @@ class ContactService {
         email: contact.email,
         phoneNumber: contact.phoneNumber,
         profileImage: contact.profileImage,
-        status: contact.status,
-        customStatus: contact.customStatus,
-        statusUntil: contact.statusUntil
+        status: statusInfo.status,
+        customStatus: statusInfo.customStatus,
+        statusUntil: statusInfo.statusUntil
       };
       
       // Cache the contact status for 5 minutes (300 seconds)

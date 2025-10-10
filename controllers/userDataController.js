@@ -176,9 +176,13 @@ const getUserSchedules = async (req, res) => {
 
     // Build query
     const query = { 
-      userId,
-      active: active === 'true' || active === true
+      userId
     };
+    
+    // Only filter by active status if explicitly provided
+    if (active !== undefined && active !== 'undefined') {
+      query.active = active === 'true' || active === true;
+    }
 
     // Add date range filter if provided
     if (startDate && endDate) {
@@ -190,8 +194,9 @@ const getUserSchedules = async (req, res) => {
       ];
       console.log(`📅 Filtering schedules for date range: ${startDate} to ${endDate}`);
     } else if (startDate) {
-      query.endTime = { $gt: new Date(startDate) };
-      console.log(`📅 Filtering schedules after: ${startDate}`);
+      // For upcoming schedules: get schedules that start after the given date OR end after the given date
+      query.startTime = { $gte: new Date(startDate) };
+      console.log(`📅 Filtering upcoming schedules from: ${startDate}`);
     } else if (endDate) {
       query.startTime = { $lt: new Date(endDate) };
       console.log(`📅 Filtering schedules before: ${endDate}`);

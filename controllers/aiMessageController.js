@@ -3,6 +3,7 @@ const AIConversation = require('../models/aiConversationModel');
 const User = require('../models/userModel');
 const StatusService = require('../services/statusService');
 const { broadcastToUser } = require('../socketManager');
+const aiConversationProcessor = require('../services/aiConversationProcessor');
 
 /**
  * AI-to-AI Message Controller
@@ -34,13 +35,10 @@ const sendAIMessage = async (req, res) => {
       console.log(`✅ Receiver AI initialized: ${receiverAI.aiName}`);
     }
 
-    // Check if receiver AI is online
-    if (!receiverAI.isOnline) {
-      return res.status(400).json({
-        success: false,
-        message: 'Receiver AI is offline'
-      });
-    }
+    // AI instances should always be available for autonomous communication
+    // Even if user is offline, AI can respond autonomously
+    console.log(`🤖 AI-to-AI communication: ${senderAI.aiName} → ${receiverAI.aiName}`);
+    console.log(`📱 User online status: Sender=${fromUserId}, Receiver=${toUserId} (not required for AI communication)`);
 
     // Create or find existing conversation
     let conversation = await AIConversation.findOne({
@@ -119,12 +117,56 @@ const sendAIMessage = async (req, res) => {
     const receiverObjectId = receiverUser._id.toString();
     console.log(`🔄 Converting userId ${toUserId} to ObjectId ${receiverObjectId} for WebSocket broadcasting`);
 
-    // Send to receiver's WebSocket using MongoDB _id
+    // Try to send to receiver's WebSocket (if user is online)
     const broadcastSuccess = broadcastToUser(receiverObjectId, 'ai_message_received', aiMessage);
     console.log(`📡 WebSocket broadcast result: ${broadcastSuccess ? 'SUCCESS' : 'FAILED'}`);
 
     if (!broadcastSuccess) {
-      console.warn(`⚠️ WebSocket broadcast failed for user ${receiverUser.name} (${receiverObjectId})`);
+      console.log(`📴 User ${receiverUser.name} is offline - AI will respond autonomously`);
+      
+      // Generate autonomous AI response since user is offline
+      try {
+        const autonomousResponse = await generateAutonomousAIResponse(receiverAI, aiMessage);
+        
+        if (autonomousResponse) {
+          // Add autonomous response to conversation
+          await conversation.addMessage(
+            receiverAI.aiId,
+            senderAI.aiId,
+            'response',
+            autonomousResponse
+          );
+
+          // Send response back to sender
+          const responseMessage = {
+            type: 'ai_autonomous_response',
+            conversationId: conversation.conversationId,
+            fromAI: {
+              aiId: receiverAI.aiId,
+              name: receiverAI.aiName,
+              userId: toUserId
+            },
+            toAI: {
+              aiId: senderAI.aiId,
+              name: senderAI.aiName,
+              userId: fromUserId
+            },
+            messageType: 'response',
+            content: autonomousResponse,
+            timestamp: new Date()
+          };
+
+          // Send response back to sender
+          const senderUser = await User.findOne({ userId: fromUserId }).select('_id');
+          if (senderUser) {
+            const senderObjectId = senderUser._id.toString();
+            broadcastToUser(senderObjectId, 'ai_response_received', responseMessage);
+            console.log(`🤖 Autonomous response sent: ${receiverAI.aiName} → ${senderAI.aiName}`);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error generating autonomous response:', error);
+      }
     }
 
     console.log(`🤖 AI Message sent: ${senderAI.aiName} → ${receiverAI.aiName}`);
@@ -453,9 +495,105 @@ const updateAIPrivacySettings = async (req, res) => {
   }
 };
 
+// Generate autonomous AI response when user is offline
+const generateAutonomousAIResponse = async (receiverAI, incomingMessage) => {
+  try {
+    console.log(`🤖 Generating autonomous response from ${receiverAI.aiName}`);
+    
+    const { messageType, content, context } = incomingMessage;
+    
+    // Basic autonomous responses based on message type
+    switch (messageType) {
+      case 'request':
+        // Handle availability requests autonomously
+        if (context?.activity) {
+          const activity = context.activity;
+          return {
+            text: `Hi! I'm ${receiverAI.aiName}, the AI assistant. My user is currently offline, but I can help! For ${activity}, they're usually available in the afternoons. I'll let them know about your request and they'll get back to you when they're online.`,
+            sharedData: {
+              autonomous: true,
+              suggestedTimes: ['afternoon', 'evening'],
+              userOffline: true,
+              willNotifyUser: true
+            }
+          };
+        }
+        break;
+        
+      case 'info':
+        return {
+          text: `Thank you for the message! I'm ${receiverAI.aiName}, responding on behalf of my user who is currently offline. I'll make sure they see this when they return.`,
+          sharedData: {
+            autonomous: true,
+            userOffline: true,
+            messageReceived: true
+          }
+        };
+        
+      default:
+        return {
+          text: `Hello! I'm ${receiverAI.aiName}. My user is offline right now, but I'll let them know you reached out. They'll respond when they're back online.`,
+          sharedData: {
+            autonomous: true,
+            userOffline: true
+          }
+        };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('❌ Error generating autonomous AI response:', error);
+    return null;
+  }
+};
+
+// Process complete AI-to-AI conversation
+const processCompleteAIConversation = async (req, res) => {
+  try {
+    const { fromUserId, toUserId, activity, timeframe, urgency } = req.body;
+
+    console.log(`🎭 Processing complete AI conversation: ${fromUserId} → ${toUserId} for ${activity}`);
+
+    // Use the AI conversation processor
+    const result = await aiConversationProcessor.processAIConversation(
+      fromUserId,
+      toUserId,
+      activity,
+      { timeframe, urgency }
+    );
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'AI conversation completed successfully',
+        data: {
+          conversationId: result.conversationId,
+          summary: result.result.finalResult.summary,
+          steps: result.result.conversationSteps.length
+        }
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'AI conversation failed',
+        error: result.error
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error processing complete AI conversation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process AI conversation',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   sendAIMessage,
   processAIMessage,
+  processCompleteAIConversation,
   getAIConversations,
   getAIPrivacySettings,
   updateAIPrivacySettings

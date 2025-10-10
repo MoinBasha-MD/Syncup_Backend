@@ -216,7 +216,7 @@ const getSpecificUserStatus = async (req, res) => {
     const viewerUserId = req.user._id;
     console.log(`🔍 Getting status for user: ${userId}, viewer: ${viewerUserId}`);
     
-    const user = await User.findById(userId);
+    const user = await User.findOne({ userId: userId });
     if (!user) {
       console.log(`❌ User not found: ${userId}`);
       return res.status(404).json({ 

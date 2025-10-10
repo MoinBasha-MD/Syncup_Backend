@@ -12,7 +12,13 @@ const {
   getUserByPhone,
   updateUserProfileWithDiscovery,
   adminResetPassword,
-  getAllUsersForAdmin
+  getAllUsersForAdmin,
+  setUserPublic,
+  setupEncryptionPin,
+  verifyEncryptionPin,
+  updateEncryptionSettings,
+  getEncryptionSettings,
+  verifyUserPassword
 } = require('../controllers/userController');
 const {
   getConnectionStats,
@@ -34,9 +40,9 @@ router.route('/profile')
   .get(protect, getUserProfile)
   .put(protect, updateUserProfileWithDiscovery);
 
-// Status routes
-router.route('/status')
-  .put(protect, updateUserStatus);
+// Status routes - DEPRECATED: Use /api/status-management instead
+// router.route('/status')
+//   .put(protect, updateUserStatus);
 
 // Contacts routes
 router.route('/contacts')
@@ -56,11 +62,29 @@ router.route('/recent-connections')
 router.route('/mutual-connections/:phoneNumber')
   .get(protect, getMutualConnections);
 
+// Test route to set user as public (for debugging isPublic issues)
+router.route('/set-public')
+  .post(protect, setUserPublic);
+
 // Admin routes for password reset
 router.route('/admin/all')
   .get(getAllUsersForAdmin);
 
 router.route('/admin/reset-password')
   .post(adminResetPassword);
+
+// Chat encryption routes
+router.route('/encryption-pin')
+  .post(protect, setupEncryptionPin);
+
+router.route('/encryption-verify')
+  .post(protect, verifyEncryptionPin);
+
+router.route('/encryption-settings')
+  .get(protect, getEncryptionSettings)
+  .post(protect, updateEncryptionSettings);
+
+router.route('/verify-password')
+  .post(protect, verifyUserPassword);
 
 module.exports = router;

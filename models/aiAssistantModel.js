@@ -21,7 +21,7 @@ const aiAssistantSchema = new mongoose.Schema({
   // AI Configuration
   aiName: {
     type: String,
-    default: 'Diya',
+    default: 'Maya',
     maxlength: 50
   },
   

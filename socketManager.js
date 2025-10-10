@@ -3,36 +3,31 @@ const jwt = require('jsonwebtoken');
 const User = require('./models/userModel');
 const StatusPrivacy = require('./models/statusPrivacyModel');
 const AIMessageService = require('./services/aiMessageService');
-const winston = require('winston');
+const AISocketService = require('./services/aiSocketService');
+const { connectionLogger } = require('./utils/loggerSetup');
 
-// Configure logger for Socket.IO operations
-const socketLogger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({ filename: 'logs/socket.log' }),
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple()
-      )
-    })
-  ],
-});
+// Use the enhanced logging system
+const socketLogger = connectionLogger;
 
 // Map to store active user socket connections
 const userSockets = new Map();
 // Map to store user's contacts for quick lookup
 const userContactsMap = new Map();
-// Connection statistics
+// Enhanced connection statistics with analytics
 const connectionStats = {
   totalConnections: 0,
   activeConnections: 0,
   totalDisconnections: 0,
-  authFailures: 0
+  authFailures: 0,
+  messagesSent: 0,
+  messagesReceived: 0,
+  messageDeliveryCount: 0,
+  averageDeliveryTime: 0,
+  notificationClicks: 0,
+  notificationDismissals: 0,
+  healthChecks: 0,
+  averagePingTime: 0,
+  startTime: Date.now()
 };
 
 /**
@@ -69,6 +64,10 @@ const initializeSocketIO = (server) => {
       skipMiddlewares: true,
     }
   });
+
+  // Initialize AI Socket Service
+  const aiSocketService = new AISocketService();
+  aiSocketService.initialize(io);
 
   // Enhanced authentication middleware with rate limiting
   const authAttempts = new Map();
@@ -222,7 +221,7 @@ const initializeSocketIO = (server) => {
     userSockets.set(userId, socket);
     console.log(`🔗 User connected with userId: ${userId} (ObjectId: ${userObjectId})`);
     
-    console.log(`🔗 User connected: ${userName} (ObjectId: ${userId})`);
+    console.log(`🔗 User connected: ${userName} (userId: ${userId})`);
     console.log(`📊 Total active connections: ${connectionStats.activeConnections}`);
     console.log('🗂️ Current connected users:', Array.from(userSockets.keys()));
     
@@ -340,11 +339,34 @@ const initializeSocketIO = (server) => {
       });
     });
     
+    // Handle user registration event from frontend
+    socket.on('user:register', async (data) => {
+      try {
+        console.log('🔌 [SOCKET] Manual user registration request:', data);
+        
+        // Confirm registration
+        socket.emit('user:registered', {
+          success: true,
+          userId: userId,
+          message: 'User successfully registered with socket'
+        });
+        
+        console.log('✅ [SOCKET] Manual user registration confirmed for:', userId);
+      } catch (error) {
+        console.error('❌ [SOCKET] Error in manual user registration:', error);
+        socket.emit('user:registered', {
+          success: false,
+          userId: userId,
+          message: 'Registration failed: ' + error.message
+        });
+      }
+    });
+
     // Handle contact list update
     socket.on('update_contacts', async () => {
       try {
         // Refresh contacts cache when user updates their contacts
-        const user = await User.findById(userId);
+        const user = await User.findById(socket.user.id);
         if (user && user.contacts) {
           userContactsMap.set(userId, new Set(user.contacts.map(id => id.toString())));
         }
@@ -502,6 +524,120 @@ const initializeSocketIO = (server) => {
       });
     });
     
+    // 🏓 HEALTH MONITORING: Handle ping/pong for connection quality
+    socket.on('ping', (data) => {
+      const timestamp = data?.timestamp || Date.now();
+      console.log(`🏓 [HEALTH] Ping received from ${userName} (${userId})`);
+      
+      // Respond with pong including original timestamp
+      socket.emit('pong', {
+        timestamp,
+        serverTime: Date.now(),
+        userId
+      });
+    });
+    
+    // 📊 CONNECTION ANALYTICS: Track message delivery
+    socket.on('message:delivery_confirmation', (data) => {
+      console.log(`📊 [ANALYTICS] Message delivery confirmed:`, {
+        messageId: data.messageId,
+        deliveryTime: data.deliveryTime,
+        userId
+      });
+      
+      // Update delivery statistics
+      connectionStats.messageDeliveryCount = (connectionStats.messageDeliveryCount || 0) + 1;
+      connectionStats.averageDeliveryTime = connectionStats.averageDeliveryTime 
+        ? (connectionStats.averageDeliveryTime + data.deliveryTime) / 2
+        : data.deliveryTime;
+    });
+    
+    // 🔔 ENHANCED NOTIFICATIONS: Handle notification interactions
+    socket.on('notification:clicked', (data) => {
+      console.log(`🔔 [NOTIFICATIONS] Notification clicked by ${userName}:`, {
+        notificationId: data.notificationId,
+        type: data.type,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Track notification analytics
+      connectionStats.notificationClicks = (connectionStats.notificationClicks || 0) + 1;
+    });
+    
+    socket.on('notification:dismissed', (data) => {
+      console.log(`🔔 [NOTIFICATIONS] Notification dismissed by ${userName}:`, {
+        notificationId: data.notificationId,
+        type: data.type
+      });
+      
+      connectionStats.notificationDismissals = (connectionStats.notificationDismissals || 0) + 1;
+    });
+
+    // 📡 STATUS BROADCASTING: Handle direct status update events from frontend
+    socket.on('status_update', async (statusUpdateData) => {
+      try {
+        console.log(`📡 [STATUS] Direct status update received from ${userName} (${userId}):`, statusUpdateData);
+        
+        // Extract the comprehensive privacy and targeting data from frontend
+        const {
+          status,
+          customStatus,
+          statusUntil,
+          location,
+          broadcastScope,
+          locationSharingScope,
+          privacySettings,
+          userGroups,
+          connectionTypes
+        } = statusUpdateData;
+        
+        // Get the user from database
+        const user = await User.findById(socket.user.id);
+        if (!user) {
+          console.error(`❌ [STATUS] User not found for status update: ${userId}`);
+          return;
+        }
+        
+        console.log(`📡 [STATUS] Processing status update with privacy scope: ${broadcastScope}`);
+        console.log(`📡 [STATUS] Connection types:`, connectionTypes);
+        console.log(`📡 [STATUS] Privacy settings:`, privacySettings);
+        
+        // Apply the comprehensive privacy and targeting logic
+        // The frontend has already done the privacy checking, so we trust the broadcastScope
+        
+        // Don't broadcast if private
+        if (broadcastScope === 'private' || privacySettings?.visibility === 'private') {
+          console.log(`🔒 [STATUS] Status is private - not broadcasting`);
+          return;
+        }
+        
+        // Prepare the status data for broadcasting
+        const broadcastStatusData = {
+          status: status,
+          customStatus: customStatus || '',
+          statusUntil: statusUntil,
+          statusLocation: location
+        };
+        
+        // Remove location if location sharing is disabled
+        if (locationSharingScope === 'none' || !privacySettings?.locationSharing) {
+          console.log(`🔒 [STATUS] Location sharing disabled - removing location data`);
+          delete broadcastStatusData.statusLocation;
+        }
+        
+        console.log(`📡 [STATUS] Broadcasting status update with frontend privacy controls applied`);
+        
+        // Use the existing broadcastStatusUpdate function with the privacy-filtered data
+        // This will apply additional server-side privacy checks as a safety layer
+        broadcastStatusUpdate(user, broadcastStatusData);
+        
+        console.log(`✅ [STATUS] Successfully processed direct status update from ${userName}`);
+        
+      } catch (error) {
+        console.error(`❌ [STATUS] Error processing direct status update from ${userName}:`, error);
+      }
+    });
+
     // Handle user disconnection
     socket.on('disconnect', (reason) => {
       console.log(`🔌 User disconnected: ${userName} (${userId})`, {
@@ -539,7 +675,7 @@ const initializeSocketIO = (server) => {
     });
   });
 
-  // Periodic cleanup and statistics logging
+  // Enhanced periodic cleanup and health monitoring
   setInterval(() => {
     // Clean up stale auth attempts
     const now = Date.now();
@@ -549,10 +685,44 @@ const initializeSocketIO = (server) => {
       }
     }
     
-    // Log connection statistics (only in development)
+    // Calculate uptime and performance metrics
+    const uptime = now - connectionStats.startTime;
+    const uptimeHours = Math.floor(uptime / (1000 * 60 * 60));
+    const uptimeMinutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const enhancedStats = {
+      ...connectionStats,
+      uptime: `${uptimeHours}h ${uptimeMinutes}m`,
+      messagesPerMinute: connectionStats.messagesSent / (uptime / 60000),
+      connectionSuccessRate: connectionStats.totalConnections > 0 
+        ? ((connectionStats.totalConnections - connectionStats.authFailures) / connectionStats.totalConnections * 100).toFixed(2) + '%'
+        : '0%',
+      averageSessionDuration: connectionStats.totalDisconnections > 0
+        ? Math.round(uptime / connectionStats.totalDisconnections / 1000) + 's'
+        : 'N/A'
+    };
+    
+    // Log enhanced statistics
     if (process.env.NODE_ENV !== 'production') {
-      socketLogger.info('Connection Statistics', connectionStats);
+      socketLogger.info('Enhanced Connection Statistics', enhancedStats);
     }
+    
+    // Health check: Send ping to all connected clients
+    const connectedUsers = Array.from(userSockets.values());
+    connectedUsers.forEach(socket => {
+      if (socket.connected) {
+        socket.emit('health_check', {
+          timestamp: Date.now(),
+          serverStats: {
+            activeConnections: connectionStats.activeConnections,
+            uptime: enhancedStats.uptime,
+            messagesPerMinute: enhancedStats.messagesPerMinute
+          }
+        });
+        connectionStats.healthChecks++;
+      }
+    });
+    
   }, 300000); // Every 5 minutes
   
   // Graceful shutdown handler
@@ -581,14 +751,16 @@ const initializeSocketIO = (server) => {
 };
 
 /**
- * Broadcast a message/event to a specific user by their userId
+ * Enhanced broadcast function with delivery tracking and analytics
  * @param {string} userId - User ID to broadcast to
  * @param {string} event - Event name to emit
  * @param {Object} data - Data to send with the event
+ * @param {Object} options - Additional options (priority, retry, etc.)
  */
-const broadcastToUser = (userId, event, data) => {
+const broadcastToUser = (userId, event, data, options = {}) => {
   try {
     const userIdString = userId.toString();
+    const messageId = data.messageId || `msg_${Date.now()}`;
     
     // Debug: Show all connected users for comparison
     const connectedUsers = Array.from(userSockets.keys());
@@ -600,7 +772,34 @@ const broadcastToUser = (userId, event, data) => {
     if (socket && socket.connected) {
       console.log(`📨 Broadcasting ${event} to user ${userIdString}`);
       console.log(`📨 Broadcasting new message from ${socket.user?.name || 'Unknown'}`);
-      socket.emit(event, data);
+      
+      // Enhanced data with delivery tracking
+      const enhancedData = {
+        ...data,
+        messageId,
+        timestamp: new Date().toISOString(),
+        serverTime: Date.now(),
+        priority: options.priority || 'normal'
+      };
+      
+      // Emit with acknowledgment callback for delivery confirmation
+      socket.emit(event, enhancedData, (ack) => {
+        if (ack && ack.received) {
+          console.log(`✅ Message ${messageId} delivered and acknowledged`);
+          connectionStats.messageDeliveryCount++;
+        } else {
+          console.log(`⚠️ Message ${messageId} sent but not acknowledged`);
+        }
+      });
+      
+      // Update statistics
+      connectionStats.messagesSent++;
+      
+      // Set delivery timeout if no acknowledgment received
+      setTimeout(() => {
+        socket.emit('delivery_timeout', { messageId, event });
+      }, options.timeout || 30000);
+      
       return true;
     } else {
       console.log(`❌ Message receiver ${userIdString} not found or offline.`);
@@ -610,6 +809,12 @@ const broadcastToUser = (userId, event, data) => {
         console.log(`🔍 Socket exists but connected status: ${socket.connected}`);
       } else {
         console.log(`🔍 No socket found for user ${userIdString}`);
+      }
+      
+      // Store message for delivery when user comes online (if priority is high)
+      if (options.priority === 'high') {
+        console.log(`📥 Storing high-priority message for offline user: ${userIdString}`);
+        // TODO: Implement offline message queue
       }
       
       return false;
@@ -732,7 +937,7 @@ const broadcastStatusUpdate = async (user, statusData) => {
     for (const recipientId of authorizedUsers) {
       try {
         // Convert MongoDB ObjectId to userId for socket lookup
-        const recipient = await User.findById(recipientId).select('userId');
+        const recipient = await User.findById(recipientId).select('userId name');
         const recipientUserId = recipient?.userId;
         
         if (!recipientUserId) {
@@ -740,11 +945,11 @@ const broadcastStatusUpdate = async (user, statusData) => {
           continue;
         }
         
-        console.log(`🔍 Looking up socket for recipient: ObjectId=${recipientId}, userId=${recipientUserId}`);
+        console.log(`🔍 Looking up socket for recipient: ObjectId=${recipientId}, userId=${recipientUserId}, name=${recipient.name}`);
         const socket = userSockets.get(recipientUserId); // Use userId for socket lookup
         
         if (socket && socket.connected) {
-          console.log(`✅ Emitting status update to authorized user ${recipientId} (userId: ${recipientUserId})`);
+          console.log(`✅ Emitting status update to authorized user ${recipient.name} (ObjectId: ${recipientId}, userId: ${recipientUserId})`);
           
           const statusUpdateData = {
             contactId: user._id,
@@ -766,7 +971,8 @@ const broadcastStatusUpdate = async (user, statusData) => {
           
           successfulBroadcasts++;
         } else {
-          console.log(`❌ User ${recipientId} (userId: ${recipientUserId}) socket not found or disconnected`);
+          console.log(`❌ User ${recipient.name} (ObjectId: ${recipientId}, userId: ${recipientUserId}) socket not found or disconnected`);
+          console.log(`🔍 Available sockets: ${Array.from(userSockets.keys()).join(', ')}`);
         }
       } catch (lookupError) {
         console.error(`❌ Error looking up socket for user ${recipientId}:`, lookupError);
@@ -801,28 +1007,60 @@ const refreshUserContacts = async (userId) => {
   }
 };
 
-// Export functions and data for use in other controllers
+/**
+ * Get enhanced connection statistics
+ */
+const getConnectionStats = () => {
+  const now = Date.now();
+  const uptime = now - connectionStats.startTime;
+  
+  return {
+    ...connectionStats,
+    uptime,
+    uptimeFormatted: `${Math.floor(uptime / (1000 * 60 * 60))}h ${Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60))}m`,
+    messagesPerMinute: uptime > 0 ? (connectionStats.messagesSent / (uptime / 60000)).toFixed(2) : 0,
+    connectionSuccessRate: connectionStats.totalConnections > 0 
+      ? ((connectionStats.totalConnections - connectionStats.authFailures) / connectionStats.totalConnections * 100).toFixed(2)
+      : 0,
+    averageSessionDuration: connectionStats.totalDisconnections > 0
+      ? Math.round(uptime / connectionStats.totalDisconnections / 1000)
+      : 0,
+    connectedUsers: Array.from(userSockets.keys()),
+    timestamp: new Date().toISOString()
+  };
+};
+
+/**
+ * Broadcast system-wide announcement
+ */
+const broadcastSystemAnnouncement = (title, message, priority = 'normal') => {
+  const connectedUsers = Array.from(userSockets.values());
+  let successCount = 0;
+  
+  connectedUsers.forEach(socket => {
+    if (socket.connected) {
+      socket.emit('system_announcement', {
+        title,
+        message,
+        priority,
+        timestamp: new Date().toISOString()
+      });
+      successCount++;
+    }
+  });
+  
+  console.log(`📢 System announcement sent to ${successCount}/${connectedUsers.length} users`);
+  return successCount;
+};
+
+// Export enhanced functions and data
 module.exports = {
   initializeSocketIO,
   broadcastStatusUpdate,
   refreshUserContacts,
+  broadcastToUser,
+  broadcastSystemAnnouncement,
+  getConnectionStats,
   getUserSockets: () => userSockets,
-  broadcastToUser: (userId, event, data) => {
-    try {
-      const userIdString = userId.toString();
-      const socket = userSockets.get(userIdString);
-      
-      if (socket && socket.connected) {
-        console.log(`📨 Broadcasting ${event} to user ${userIdString}`);
-        socket.emit(event, data);
-        return true;
-      } else {
-        console.log(`❌ User ${userIdString} not found or offline`);
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ Error broadcasting to user:', error);
-      return false;
-    }
-  }
+  getConnectionStats: () => connectionStats
 };

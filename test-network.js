@@ -104,8 +104,8 @@ async function runNetworkTest() {
   console.log('5. For React Native: ensure app has local network permissions');
   
   console.log('\n🔧 From your client device, run:');
-  console.log(`   curl http://${interfaces[0]?.address || '192.168.0.115'}:5000/health`);
-  console.log(`   ping ${interfaces[0]?.address || '192.168.0.115'}`);
+  console.log(`   curl http://${interfaces[0]?.address || '192.168.1.17'}:5000/health`);
+  console.log(`   ping ${interfaces[0]?.address || '192.168.1.17'}`);
 }
 
 runNetworkTest().catch(console.error);

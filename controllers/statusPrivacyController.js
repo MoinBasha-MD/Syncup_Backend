@@ -400,14 +400,49 @@ const getStatusViewers = async (req, res) => {
  */
 const getUserGroups = async (req, res) => {
   try {
-    // Get groups where user is a member
-    const groups = await Group.find({ 
-      members: req.user._id 
-    }).select('name description memberCount');
+    console.log(`🔍 [Groups] Getting groups for user: ${req.user._id}`);
+    
+    // Get user to find their userId
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+    
+    console.log(`🔍 [Groups] User found: ${user.name}, userId: ${user.userId}`);
+    
+    // Get groups where user is the owner OR a member
+    const groups = await Group.find({
+      $or: [
+        { userId: req.user._id }, // Groups owned by user
+        { createdBy: user.userId }, // Groups created by user
+        { 'members.memberId': user.userId }, // Groups where user is a member by userId
+        { 'members.phoneNumber': user.phoneNumber }, // Groups where user is a member by phone
+        { admins: user.userId } // Groups where user is an admin
+      ]
+    }).select('_id groupId name description memberCount members createdBy admins');
+    
+    console.log(`🔍 [Groups] Found ${groups.length} groups for user`);
+    
+    // Transform groups to match frontend expectations
+    const transformedGroups = groups.map(group => ({
+      _id: group._id,
+      id: group.groupId || group._id,
+      name: group.name,
+      description: group.description,
+      memberCount: group.memberCount || group.members?.length || 0,
+      members: group.members || [],
+      createdBy: group.createdBy,
+      admins: group.admins || []
+    }));
+    
+    console.log(`🔍 [Groups] Transformed groups:`, transformedGroups.map(g => ({ name: g.name, memberCount: g.memberCount })));
     
     res.status(200).json({
       success: true,
-      data: groups,
+      data: transformedGroups,
     });
   } catch (error) {
     console.error('Error getting user groups:', error);

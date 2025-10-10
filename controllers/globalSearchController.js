@@ -2,31 +2,7 @@ const asyncHandler = require('express-async-handler');
 const User = require('../models/userModel');
 const ConnectionRequest = require('../models/connectionRequestModel');
 const Block = require('../models/blockModel');
-
-// Rate limiting storage (in production, use Redis)
-const searchRateLimit = new Map();
-const SEARCH_LIMIT = 10; // requests per minute
-const SEARCH_WINDOW = 60 * 1000; // 1 minute
-
-/**
- * Rate limiting middleware for search requests
- */
-const checkSearchRateLimit = (userId) => {
-  const now = Date.now();
-  const userRequests = searchRateLimit.get(userId) || [];
-  
-  // Remove old requests outside the window
-  const recentRequests = userRequests.filter(timestamp => now - timestamp < SEARCH_WINDOW);
-  
-  if (recentRequests.length >= SEARCH_LIMIT) {
-    return false; // Rate limit exceeded
-  }
-  
-  // Add current request
-  recentRequests.push(now);
-  searchRateLimit.set(userId, recentRequests);
-  return true;
-};
+const { checkRateLimit } = require('../services/rateLimitService');
 
 /**
  * Calculate mutual connections between two users
@@ -83,10 +59,12 @@ const searchUsers = asyncHandler(async (req, res) => {
       throw new Error('Search query must be at least 2 characters');
     }
     
-    // Check rate limiting
-    if (!checkSearchRateLimit(currentUserId)) {
+    // Check rate limiting using the new service
+    const rateLimitResult = checkRateLimit(currentUserId, 'SEARCH');
+    if (!rateLimitResult.allowed) {
       res.status(429);
-      throw new Error('Too many search requests. Please try again later.');
+      res.set('Retry-After', rateLimitResult.retryAfter);
+      throw new Error(`Too many search requests. Try again in ${rateLimitResult.retryAfter} seconds.`);
     }
     
     console.log(`🔍 Global search: "${query}" by user ${currentUserId}`);
@@ -107,10 +85,16 @@ const searchUsers = asyncHandler(async (req, res) => {
     // Get existing contacts (device contacts) - these are MongoDB ObjectIds
     const existingContactIds = currentUser.contacts.map(id => id.toString());
     
-    // Get existing app connections - these have userId field
+    // Get existing app connections - these have userId field (only accepted ones)
     const existingAppConnectionIds = currentUser.appConnections
       .filter(conn => conn.status === 'accepted')
       .map(conn => conn.userId);
+    
+    console.log(`🔍 [DEBUG] Current user app connections:`, {
+      total: currentUser.appConnections.length,
+      accepted: existingAppConnectionIds.length,
+      acceptedUserIds: existingAppConnectionIds
+    });
     
     // Find users by their MongoDB ObjectIds to get their userIds for exclusion
     const contactUsers = await User.find({ 
@@ -181,6 +165,13 @@ const searchUsers = asyncHandler(async (req, res) => {
     console.log(`🔍 [MONGODB DEBUG] Excluded userIds:`, excludedUserIds);
     console.log(`🔍 [MONGODB DEBUG] Excluded userIds types:`, excludedUserIds.map(id => typeof id));
     console.log(`🔍 [MONGODB DEBUG] Sample excluded userIds:`, excludedUserIds.slice(0, 3));
+    
+    // CRITICAL DEBUG: Check public users count
+    const totalPublicUsers = await User.countDocuments({ isPublic: true });
+    console.log(`🔍 [CRITICAL DEBUG] Total public users in database: ${totalPublicUsers}`);
+    if (totalPublicUsers === 0) {
+      console.log(`🚨 [CRITICAL ISSUE] NO USERS HAVE isPublic: true! Global search will return empty results.`);
+    }
     
     // Search public users by name or username, excluding blocked users
     const searchResults = await User.find(mongoQuery)
@@ -257,21 +248,50 @@ const searchUsers = asyncHandler(async (req, res) => {
       }
     });
     
+    // Optimize mutual connections calculation - batch process instead of individual queries
+    // userIds already declared above for connection requests
+    
+    // Get all users' connections in one query for efficiency
+    const allUsersConnections = await User.find(
+      { userId: { $in: [currentUserId, ...userIds] } },
+      'userId contacts appConnections'
+    ).lean();
+    
+    // Create a map for quick lookup
+    const connectionsMap = new Map();
+    allUsersConnections.forEach(user => {
+      const allConnections = [
+        ...user.contacts.map(id => id.toString()),
+        ...user.appConnections.map(conn => conn.userId)
+      ];
+      connectionsMap.set(user.userId, new Set(allConnections));
+    });
+    
+    const currentUserConnections = connectionsMap.get(currentUserId) || new Set();
+    
     // Enhance results with mutual connections and request status
-    const enhancedResults = await Promise.all(
-      finalResults.map(async (user) => {
-        const mutualConnectionsCount = await calculateMutualConnections(currentUserId, user.userId);
-        const requestStatus = requestStatusMap.get(user.userId) || null;
-        
-        // Determine the display status and action availability
-        let displayStatus = 'none'; // none, sent, received, connected, declined
-        let canSendRequest = true;
-        let actionText = 'Add Friend';
-        
-        if (requestStatus) {
-          if (requestStatus.status === 'pending') {
-            if (requestStatus.direction === 'outgoing') {
-              displayStatus = 'sent';
+    const enhancedResults = finalResults.map((user) => {
+      // Calculate mutual connections efficiently
+      const userConnections = connectionsMap.get(user.userId) || new Set();
+      let mutualConnectionsCount = 0;
+      
+      for (const connection of currentUserConnections) {
+        if (userConnections.has(connection)) {
+          mutualConnectionsCount++;
+        }
+      }
+      
+      const requestStatus = requestStatusMap.get(user.userId) || null;
+      
+      // Determine the display status and action availability
+      let displayStatus = 'none'; // none, sent, received, connected, declined
+      let canSendRequest = true;
+      let actionText = 'Add Friend';
+      
+      if (requestStatus) {
+        if (requestStatus.status === 'pending') {
+          if (requestStatus.direction === 'outgoing') {
+            displayStatus = 'sent';
               canSendRequest = false;
               actionText = 'Sent';
             } else {
@@ -304,8 +324,7 @@ const searchUsers = asyncHandler(async (req, res) => {
           actionText,
           requestSentAt: requestStatus?.createdAt || null
         };
-      })
-    );
+    });
     
     res.status(200).json({
       success: true,

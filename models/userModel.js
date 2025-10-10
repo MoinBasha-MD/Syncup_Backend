@@ -177,6 +177,27 @@ const userSchema = mongoose.Schema(
     }],
     resetPasswordToken: String,
     resetPasswordExpire: Date,
+    // Chat encryption settings
+    encryptionSettings: {
+      isEnabled: {
+        type: Boolean,
+        default: false
+      },
+      pinHash: {
+        type: String,
+        default: null,
+        select: false // Don't include in regular queries for security
+      },
+      encryptionKey: {
+        type: String,
+        default: null,
+        select: false // Don't include in regular queries for security
+      },
+      updatedAt: {
+        type: Date,
+        default: Date.now
+      }
+    },
   },
   {
     timestamps: true,

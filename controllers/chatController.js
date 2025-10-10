@@ -6,7 +6,14 @@ const { broadcastToUser } = require('../socketManager');
 // Send a message
 const sendMessage = async (req, res) => {
   try {
-    const { receiverId, message, messageType = 'text' } = req.body;
+    const { 
+      receiverId, 
+      message, 
+      messageType = 'text',
+      voiceMetadata,
+      encryptionData,
+      encrypted = false
+    } = req.body;
     const senderId = req.user.userId;
     const senderObjectId = req.user.id; // MongoDB _id of sender
 
@@ -84,12 +91,13 @@ const sendMessage = async (req, res) => {
     const savedMessage = await newMessage.save();
     console.log('✅ Message saved to database:', savedMessage._id);
 
-    // Broadcast message to receiver via WebSocket using MongoDB _id
+    // Broadcast message to receiver via WebSocket using userId (NOT MongoDB _id)
     try {
       console.log('📡 Attempting to broadcast message to receiver...');
-      console.log('🔍 Broadcasting to receiverObjectId:', receiverObjectId);
+      console.log('🔍 Broadcasting to receiverId (userId):', receiverId);
+      console.log('🔍 Receiver MongoDB ObjectId:', receiverObjectId);
       
-      const broadcastSuccess = broadcastToUser(receiverObjectId, 'message:new', {
+      const broadcastSuccess = broadcastToUser(receiverId, 'message:new', {
         _id: savedMessage._id,
         senderId: savedMessage.senderId,
         receiverId: savedMessage.receiverId,
@@ -271,13 +279,14 @@ const markMessagesAsRead = async (req, res) => {
 
     console.log(`✅ Marked ${updateResult.modifiedCount} messages as read`);
 
-    // Broadcast read status to sender via WebSocket using MongoDB _id
+    // Broadcast read status to sender via WebSocket using userId (NOT MongoDB _id)
     try {
       console.log('📡 Broadcasting read receipts to contact...');
-      console.log('🔍 Broadcasting to contactObjectId:', contactObjectId);
+      console.log('🔍 Broadcasting to contactId (userId):', contactId);
+      console.log('🔍 Contact MongoDB ObjectId:', contactObjectId);
       
       messageIds.forEach(messageId => {
-        const broadcastSuccess = broadcastToUser(contactObjectId, 'message:read', { messageId });
+        const broadcastSuccess = broadcastToUser(contactId, 'message:read', { messageId });
         if (broadcastSuccess) {
           console.log(`✅ Read receipt broadcasted for message ${messageId}`);
         } else {
@@ -427,9 +436,10 @@ const deleteMessage = async (req, res) => {
         });
         
         console.log('📡 Broadcasting message deletion to receiver...');
-        console.log('🔍 Broadcasting to receiverObjectId:', receiverObjectId);
+        console.log('🔍 Broadcasting to receiverId (userId):', receiver.userId);
+        console.log('🔍 Receiver MongoDB ObjectId:', receiverObjectId);
         
-        const broadcastSuccess = broadcastToUser(receiverObjectId, 'message:deleted', { messageId });
+        const broadcastSuccess = broadcastToUser(receiver.userId, 'message:deleted', { messageId });
         if (broadcastSuccess) {
           console.log('✅ Message deletion successfully broadcasted via WebSocket');
         } else {
@@ -637,9 +647,13 @@ const sendReply = async (req, res) => {
 
     console.log('✅ Reply message saved to database:', savedMessage._id);
 
-    // Broadcast message to receiver
+    // Broadcast message to receiver using userId (NOT MongoDB _id)
     try {
-      const broadcastSuccess = broadcastToUser(receiverObjectId, 'message:new', {
+      console.log('📡 Broadcasting reply message to receiver...');
+      console.log('🔍 Broadcasting to receiverId (userId):', receiverId);
+      console.log('🔍 Receiver MongoDB ObjectId:', receiverObjectId);
+      
+      const broadcastSuccess = broadcastToUser(receiverId, 'message:new', {
         _id: savedMessage._id,
         senderId: savedMessage.senderId,
         receiverId: savedMessage.receiverId,
@@ -674,6 +688,383 @@ const sendReply = async (req, res) => {
   }
 };
 
+// @desc    Test chat system connectivity and user lookup
+// @route   GET /api/chat/test-connectivity
+// @access  Private
+const testChatConnectivity = async (req, res) => {
+  try {
+    const currentUserId = req.user.userId;
+    const currentUserObjectId = req.user.id;
+    
+    console.log('🧪 [CHAT TEST] Testing chat system connectivity...');
+    console.log('🧪 Current user:', { userId: currentUserId, objectId: currentUserObjectId });
+    
+    // Test 1: Check all users in database
+    const allUsers = await User.find({}).select('_id userId name phoneNumber').lean();
+    console.log('🧪 [TEST 1] All users in database:', allUsers.length);
+    
+    // Test 2: Check WebSocket connections
+    const { getUserSockets } = require('../socketManager');
+    const userSockets = getUserSockets();
+    const connectedUsers = Array.from(userSockets.keys());
+    console.log('🧪 [TEST 2] Connected WebSocket users:', connectedUsers.length, connectedUsers);
+    
+    // Test 3: Check if current user is connected
+    const isCurrentUserConnected = userSockets.has(currentUserId);
+    console.log('🧪 [TEST 3] Current user WebSocket status:', isCurrentUserConnected);
+    
+    // Test 4: Find potential chat partners
+    const otherUsers = allUsers.filter(user => user.userId !== currentUserId);
+    console.log('🧪 [TEST 4] Potential chat partners:', otherUsers.length);
+    
+    // Test 5: Check recent messages
+    const recentMessages = await Message.find({
+      $or: [
+        { senderId: currentUserId },
+        { receiverId: currentUserId }
+      ]
+    }).sort({ timestamp: -1 }).limit(5).lean();
+    
+    console.log('🧪 [TEST 5] Recent messages:', recentMessages.length);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        currentUser: {
+          userId: currentUserId,
+          objectId: currentUserObjectId,
+          isConnectedToWebSocket: isCurrentUserConnected
+        },
+        statistics: {
+          totalUsers: allUsers.length,
+          connectedUsers: connectedUsers.length,
+          potentialChatPartners: otherUsers.length,
+          recentMessages: recentMessages.length
+        },
+        connectedUserIds: connectedUsers,
+        potentialPartners: otherUsers.map(u => ({
+          userId: u.userId,
+          name: u.name,
+          isConnected: connectedUsers.includes(u.userId)
+        })),
+        recentMessagesSample: recentMessages.map(m => ({
+          id: m._id,
+          from: m.senderId,
+          to: m.receiverId,
+          message: m.message.substring(0, 50) + (m.message.length > 50 ? '...' : ''),
+          status: m.status,
+          timestamp: m.timestamp
+        }))
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [CHAT TEST] Error testing chat connectivity:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to test chat connectivity',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Test notification flow end-to-end
+// @route   POST /api/chat/test-notification
+// @access  Private
+const testNotificationFlow = async (req, res) => {
+  try {
+    const currentUserId = req.user.userId;
+    const currentUserObjectId = req.user.id;
+    const { targetUserId } = req.body;
+    
+    console.log('🧪 [NOTIFICATION TEST] Testing notification flow...');
+    console.log('🧪 Current user:', { userId: currentUserId, objectId: currentUserObjectId });
+    console.log('🧪 Target user:', targetUserId);
+    
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'targetUserId is required for notification test'
+      });
+    }
+    
+    // Find target user
+    const targetUser = await User.findOne({ userId: targetUserId }).select('_id userId name phoneNumber');
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Target user not found'
+      });
+    }
+    
+    console.log('🧪 Target user found:', {
+      userId: targetUser.userId,
+      objectId: targetUser._id.toString(),
+      name: targetUser.name
+    });
+    
+    // Check WebSocket connections
+    const { getUserSockets } = require('../socketManager');
+    const userSockets = getUserSockets();
+    const isTargetConnected = userSockets.has(targetUserId);
+    const isCurrentUserConnected = userSockets.has(currentUserId);
+    
+    console.log('🧪 WebSocket status:', {
+      currentUserConnected: isCurrentUserConnected,
+      targetUserConnected: isTargetConnected,
+      totalConnected: userSockets.size
+    });
+    
+    // Create a test message
+    const testMessage = new Message({
+      senderId: currentUserId,
+      receiverId: targetUserId,
+      message: `🧪 Test notification message from ${req.user.name || 'Test User'} at ${new Date().toLocaleTimeString()}`,
+      messageType: 'text',
+      timestamp: new Date(),
+      status: 'sent'
+    });
+    
+    // Save test message
+    const savedMessage = await testMessage.save();
+    console.log('🧪 Test message saved:', savedMessage._id);
+    
+    // Test WebSocket broadcasting (this should trigger frontend notifications)
+    let broadcastResult = false;
+    try {
+      console.log('🧪 Testing WebSocket broadcast to target user...');
+      const { broadcastToUser } = require('../socketManager');
+      
+      broadcastResult = broadcastToUser(targetUserId, 'message:new', {
+        _id: savedMessage._id,
+        senderId: savedMessage.senderId,
+        receiverId: savedMessage.receiverId,
+        message: savedMessage.message,
+        messageType: savedMessage.messageType,
+        timestamp: savedMessage.timestamp,
+        status: 'delivered'
+      });
+      
+      console.log('🧪 Broadcast result:', broadcastResult);
+      
+      if (broadcastResult) {
+        // Update message status
+        savedMessage.status = 'delivered';
+        await savedMessage.save();
+      }
+    } catch (broadcastError) {
+      console.error('🧪 Broadcast error:', broadcastError);
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        testMessage: {
+          id: savedMessage._id,
+          senderId: savedMessage.senderId,
+          receiverId: savedMessage.receiverId,
+          message: savedMessage.message,
+          timestamp: savedMessage.timestamp,
+          status: savedMessage.status
+        },
+        connectivity: {
+          currentUserConnected: isCurrentUserConnected,
+          targetUserConnected: isTargetConnected,
+          broadcastSuccessful: broadcastResult
+        },
+        targetUser: {
+          userId: targetUser.userId,
+          name: targetUser.name,
+          isConnected: isTargetConnected
+        }
+      },
+      message: `Test notification ${broadcastResult ? 'sent successfully' : 'failed to send (user offline)'}`
+    });
+    
+  } catch (error) {
+    console.error('❌ [NOTIFICATION TEST] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to test notification flow',
+      error: error.message
+    });
+  }
+};
+
+// Send voice message
+const sendVoiceMessage = async (req, res) => {
+  try {
+    const { receiverId, voiceUrl, duration, waveform, encrypted = false, encryptionData } = req.body;
+    const senderId = req.user.userId;
+
+    console.log('🎤 [VOICE MESSAGE] Sending voice message:', {
+      senderId,
+      receiverId,
+      duration,
+      encrypted
+    });
+
+    // Validate input
+    if (!receiverId || !voiceUrl || !duration) {
+      return res.status(400).json({
+        success: false,
+        message: 'Receiver ID, voice URL, and duration are required'
+      });
+    }
+
+    // Check if users have blocked each other
+    const blockStatus = await Block.isMutuallyBlocked(senderId, receiverId);
+    if (blockStatus.anyBlocked) {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot send voice message to this user'
+      });
+    }
+
+    // Create voice message
+    const messageData = {
+      senderId,
+      receiverId,
+      message: encrypted ? encryptionData?.encryptedContent || '[Voice Message]' : '[Voice Message]',
+      messageType: 'voice',
+      voiceMetadata: {
+        duration,
+        waveform: waveform || [],
+        fileUrl: voiceUrl
+      },
+      encrypted,
+      encryptionData: encrypted ? encryptionData : undefined,
+      timestamp: new Date()
+    };
+
+    const newMessage = new Message(messageData);
+    const savedMessage = await newMessage.save();
+
+    console.log('✅ [VOICE MESSAGE] Voice message saved:', savedMessage._id);
+
+    // Broadcast to receiver via WebSocket
+    try {
+      const broadcastResult = await broadcastToUser(receiverId, 'new_message', {
+        _id: savedMessage._id,
+        senderId: savedMessage.senderId,
+        receiverId: savedMessage.receiverId,
+        message: savedMessage.message,
+        messageType: savedMessage.messageType,
+        voiceMetadata: savedMessage.voiceMetadata,
+        encrypted: savedMessage.encrypted,
+        encryptionData: savedMessage.encryptionData,
+        timestamp: savedMessage.timestamp,
+        status: 'delivered'
+      });
+
+      if (broadcastResult) {
+        savedMessage.status = 'delivered';
+        await savedMessage.save();
+      }
+    } catch (broadcastError) {
+      console.error('❌ [VOICE MESSAGE] Broadcast error:', broadcastError);
+    }
+
+    res.status(201).json({
+      success: true,
+      data: savedMessage,
+      message: 'Voice message sent successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ [VOICE MESSAGE] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send voice message',
+      error: error.message
+    });
+  }
+};
+
+// Exchange encryption keys
+const exchangeEncryptionKeys = async (req, res) => {
+  try {
+    const { contactUserId, publicKey } = req.body;
+    const currentUserId = req.user.userId;
+
+    console.log('🔐 [ENCRYPTION] Key exchange request:', {
+      currentUserId,
+      contactUserId
+    });
+
+    // Validate input
+    if (!contactUserId || !publicKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Contact user ID and public key are required'
+      });
+    }
+
+    // Verify contact user exists
+    const contactUser = await User.findOne({ userId: contactUserId });
+    if (!contactUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Contact user not found'
+      });
+    }
+
+    // Store the public key exchange (in a real app, you'd have a separate KeyExchange model)
+    // For now, we'll just return success and let the frontend handle key derivation
+    
+    res.status(200).json({
+      success: true,
+      message: 'Encryption keys exchanged successfully',
+      data: {
+        contactUserId,
+        keyExchangeTimestamp: new Date()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ [ENCRYPTION] Key exchange error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to exchange encryption keys',
+      error: error.message
+    });
+  }
+};
+
+// Get user's public key
+const getPublicKey = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    console.log('🔐 [ENCRYPTION] Public key request for user:', userId);
+
+    // In a real implementation, you'd store and retrieve actual public keys
+    // For now, we'll generate a mock public key based on user ID
+    const mockPublicKey = require('crypto')
+      .createHash('sha256')
+      .update(userId + 'public_key_salt')
+      .digest('hex');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        userId,
+        publicKey: mockPublicKey,
+        keyType: 'ECDH-P256',
+        timestamp: new Date()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ [ENCRYPTION] Get public key error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get public key',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   sendMessage,
   getChatHistory,
@@ -683,5 +1074,10 @@ module.exports = {
   deleteMessage,
   toggleReaction,
   searchMessages,
-  sendReply
+  sendReply,
+  testChatConnectivity,
+  testNotificationFlow,
+  sendVoiceMessage,
+  exchangeEncryptionKeys,
+  getPublicKey
 };

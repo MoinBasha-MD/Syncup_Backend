@@ -2,31 +2,7 @@ const asyncHandler = require('express-async-handler');
 const User = require('../models/userModel');
 const ConnectionRequest = require('../models/connectionRequestModel');
 const Block = require('../models/blockModel');
-
-// Rate limiting for connection requests
-const requestRateLimit = new Map();
-const REQUEST_LIMIT = 50; // requests per day
-const REQUEST_WINDOW = 24 * 60 * 60 * 1000; // 24 hours
-
-/**
- * Rate limiting middleware for connection requests
- */
-const checkRequestRateLimit = (userId) => {
-  const now = Date.now();
-  const userRequests = requestRateLimit.get(userId) || [];
-  
-  // Remove old requests outside the window
-  const recentRequests = userRequests.filter(timestamp => now - timestamp < REQUEST_WINDOW);
-  
-  if (recentRequests.length >= REQUEST_LIMIT) {
-    return false; // Rate limit exceeded
-  }
-  
-  // Add current request
-  recentRequests.push(now);
-  requestRateLimit.set(userId, recentRequests);
-  return true;
-};
+const { checkRateLimit } = require('../services/rateLimitService');
 
 /**
  * Calculate mutual connections between two users
@@ -81,10 +57,12 @@ const sendConnectionRequest = asyncHandler(async (req, res) => {
       throw new Error('Cannot send connection request to yourself');
     }
     
-    // Check rate limiting
-    if (!checkRequestRateLimit(fromUserId)) {
+    // Check rate limiting using the new service
+    const rateLimitResult = checkRateLimit(fromUserId, 'CONNECTION_REQUEST');
+    if (!rateLimitResult.allowed) {
       res.status(429);
-      throw new Error('Daily connection request limit reached. Please try again tomorrow.');
+      res.set('Retry-After', rateLimitResult.retryAfter);
+      throw new Error(`Daily connection request limit reached. Try again in ${rateLimitResult.retryAfter} seconds.`);
     }
     
     console.log(`📤 Connection request: ${fromUserId} -> ${toUserId}`);
@@ -182,7 +160,15 @@ const sendConnectionRequest = asyncHandler(async (req, res) => {
     
     console.log(`✅ Connection request sent: ${connectionRequest._id}`);
     
-    // TODO: Send push notification to target user
+    // Send push notification to target user
+    try {
+      // TODO: Implement server-side push notification service
+      // For now, we'll rely on the frontend to handle notifications
+      console.log(`📱 Push notification should be sent to ${toUser.name} (${toUserId})`);
+    } catch (notificationError) {
+      console.error('❌ Error sending push notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
     
     res.status(201).json({
       success: true,
@@ -383,7 +369,15 @@ const acceptConnectionRequest = asyncHandler(async (req, res) => {
     
     console.log(`✅ Connection established between ${request.fromUserId} and ${request.toUserId}`);
     
-    // TODO: Send push notification to sender about acceptance
+    // Send push notification to sender about acceptance
+    try {
+      // TODO: Implement server-side push notification service
+      // For now, we'll rely on the frontend to handle notifications
+      console.log(`📱 Push notification should be sent to ${fromUser.name} (${request.fromUserId}) about acceptance`);
+    } catch (notificationError) {
+      console.error('❌ Error sending acceptance notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
     
     res.status(200).json({
       success: true,

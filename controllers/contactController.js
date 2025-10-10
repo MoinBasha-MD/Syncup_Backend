@@ -336,8 +336,8 @@ const filterContacts = asyncHandler(async (req, res) => {
 
     console.log('Phone numbers for filtering:', phoneNumbers);
     
-    // Use the contact service to filter contacts by phone numbers
-    const users = await contactService.filterContactsByPhone(phoneNumbers);
+    // Use the contact service to filter contacts by phone numbers (with privacy filtering)
+    const users = await contactService.filterContactsByPhone(phoneNumbers, req.user._id);
     
     console.log(`Found ${users.length} registered users matching phone numbers`);
     
@@ -408,8 +408,8 @@ const getStatusByPhone = asyncHandler(async (req, res) => {
       console.log(`Time remaining: ${Math.floor((statusUntil - now) / 60000)} minutes`);
     }
     
-    // Use the contact service to get user by phone number
-    const user = await contactService.getContactByPhone(phoneNumber);
+    // Use the contact service to get user by phone number (with privacy filtering)
+    const user = await contactService.getContactByPhone(phoneNumber, req.user._id);
     
     console.log('Processed user data from service:', {
       status: user.status,
@@ -458,7 +458,7 @@ const getStatusForContactsList = async (req, res) => {
       });
     }
     
-    const contacts = await contactService.getStatusForContacts(contactIds);
+    const contacts = await contactService.getStatusForContacts(contactIds, req.user._id);
     
     return res.status(200).json({
       success: true,

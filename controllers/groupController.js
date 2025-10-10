@@ -526,6 +526,7 @@ const updateGroup = async (req, res) => {
 module.exports = {
   createGroup,
   getGroups: getUserGroups,
+  deleteGroup,
   addMemberToGroup,
   removeMemberFromGroup,
   getContactGroups: getGroupsForContact,

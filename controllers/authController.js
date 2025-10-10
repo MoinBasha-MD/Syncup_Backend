@@ -1,4 +1,5 @@
 const User = require('../models/userModel');
+const AIInstance = require('../models/aiInstanceModel');
 const { generateToken } = require('../utils/generateToken');
 const { normalizePhoneNumber, isValidPhoneNumber } = require('../utils/phoneUtils');
 
@@ -163,6 +164,56 @@ const registerUser = async (req, res) => {
     const user = await User.create(userData);
 
     if (user) {
+      // Create AI instance for the new user
+      try {
+        console.log(`🤖 Creating AI instance for new user: ${user.name} (${user._id})`);
+        
+        const aiInstance = await AIInstance.create({
+          userId: user._id.toString(),
+          aiName: `${user.name}'s Maya`,
+          status: 'offline', // Start as offline, will come online when user opens Maya
+          capabilities: {
+            canSchedule: true,
+            canAccessCalendar: true,
+            canMakeReservations: false,
+            canShareLocation: false,
+            maxConcurrentConversations: 5
+          },
+          preferences: {
+            responseStyle: 'friendly',
+            privacyLevel: 'moderate',
+            autoApprovalSettings: {
+              lowPriorityRequests: false,
+              trustedAIsOnly: true,
+              maxAutoApprovalDuration: 30
+            },
+            responseTimePreference: 'normal'
+          },
+          networkSettings: {
+            allowDirectMentions: true,
+            allowGroupMentions: true,
+            trustedAIs: [],
+            blockedAIs: [],
+            allowedGroups: []
+          },
+          stats: {
+            totalConversations: 0,
+            successfulInteractions: 0,
+            averageResponseTime: 0,
+            lastCalculated: new Date()
+          },
+          version: '1.0.0',
+          isActive: true
+        });
+
+        console.log(`✅ AI instance created successfully: ${aiInstance.aiId} for user ${user.name}`);
+        
+      } catch (aiError) {
+        console.error(`❌ Failed to create AI instance for user ${user.name}:`, aiError);
+        // Don't fail the registration if AI creation fails, just log it
+        // The user can still use the app, and AI instance can be created later
+      }
+
       // Generate token
       const token = generateToken(user._id, user.userId);
       

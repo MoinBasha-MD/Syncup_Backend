@@ -17,8 +17,41 @@ const messageSchema = new mongoose.Schema({
   },
   messageType: {
     type: String,
-    enum: ['text', 'image', 'file', 'audio', 'video'],
+    enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice'],
     default: 'text'
+  },
+  imageUrl: {
+    type: String,
+    default: null
+  },
+  // File metadata for file messages
+  fileMetadata: {
+    fileName: {
+      type: String,
+      default: null
+    },
+    fileSize: {
+      type: Number,
+      default: null
+    },
+    mimeType: {
+      type: String,
+      default: null
+    }
+  },
+  // Voice message metadata
+  voiceMetadata: {
+    duration: {
+      type: Number,
+      default: null
+    },
+    waveform: [{
+      type: Number
+    }],
+    fileUrl: {
+      type: String,
+      default: null
+    }
   },
   timestamp: {
     type: Date,
@@ -60,14 +93,28 @@ const messageSchema = new mongoose.Schema({
     filename: String,
     thumbnail: String
   }],
-  // Message encryption support
+  // Enhanced message encryption support
   encrypted: {
     type: Boolean,
     default: false
   },
-  encryptionKey: {
-    type: String,
-    default: null
+  encryptionData: {
+    encryptedContent: {
+      type: String,
+      default: null
+    },
+    iv: {
+      type: String,
+      default: null
+    },
+    keyId: {
+      type: String,
+      default: null
+    },
+    messageHash: {
+      type: String,
+      default: null
+    }
   },
   // Search optimization
   searchText: {

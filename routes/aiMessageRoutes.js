@@ -41,4 +41,11 @@ router.get('/privacy', aiMessageController.getAIPrivacySettings);
  */
 router.put('/privacy', aiMessageController.updateAIPrivacySettings);
 
+/**
+ * @route POST /api/ai/conversation/complete
+ * @desc Process complete AI-to-AI conversation
+ * @access Private
+ */
+router.post('/conversation/complete', aiMessageController.processCompleteAIConversation);
+
 module.exports = router;

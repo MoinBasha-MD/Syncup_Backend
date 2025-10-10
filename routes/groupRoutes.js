@@ -3,6 +3,7 @@ const {
   getGroups: getUserGroups,
   createGroup,
   updateGroup,
+  deleteGroup,
   addMemberToGroup,
   removeMemberFromGroup,
   getContactGroups: getGroupsForContact,
@@ -22,7 +23,8 @@ router.route('/')
   .post(createGroup);      // POST /api/groups - Create new group
 
 router.route('/:groupId')
-  .put(updateGroup);       // PUT /api/groups/:groupId - Update group
+  .put(updateGroup)        // PUT /api/groups/:groupId - Update group
+  .delete(deleteGroup);    // DELETE /api/groups/:groupId - Delete group
 
 // Group membership operations
 router.route('/:groupId/members')

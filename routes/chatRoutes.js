@@ -10,7 +10,12 @@ const {
   deleteMessage,
   toggleReaction,
   searchMessages,
-  sendReply
+  sendReply,
+  testChatConnectivity,
+  testNotificationFlow,
+  sendVoiceMessage,
+  exchangeEncryptionKeys,
+  getPublicKey
 } = require('../controllers/chatController');
 
 // All chat routes require authentication
@@ -42,5 +47,18 @@ router.get('/search/:contactId', searchMessages);
 
 // Send reply message
 router.post('/reply', sendReply);
+
+// Test chat system connectivity
+router.get('/test-connectivity', testChatConnectivity);
+
+// Test notification flow end-to-end
+router.post('/test-notification', testNotificationFlow);
+
+// Voice message routes
+router.post('/voice', sendVoiceMessage);
+
+// Encryption routes
+router.post('/encryption/exchange-keys', exchangeEncryptionKeys);
+router.get('/encryption/public-key/:userId', getPublicKey);
 
 module.exports = router;
