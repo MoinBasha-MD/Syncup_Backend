@@ -56,6 +56,13 @@ const statusLimiter = createRateLimiter(
   'Too many status requests, please try again after 5 minutes'
 );
 
+// Status update limiter - 100 updates per 5 minutes (more restrictive for writes)
+const statusUpdateLimiter = createRateLimiter(
+  5 * 60 * 1000, // 5 minutes
+  100, // Lower limit for status updates specifically
+  'Too many status updates, please try again after 5 minutes'
+);
+
 // Request validation middleware
 const validate = (validations) => {
   return async (req, res, next) => {

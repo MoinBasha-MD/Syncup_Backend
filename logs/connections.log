@@ -3161,3 +3161,6 @@
 {"duration":null,"level":"info","message":"User disconnected","reason":"transport close","service":"connections","socketId":"3vUitfAsFSYakykPAAAt","timestamp":"2025-10-10T14:34:47.792Z","totalActive":-1,"userId":"fb0bb97a-7bad-4c51-9577-ee60f37953aa","userName":"TesterTwo"}
 {"activeConnections":0,"level":"info","message":"User disconnected: TesterTwo (fb0bb97a-7bad-4c51-9577-ee60f37953aa)","reason":"transport close","service":"connections","socketId":"3vUitfAsFSYakykPAAAt","timestamp":"2025-10-10T14:34:49.202Z"}
 {"level":"info","message":"Shutting down Socket.IO server...","service":"connections","timestamp":"2025-10-10T14:36:59.253Z"}
+{"compression":true,"cors":"open","level":"info","message":"Socket.IO initialized","service":"connections","timestamp":"2025-10-12T02:21:29.901Z","transports":["websocket","polling"]}
+{"level":"info","message":"🔌 Connection Manager Ready","service":"connections","timestamp":"2025-10-12T02:21:30.061Z"}
+{"level":"info","message":"Shutting down Socket.IO server...","service":"connections","timestamp":"2025-10-12T02:23:01.663Z"}

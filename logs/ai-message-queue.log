@@ -2175,3 +2175,5 @@
 {"level":"info","message":"Retried 0 failed messages","timestamp":"2025-10-10T14:34:44.202Z"}
 {"level":"info","message":"Cleaned up 0 expired messages","timestamp":"2025-10-10T14:34:44.429Z"}
 {"level":"info","message":"Retried 0 failed messages","timestamp":"2025-10-10T14:34:44.512Z"}
+{"level":"info","message":"Queue workers started successfully","timestamp":"2025-10-12T02:21:29.175Z"}
+{"level":"info","message":"Queue workers started successfully","timestamp":"2025-10-12T02:21:29.892Z"}
