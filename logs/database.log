@@ -1,2 +1,0 @@
-{"level":"info","maxIdleTimeMS":30000,"maxPoolSize":16,"message":"Connecting to MongoDB with optimized settings:","minPoolSize":8,"timestamp":"2025-10-12T05:05:17.148Z"}
-{"level":"info","message":"🗄️ Database Connection Established","service":"database","timestamp":"2025-10-12T05:05:17.320Z"}
