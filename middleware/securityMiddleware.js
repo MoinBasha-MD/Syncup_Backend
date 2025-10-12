@@ -219,6 +219,7 @@ module.exports = {
   userDataLimiter,
   contactLimiter,
   statusLimiter,
+  statusUpdateLimiter, // Export new status update limiter
   validate,
   userValidationRules,
   statusValidationRules,

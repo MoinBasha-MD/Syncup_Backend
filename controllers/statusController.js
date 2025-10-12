@@ -154,6 +154,17 @@ const updateUserStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('Status update error:', error);
+    
+    // Check if it's a rate limit error
+    if (error.message && error.message.includes('Rate limit')) {
+      return res.status(429).json({ 
+        success: false,
+        message: 'Too many status updates. Please wait a moment and try again.', 
+        error: error.message,
+        retryAfter: 60 // Suggest retry after 60 seconds
+      });
+    }
+    
     res.status(500).json({ 
       success: false,
       message: 'Server error during status update', 
