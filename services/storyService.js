@@ -1,6 +1,7 @@
 const Story = require('../models/storyModel');
 const StorySeen = require('../models/storySeenModel');
 const StoryLike = require('../models/storyLikeModel');
+const StoryView = require('../models/storyViewModel');
 const User = require('../models/userModel');
 
 class StoryService {
@@ -450,6 +451,124 @@ class StoryService {
     }
   }
 
+  // Track story view
+  async trackStoryView(storyId, userId, userName, userProfileImage = null, io = null) {
+    try {
+      console.log('👁️ Tracking view for story:', storyId, 'by user:', userId);
+      
+      // Verify story exists
+      const story = await Story.findById(storyId);
+      if (!story) {
+        throw new Error('Story not found');
+      }
+
+      // Don't track if user is viewing their own story
+      if (story.userId === userId) {
+        console.log('⏭️ Skipping view tracking - user viewing own story');
+        return {
+          storyId: storyId.toString(),
+          viewCount: await this.getStoryViewCount(storyId)
+        };
+      }
+
+      // Create or update view record (upsert to handle duplicates gracefully)
+      const viewData = {
+        storyId: storyId.toString(),
+        userId,
+        userName,
+        userProfileImage,
+        viewedAt: new Date()
+      };
+
+      // Use updateOne with upsert to avoid duplicate key errors
+      await StoryView.updateOne(
+        { storyId: storyId.toString(), userId },
+        { $set: viewData },
+        { upsert: true }
+      );
+
+      const viewCount = await this.getStoryViewCount(storyId);
+      
+      console.log('✅ Story view tracked. Total views:', viewCount);
+
+      // Broadcast view update to story owner via WebSocket
+      if (io) {
+        try {
+          io.to(story.userId).emit('story:view_update', {
+            storyId: storyId.toString(),
+            userId,
+            userName,
+            viewCount,
+            timestamp: new Date().toISOString()
+          });
+          console.log('✅ View update broadcast to story owner');
+        } catch (broadcastError) {
+          console.error('⚠️ Failed to broadcast view update:', broadcastError);
+        }
+      }
+      
+      return {
+        storyId: storyId.toString(),
+        viewCount
+      };
+    } catch (error) {
+      console.error('❌ Failed to track story view:', error);
+      // Don't throw error for view tracking - it's not critical
+      return {
+        storyId: storyId.toString(),
+        viewCount: 0
+      };
+    }
+  }
+
+  // Get view count for a story
+  async getStoryViewCount(storyId) {
+    try {
+      return await StoryView.countDocuments({ storyId: storyId.toString() });
+    } catch (error) {
+      console.error('❌ Failed to get view count:', error);
+      return 0;
+    }
+  }
+
+  // Get views for a story
+  async getStoryViews(storyId, options = {}) {
+    try {
+      const { limit = 50 } = options;
+      
+      console.log('👁️ Getting views for story:', storyId);
+      
+      // Verify story exists
+      const story = await Story.findById(storyId);
+      if (!story) {
+        throw new Error('Story not found');
+      }
+
+      const views = await StoryView.find({ storyId: storyId.toString() })
+        .sort({ viewedAt: -1 })
+        .limit(limit)
+        .lean();
+
+      const viewCount = await this.getStoryViewCount(storyId);
+      
+      console.log('✅ Found', views.length, 'views for story');
+      
+      return {
+        storyId: storyId.toString(),
+        viewCount,
+        views: views.map(view => ({
+          userId: view.userId,
+          userName: view.userName,
+          userProfileImage: view.userProfileImage,
+          viewedAt: view.viewedAt.toISOString()
+        }))
+      };
+    } catch (error) {
+      console.error('❌ Failed to get story views:', error);
+      throw new Error(`Failed to get story views: ${error.message}`);
+    }
+  }
+
   // Get user's contact IDs - now accepts contacts array from frontend
   async getUserContactIds(currentUserId, contactsArray = null) {
     try {
@@ -516,12 +635,19 @@ class StoryService {
       });
       console.log('🗑️ Cleaned up orphaned like records:', likeCleanupResult.deletedCount);
       
+      // 4. Clean up view records for deleted stories
+      const viewCleanupResult = await StoryView.deleteMany({
+        storyId: { $nin: existingStoryIds }
+      });
+      console.log('🗑️ Cleaned up orphaned view records:', viewCleanupResult.deletedCount);
+      
       console.log('✅ Story cleanup completed');
       return { 
         expiredDeleted: expiredResult.deletedCount,
         seenCleanupDeleted: seenCleanupResult.deletedCount,
         likeCleanupDeleted: likeCleanupResult.deletedCount,
-        totalDeleted: expiredResult.deletedCount + seenCleanupResult.deletedCount + likeCleanupResult.deletedCount
+        viewCleanupDeleted: viewCleanupResult.deletedCount,
+        totalDeleted: expiredResult.deletedCount + seenCleanupResult.deletedCount + likeCleanupResult.deletedCount + viewCleanupResult.deletedCount
       };
     } catch (error) {
       console.error('❌ Story cleanup failed:', error);

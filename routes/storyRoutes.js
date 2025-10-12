@@ -24,6 +24,12 @@ router.post('/:id/like', storyController.toggleStoryLike);
 // GET /api/stories/:id/likes - Get likes for a story
 router.get('/:id/likes', storyController.getStoryLikes);
 
+// POST /api/stories/:id/view - Track story view
+router.post('/:id/view', storyController.trackStoryView);
+
+// GET /api/stories/:id/views - Get views for a story
+router.get('/:id/views', storyController.getStoryViews);
+
 // DELETE /api/stories/:id - Delete a story
 router.delete('/:id', storyController.deleteStory);
 

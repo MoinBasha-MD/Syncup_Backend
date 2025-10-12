@@ -303,6 +303,100 @@ class StoryController {
     }
   }
 
+  // POST /api/stories/:id/view - Track story view
+  async trackStoryView(req, res) {
+    try {
+      console.log('👁️ Track story view request received');
+      
+      const { id } = req.params;
+      const currentUserId = req.user.userId || req.user.id || req.user._id?.toString();
+      const userName = req.user.fullName || req.user.name || req.user.username || 'Unknown User';
+      const userProfileImage = req.user.profileImage || null;
+
+      if (!currentUserId) {
+        return res.status(400).json({
+          success: false,
+          message: 'User authentication failed'
+        });
+      }
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Story ID is required'
+        });
+      }
+      
+      console.log('✅ Tracking view for story:', id, 'by user:', currentUserId);
+
+      // Get io instance from app (set in server.js)
+      const io = req.app.get('io');
+      const result = await storyService.trackStoryView(id, currentUserId, userName, userProfileImage, io);
+      
+      console.log('✅ Story view tracked successfully');
+
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ Error tracking story view:', error);
+      
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          success: false,
+          message: error.message
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to track story view'
+      });
+    }
+  }
+
+  // GET /api/stories/:id/views - Get views for a story
+  async getStoryViews(req, res) {
+    try {
+      console.log('👁️ Get story views request received');
+      
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Story ID is required'
+        });
+      }
+      
+      console.log('✅ Getting views for story:', id);
+
+      const result = await storyService.getStoryViews(id);
+      
+      console.log('✅ Story views retrieved successfully');
+
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ Error getting story views:', error);
+      
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          success: false,
+          message: error.message
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to get story views'
+      });
+    }
+  }
+
   // POST /api/stories/cleanup - Clean up expired and duplicate stories
   async cleanupStories(req, res) {
     try {
