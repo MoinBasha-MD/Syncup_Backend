@@ -49,17 +49,18 @@ const contactLimiter = createRateLimiter(
   'Too many contact requests, please try again after 5 minutes'
 );
 
-// Status endpoints rate limiter - 300 requests per 5 minutes
+// Status endpoints rate limiter - VERY HIGH LIMITS (essentially no restriction)
+// General status queries (GET) - 10000 requests per 5 minutes (no practical limit)
 const statusLimiter = createRateLimiter(
   5 * 60 * 1000, // 5 minutes
-  300,
+  10000, // Essentially unlimited for normal usage
   'Too many status requests, please try again after 5 minutes'
 );
 
-// Status update limiter - 100 updates per 5 minutes (more restrictive for writes)
+// Status updates (PUT/POST) - 5000 updates per 5 minutes (essentially unlimited)
 const statusUpdateLimiter = createRateLimiter(
   5 * 60 * 1000, // 5 minutes
-  100, // Lower limit for status updates specifically
+  5000, // Essentially unlimited for normal usage
   'Too many status updates, please try again after 5 minutes'
 );
 
