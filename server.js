@@ -371,15 +371,24 @@ app.set('io', io);
 // Start the scheduler for automatic status updates
 const schedulerRunner = require('./utils/schedulerRunner');
 schedulerRunner.start();
-console.log('Status scheduler started');
+console.log('✅ Status scheduler started');
+
+// Start the scheduler for automatic story cleanup
+const storyCleanupScheduler = require('./services/storyCleanupScheduler');
+storyCleanupScheduler.start();
+console.log('✅ Story cleanup scheduler started');
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
-  // Stop the scheduler
+  // Stop the schedulers
   if (schedulerRunner) {
     schedulerRunner.stop();
-    console.log('Status scheduler stopped');
+    console.log('✅ Status scheduler stopped');
+  }
+  if (storyCleanupScheduler) {
+    storyCleanupScheduler.stop();
+    console.log('✅ Story cleanup scheduler stopped');
   }
   // Close Socket.IO connections
   if (io) {
@@ -395,10 +404,14 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully');
-  // Stop the scheduler
+  // Stop the schedulers
   if (schedulerRunner) {
     schedulerRunner.stop();
-    console.log('Status scheduler stopped');
+    console.log('✅ Status scheduler stopped');
+  }
+  if (storyCleanupScheduler) {
+    storyCleanupScheduler.stop();
+    console.log('✅ Story cleanup scheduler stopped');
   }
   // Close Socket.IO connections
   if (io) {

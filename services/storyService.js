@@ -1,5 +1,6 @@
 const Story = require('../models/storyModel');
 const StorySeen = require('../models/storySeenModel');
+const StoryLike = require('../models/storyLikeModel');
 const User = require('../models/userModel');
 
 class StoryService {
@@ -48,6 +49,19 @@ class StoryService {
       const seenStories = await StorySeen.getSeenStoriesForUser(currentUserId, storyIds);
       const seenMap = new Map(seenStories.map(seen => [seen.storyId, seen.seenAt]));
 
+      // Get like status and counts for all stories
+      const likedStories = await StoryLike.getLikedStoriesByUser(currentUserId, storyIds);
+      const likedMap = new Map(likedStories.map(like => [like.storyId, like.likedAt]));
+      
+      // Get like counts for all stories
+      const likeCounts = await Promise.all(
+        storyIds.map(async storyId => ({
+          storyId,
+          count: await StoryLike.countLikes(storyId)
+        }))
+      );
+      const likeCountMap = new Map(likeCounts.map(lc => [lc.storyId, lc.count]));
+
       // Get user details for stories using userId field (string) instead of _id
       const userIds = [...new Set(stories.map(story => story.userId))];
       const users = await User.find({ userId: { $in: userIds } })
@@ -58,16 +72,21 @@ class StoryService {
       // Format response and sort: current user's stories first, then others by creation time
       const formattedStories = stories.map(story => {
         const user = userMap.get(story.userId);
-        const seen = seenMap.has(story._id.toString());
+        const storyIdStr = story._id.toString();
+        const seen = seenMap.has(storyIdStr);
+        const liked = likedMap.has(storyIdStr);
+        const likeCount = likeCountMap.get(storyIdStr) || 0;
 
         return {
-          id: story._id.toString(),
+          id: storyIdStr,
           userId: story.userId,
           userName: user?.name || 'Unknown User',
           userProfileImage: user?.profileImage || null,
           createdAt: story.createdAt.toISOString(),
           expiresAt: story.expiresAt.toISOString(),
           seen,
+          liked,
+          likeCount,
           items: story.items || []
         };
       });
@@ -338,6 +357,99 @@ class StoryService {
     }
   }
 
+  // Toggle story like (like/unlike)
+  async toggleStoryLike(storyId, userId) {
+    try {
+      console.log('❤️ Toggling story like - Story ID:', storyId, 'User ID:', userId);
+      
+      // Verify story exists and is not expired
+      const story = await Story.findOne({
+        _id: storyId,
+        expiresAt: { $gt: new Date() }
+      });
+
+      if (!story) {
+        console.log('❌ Story not found or expired');
+        throw new Error('Story not found or expired');
+      }
+
+      // Get user info for like record
+      const user = await User.findOne({ userId }).select('name profileImage');
+      const userName = user?.name || 'User';
+      const userProfileImage = user?.profileImage || null;
+
+      console.log('✅ Story found, toggling like');
+      
+      // Toggle like (returns liked status and like count)
+      const result = await StoryLike.toggleLike(
+        storyId.toString(), 
+        userId, 
+        userName, 
+        userProfileImage
+      );
+
+      // Broadcast like update to story owner via WebSocket
+      try {
+        const socketManager = require('../socketManager');
+        socketManager.broadcastToUser(story.userId, 'story:like_update', {
+          storyId: storyId.toString(),
+          userId,
+          userName,
+          liked: result.liked,
+          likeCount: result.likeCount,
+          timestamp: new Date().toISOString()
+        });
+        console.log('✅ Like update broadcast to story owner');
+      } catch (broadcastError) {
+        console.error('⚠️ Failed to broadcast like update:', broadcastError);
+      }
+      
+      console.log('✅ Story like toggled successfully:', result);
+      return {
+        storyId: storyId.toString(),
+        liked: result.liked,
+        likeCount: result.likeCount
+      };
+    } catch (error) {
+      console.error('❌ Failed to toggle story like:', error);
+      throw new Error(`Failed to toggle story like: ${error.message}`);
+    }
+  }
+
+  // Get likes for a story
+  async getStoryLikes(storyId, options = {}) {
+    try {
+      const { limit = 50 } = options;
+      
+      console.log('👥 Getting likes for story:', storyId);
+      
+      // Verify story exists
+      const story = await Story.findById(storyId);
+      if (!story) {
+        throw new Error('Story not found');
+      }
+
+      const likes = await StoryLike.getLikesForStory(storyId.toString(), limit);
+      const likeCount = await StoryLike.countLikes(storyId.toString());
+      
+      console.log('✅ Found', likes.length, 'likes for story');
+      
+      return {
+        storyId: storyId.toString(),
+        likeCount,
+        likes: likes.map(like => ({
+          userId: like.userId,
+          userName: like.userName,
+          userProfileImage: like.userProfileImage,
+          likedAt: like.likedAt.toISOString()
+        }))
+      };
+    } catch (error) {
+      console.error('❌ Failed to get story likes:', error);
+      throw new Error(`Failed to get story likes: ${error.message}`);
+    }
+  }
+
   // Get user's contact IDs - now accepts contacts array from frontend
   async getUserContactIds(currentUserId, contactsArray = null) {
     try {
@@ -391,16 +503,25 @@ class StoryService {
       console.log('🗑️ Deleted expired stories:', expiredResult.deletedCount);
       
       // 2. Clean up seen records for deleted stories
+      const existingStoryIds = await Story.find({}).distinct('_id').then(ids => ids.map(id => id.toString()));
+      
       const seenCleanupResult = await StorySeen.deleteMany({
-        storyId: { $nin: await Story.find({}).distinct('_id').then(ids => ids.map(id => id.toString())) }
+        storyId: { $nin: existingStoryIds }
       });
       console.log('🗑️ Cleaned up orphaned seen records:', seenCleanupResult.deletedCount);
+      
+      // 3. Clean up like records for deleted stories
+      const likeCleanupResult = await StoryLike.deleteMany({
+        storyId: { $nin: existingStoryIds }
+      });
+      console.log('🗑️ Cleaned up orphaned like records:', likeCleanupResult.deletedCount);
       
       console.log('✅ Story cleanup completed');
       return { 
         expiredDeleted: expiredResult.deletedCount,
         seenCleanupDeleted: seenCleanupResult.deletedCount,
-        totalDeleted: expiredResult.deletedCount + seenCleanupResult.deletedCount
+        likeCleanupDeleted: likeCleanupResult.deletedCount,
+        totalDeleted: expiredResult.deletedCount + seenCleanupResult.deletedCount + likeCleanupResult.deletedCount
       };
     } catch (error) {
       console.error('❌ Story cleanup failed:', error);

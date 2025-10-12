@@ -18,6 +18,12 @@ router.post('/contacts', storyController.getContactsStories);
 // POST /api/stories/seen - Mark story as seen
 router.post('/seen', storyController.markStorySeen);
 
+// POST /api/stories/:id/like - Toggle like on a story
+router.post('/:id/like', storyController.toggleStoryLike);
+
+// GET /api/stories/:id/likes - Get likes for a story
+router.get('/:id/likes', storyController.getStoryLikes);
+
 // DELETE /api/stories/:id - Delete a story
 router.delete('/:id', storyController.deleteStory);
 

@@ -203,6 +203,106 @@ class StoryController {
     }
   }
 
+  // POST /api/stories/:id/like - Toggle like on a story
+  async toggleStoryLike(req, res) {
+    try {
+      console.log('❤️ Toggle story like request received');
+      console.log('User object:', JSON.stringify(req.user, null, 2));
+      
+      const currentUserId = req.user.userId || req.user.id || req.user._id?.toString();
+      
+      if (!currentUserId) {
+        console.error('❌ No user ID found in request');
+        return res.status(400).json({
+          success: false,
+          message: 'User authentication failed - no user ID found'
+        });
+      }
+      
+      const { id } = req.params;
+
+      if (!id) {
+        console.error('❌ No story ID provided');
+        return res.status(400).json({
+          success: false,
+          message: 'Story ID is required'
+        });
+      }
+      
+      console.log('✅ Toggling like - Story ID:', id, 'User ID:', currentUserId);
+
+      const result = await storyService.toggleStoryLike(id, currentUserId);
+      
+      console.log('✅ Story like toggled successfully');
+
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ Error toggling story like:', error);
+      
+      if (res.headersSent) {
+        console.error('❌ Response already sent, cannot send error response');
+        return;
+      }
+      
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          success: false,
+          message: error.message
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to toggle story like'
+      });
+    }
+  }
+
+  // GET /api/stories/:id/likes - Get likes for a story
+  async getStoryLikes(req, res) {
+    try {
+      console.log('👥 Get story likes request received');
+      
+      const { id } = req.params;
+
+      if (!id) {
+        console.error('❌ No story ID provided');
+        return res.status(400).json({
+          success: false,
+          message: 'Story ID is required'
+        });
+      }
+      
+      console.log('✅ Getting likes for story:', id);
+
+      const result = await storyService.getStoryLikes(id);
+      
+      console.log('✅ Story likes retrieved successfully');
+
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ Error getting story likes:', error);
+      
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          success: false,
+          message: error.message
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to get story likes'
+      });
+    }
+  }
+
   // POST /api/stories/cleanup - Clean up expired and duplicate stories
   async cleanupStories(req, res) {
     try {

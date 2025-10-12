@@ -1,0 +1,3 @@
+{"compression":true,"cors":"open","level":"info","message":"Socket.IO initialized","service":"connections","timestamp":"2025-10-12T05:05:17.212Z","transports":["websocket","polling"]}
+{"level":"info","message":"🔌 Connection Manager Ready","service":"connections","timestamp":"2025-10-12T05:05:17.319Z"}
+{"level":"info","message":"Shutting down Socket.IO server...","service":"connections","timestamp":"2025-10-12T05:05:49.290Z"}
