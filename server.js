@@ -51,6 +51,7 @@ const aiCommunicationRoutes = require('./routes/aiCommunicationRoutes');
 const globalSearchRoutes = require('./routes/globalSearchRoutes');
 const connectionRoutes = require('./routes/connectionRoutes');
 const blockRoutes = require('./routes/blockRoutes');
+const callRoutes = require('./routes/callRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
@@ -223,6 +224,7 @@ app.use('/api/ai', apiLimiter, aiCommunicationRoutes); // AI-to-AI communication
 app.use('/api/search', apiLimiter, globalSearchRoutes); // Global user search routes
 app.use('/api/connections', apiLimiter, connectionRoutes); // Connection request management routes
 app.use('/api/blocks', apiLimiter, blockRoutes); // User blocking management routes
+app.use('/api/calls', apiLimiter, callRoutes); // Call history and management routes
 
 // Serve static files from the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

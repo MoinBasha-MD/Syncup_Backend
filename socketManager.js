@@ -1,7 +1,9 @@
 const socketIO = require('socket.io');
 const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
 const User = require('./models/userModel');
 const StatusPrivacy = require('./models/statusPrivacyModel');
+const Call = require('./models/callModel');
 const AIMessageService = require('./services/aiMessageService');
 const AISocketService = require('./services/aiSocketService');
 const { connectionLogger } = require('./utils/loggerSetup');
@@ -450,6 +452,286 @@ const initializeSocketIO = (server) => {
     
     // Note: Client-side 'message:send' socket path is deprecated.
     // New messages are sent via REST controller, which persists and broadcasts.
+    
+    // 📞 WEBRTC CALLING FEATURES
+    // Track active calls to prevent duplicate calls (shared across all connections)
+    const activeCalls = global.activeCalls || (global.activeCalls = new Map());
+    
+    // Helper function to check if user is on a call
+    const isUserOnCall = (checkUserId) => {
+      for (const [callId, callData] of activeCalls.entries()) {
+        if (callData.callerId === checkUserId || callData.receiverId === checkUserId) {
+          return true;
+        }
+      }
+      return false;
+    };
+    
+    // Call initiation
+    socket.on('call:initiate', async (data) => {
+      console.log(`📞 Call initiation from ${userId} to ${data.receiverId}`);
+      
+      try {
+        const { receiverId, callType, offer } = data;
+        
+        // Validate call type
+        if (!['voice', 'video'].includes(callType)) {
+          socket.emit('call:failed', { reason: 'Invalid call type' });
+          return;
+        }
+        
+        // Find receiver
+        const receiver = await User.findOne({ userId: receiverId }).select('_id userId name profileImage');
+        if (!receiver) {
+          console.log(`❌ Receiver not found: ${receiverId}`);
+          socket.emit('call:failed', { reason: 'User not found' });
+          return;
+        }
+        
+        // Check if receiver is online
+        const receiverSocket = userSockets.get(receiver.userId);
+        if (!receiverSocket || !receiverSocket.connected) {
+          console.log(`❌ Receiver ${receiverId} is offline`);
+          socket.emit('call:failed', { reason: 'User is offline' });
+          return;
+        }
+        
+        // Check if receiver is busy (already on a call)
+        if (isUserOnCall(receiver.userId)) {
+          console.log(`📞 Receiver ${receiverId} is busy on another call`);
+          socket.emit('call:busy', { userId: receiverId });
+          return;
+        }
+        
+        // Check if caller is busy
+        if (isUserOnCall(userId)) {
+          console.log(`📞 Caller ${userId} is already on a call`);
+          socket.emit('call:failed', { reason: 'You are already on a call' });
+          return;
+        }
+        
+        // Generate unique call ID
+        const callId = `call_${Date.now()}_${uuidv4().slice(0, 8)}`;
+        
+        // Get caller details
+        const caller = await User.findOne({ userId }).select('name profileImage');
+        
+        // Create call record in database
+        const call = await Call.create({
+          callId,
+          callerId: userId,
+          callerName: caller?.name || 'Unknown',
+          callerAvatar: caller?.profileImage || null,
+          receiverId: receiver.userId,
+          receiverName: receiver.name,
+          receiverAvatar: receiver.profileImage || null,
+          callType,
+          status: 'ringing',
+          offerSDP: offer?.sdp || null
+        });
+        
+        // Track active call
+        activeCalls.set(callId, {
+          callerId: userId,
+          receiverId: receiver.userId,
+          startTime: new Date(),
+          callType
+        });
+        
+        console.log(`✅ Call ${callId} created, notifying receiver ${receiver.name}`);
+        
+        // Notify receiver about incoming call
+        receiverSocket.emit('call:incoming', {
+          callId,
+          callerId: userId,
+          callerName: caller?.name || 'Unknown',
+          callerAvatar: caller?.profileImage || null,
+          callType,
+          offer
+        });
+        
+        // Confirm to caller that call is ringing
+        socket.emit('call:ringing', {
+          callId,
+          receiverId: receiver.userId,
+          receiverName: receiver.name
+        });
+        
+        console.log(`📞 Call ${callId} is ringing`);
+        
+      } catch (error) {
+        console.error('❌ Error initiating call:', error);
+        socket.emit('call:failed', { reason: 'Server error' });
+      }
+    });
+    
+    // Call answer
+    socket.on('call:answer', async (data) => {
+      console.log(`📞 Call answered: ${data.callId}`);
+      
+      try {
+        const { callId, answer } = data;
+        
+        // Find call record
+        const call = await Call.findOne({ callId });
+        if (!call) {
+          console.log(`❌ Call ${callId} not found`);
+          socket.emit('call:failed', { reason: 'Call not found' });
+          return;
+        }
+        
+        // Update call status
+        call.status = 'connected';
+        call.startTime = new Date();
+        call.answerSDP = answer?.sdp || null;
+        await call.save();
+        
+        console.log(`✅ Call ${callId} connected`);
+        
+        // Notify caller that call was answered
+        const callerSocket = userSockets.get(call.callerId);
+        if (callerSocket && callerSocket.connected) {
+          callerSocket.emit('call:answered', {
+            callId,
+            answer
+          });
+        }
+        
+        // Confirm to receiver
+        socket.emit('call:connected', { callId });
+        
+      } catch (error) {
+        console.error('❌ Error answering call:', error);
+        socket.emit('call:failed', { reason: 'Failed to answer call' });
+      }
+    });
+    
+    // Call reject
+    socket.on('call:reject', async (data) => {
+      console.log(`📞 Call rejected: ${data.callId}`);
+      
+      try {
+        const { callId } = data;
+        
+        // Find and update call record
+        const call = await Call.findOne({ callId });
+        if (call) {
+          call.status = 'rejected';
+          call.endTime = new Date();
+          call.endReason = 'rejected';
+          await call.save();
+          
+          // Remove from active calls
+          activeCalls.delete(callId);
+          
+          // Notify caller about rejection
+          const callerSocket = userSockets.get(call.callerId);
+          if (callerSocket && callerSocket.connected) {
+            callerSocket.emit('call:rejected', { callId });
+          }
+        }
+        
+      } catch (error) {
+        console.error('❌ Error rejecting call:', error);
+      }
+    });
+    
+    // Call end
+    socket.on('call:end', async (data) => {
+      console.log(`📞 Call ended: ${data.callId}`);
+      
+      try {
+        const { callId } = data;
+        
+        // Find and update call record
+        const call = await Call.findOne({ callId });
+        if (call) {
+          call.status = 'ended';
+          call.endTime = new Date();
+          call.endReason = 'user_ended';
+          call.calculateDuration();
+          await call.save();
+          
+          // Remove from active calls
+          activeCalls.delete(callId);
+          
+          console.log(`✅ Call ${callId} ended, duration: ${call.duration}s`);
+          
+          // Notify both parties
+          const callerId = call.callerId;
+          const receiverId = call.receiverId;
+          
+          [callerId, receiverId].forEach(notifyUserId => {
+            if (notifyUserId !== userId) { // Don't notify the user who ended the call
+              const userSocket = userSockets.get(notifyUserId);
+              if (userSocket && userSocket.connected) {
+                userSocket.emit('call:ended', {
+                  callId,
+                  duration: call.duration,
+                  endReason: 'user_ended'
+                });
+              }
+            }
+          });
+        }
+        
+      } catch (error) {
+        console.error('❌ Error ending call:', error);
+      }
+    });
+    
+    // ICE candidate exchange
+    socket.on('call:ice-candidate', async (data) => {
+      console.log(`🧊 ICE candidate from ${userId} for call ${data.callId}`);
+      
+      try {
+        const { callId, candidate, targetUserId } = data;
+        
+        // Forward ICE candidate to target user
+        const targetSocket = userSockets.get(targetUserId);
+        if (targetSocket && targetSocket.connected) {
+          targetSocket.emit('call:ice-candidate', {
+            callId,
+            candidate,
+            fromUserId: userId
+          });
+          console.log(`✅ ICE candidate forwarded to ${targetUserId}`);
+        } else {
+          console.log(`❌ Target user ${targetUserId} not connected`);
+        }
+        
+      } catch (error) {
+        console.error('❌ Error exchanging ICE candidate:', error);
+      }
+    });
+    
+    // Handle call timeout (if receiver doesn't answer in 60 seconds)
+    setTimeout(() => {
+      activeCalls.forEach(async (callData, callId) => {
+        const callAge = Date.now() - callData.startTime.getTime();
+        if (callAge > 60000) { // 60 seconds timeout
+          console.log(`⏰ Call ${callId} timed out`);
+          
+          // Update call status
+          const call = await Call.findOne({ callId });
+          if (call && call.status === 'ringing') {
+            call.status = 'missed';
+            call.endTime = new Date();
+            call.endReason = 'timeout';
+            await call.save();
+            
+            // Remove from active calls
+            activeCalls.delete(callId);
+            
+            // Notify caller
+            const callerSocket = userSockets.get(callData.callerId);
+            if (callerSocket && callerSocket.connected) {
+              callerSocket.emit('call:timeout', { callId });
+            }
+          }
+        }
+      });
+    }, 30000); // Check every 30 seconds
     
     // 💬 CHAT FEATURES: Message Status Updates
     socket.on('message:delivered', (data) => {
