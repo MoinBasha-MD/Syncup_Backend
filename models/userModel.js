@@ -177,6 +177,30 @@ const userSchema = mongoose.Schema(
     }],
     resetPasswordToken: String,
     resetPasswordExpire: Date,
+    // Device tokens for push notifications and background service
+    deviceTokens: [{
+      token: {
+        type: String,
+        required: true
+      },
+      platform: {
+        type: String,
+        enum: ['android', 'ios'],
+        required: true
+      },
+      lastActive: {
+        type: Date,
+        default: Date.now
+      },
+      isActive: {
+        type: Boolean,
+        default: true
+      },
+      registeredAt: {
+        type: Date,
+        default: Date.now
+      }
+    }],
     // Chat encryption settings
     encryptionSettings: {
       isEnabled: {

@@ -364,6 +364,74 @@ const initializeSocketIO = (server) => {
       }
     });
 
+    // 📱 DEVICE REGISTRATION: Register device token for background notifications
+    socket.on('device:register', async (data) => {
+      try {
+        const { deviceToken, platform } = data;
+        
+        console.log('📱 [DEVICE] Device registration request:', {
+          userId,
+          userName,
+          deviceToken: deviceToken?.substring(0, 20) + '...',
+          platform
+        });
+        
+        if (!deviceToken || !platform) {
+          throw new Error('Device token and platform are required');
+        }
+        
+        // Update user with device token
+        const user = await User.findById(socket.user.id);
+        
+        if (!user) {
+          throw new Error('User not found');
+        }
+        
+        // Check if device token already exists
+        const existingTokenIndex = user.deviceTokens.findIndex(
+          dt => dt.token === deviceToken
+        );
+        
+        if (existingTokenIndex >= 0) {
+          // Update existing token
+          user.deviceTokens[existingTokenIndex].lastActive = new Date();
+          user.deviceTokens[existingTokenIndex].isActive = true;
+          console.log('📱 [DEVICE] Updated existing device token');
+        } else {
+          // Add new device token
+          user.deviceTokens.push({
+            token: deviceToken,
+            platform,
+            lastActive: new Date(),
+            isActive: true,
+            registeredAt: new Date()
+          });
+          console.log('📱 [DEVICE] Added new device token');
+        }
+        
+        await user.save();
+        
+        // Confirm registration
+        socket.emit('device:registered', {
+          success: true,
+          deviceToken,
+          message: 'Device successfully registered'
+        });
+        
+        console.log('✅ [DEVICE] Device registration successful:', {
+          userId,
+          totalDevices: user.deviceTokens.length
+        });
+        
+      } catch (error) {
+        console.error('❌ [DEVICE] Device registration error:', error);
+        socket.emit('device:registered', {
+          success: false,
+          message: 'Device registration failed: ' + error.message
+        });
+      }
+    });
+
     // Handle contact list update
     socket.on('update_contacts', async () => {
       try {
