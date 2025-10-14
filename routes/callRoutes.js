@@ -8,7 +8,8 @@ const {
   markCallAsSeen,
   deleteCall,
   getCallStats,
-  getCallDetails
+  getCallDetails,
+  saveCallToHistory
 } = require('../controllers/callController');
 
 // All routes are protected
@@ -16,6 +17,7 @@ router.use(protect);
 
 // Call history
 router.get('/history', getCallHistory);
+router.post('/history', saveCallToHistory);
 
 // Missed calls
 router.get('/missed', getMissedCalls);

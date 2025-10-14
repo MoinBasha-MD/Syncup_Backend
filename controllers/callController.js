@@ -226,6 +226,71 @@ const getCallDetails = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Save call to history
+// @route   POST /api/calls/history
+// @access  Private
+const saveCallToHistory = asyncHandler(async (req, res) => {
+  const userId = req.user.userId;
+  const {
+    callId,
+    contactId,
+    callType,
+    direction,
+    status,
+    startTime,
+    endTime,
+    duration,
+    callQuality
+  } = req.body;
+
+  // Validate required fields
+  if (!callId || !contactId || !callType || !direction || !status) {
+    res.status(400);
+    throw new Error('Missing required fields');
+  }
+
+  // Determine caller and receiver based on direction
+  const callerId = direction === 'outgoing' ? userId : contactId;
+  const receiverId = direction === 'incoming' ? userId : contactId;
+
+  // Check if call already exists
+  const existingCall = await Call.findOne({ callId });
+  if (existingCall) {
+    // Update existing call
+    existingCall.status = status;
+    existingCall.endTime = endTime || existingCall.endTime;
+    existingCall.duration = duration || existingCall.duration;
+    existingCall.callQuality = callQuality || existingCall.callQuality;
+    await existingCall.save();
+
+    return res.json({
+      success: true,
+      message: 'Call history updated',
+      call: existingCall
+    });
+  }
+
+  // Create new call record
+  const call = await Call.create({
+    callId,
+    callerId,
+    receiverId,
+    callType,
+    status,
+    startTime: startTime || new Date(),
+    endTime: endTime || null,
+    duration: duration || 0,
+    callQuality: callQuality || 'unknown',
+    missedCallSeen: status !== 'missed'
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Call saved to history',
+    call
+  });
+});
+
 module.exports = {
   getCallHistory,
   getMissedCalls,
@@ -233,5 +298,6 @@ module.exports = {
   markCallAsSeen,
   deleteCall,
   getCallStats,
-  getCallDetails
+  getCallDetails,
+  saveCallToHistory
 };
