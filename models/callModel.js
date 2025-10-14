@@ -40,7 +40,7 @@ const callSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['initiated', 'ringing', 'connected', 'ended', 'missed', 'rejected', 'busy', 'failed'],
+    enum: ['initiated', 'ringing', 'connected', 'ended', 'completed', 'missed', 'rejected', 'busy', 'failed', 'timeout'],
     default: 'initiated',
     index: true
   },
@@ -55,6 +55,11 @@ const callSchema = new mongoose.Schema({
   duration: {
     type: Number, // in seconds
     default: 0
+  },
+  callQuality: {
+    type: String,
+    enum: ['excellent', 'good', 'poor', 'unknown'],
+    default: 'unknown'
   },
   endReason: {
     type: String,

@@ -530,12 +530,34 @@ const initializeSocketIO = (server) => {
           offerSDP: offer?.sdp || null
         });
         
-        // Track active call
+        // Track active call with timeout
+        const callTimeout = setTimeout(async () => {
+          console.log(`⏰ Call ${callId} timed out after 60 seconds`);
+          
+          const call = await Call.findOne({ callId });
+          if (call && call.status === 'ringing') {
+            call.status = 'missed';
+            call.endTime = new Date();
+            call.endReason = 'timeout';
+            await call.save();
+            
+            // Remove from active calls
+            activeCalls.delete(callId);
+            
+            // Notify caller
+            const callerSocket = userSockets.get(userId);
+            if (callerSocket && callerSocket.connected) {
+              callerSocket.emit('call:timeout', { callId });
+            }
+          }
+        }, 60000); // 60 seconds
+        
         activeCalls.set(callId, {
           callerId: userId,
           receiverId: receiver.userId,
           startTime: new Date(),
-          callType
+          callType,
+          timeoutId: callTimeout
         });
         
         console.log(`✅ Call ${callId} created, notifying receiver ${receiver.name}`);
@@ -580,6 +602,13 @@ const initializeSocketIO = (server) => {
           return;
         }
         
+        // Clear timeout
+        const activeCall = activeCalls.get(callId);
+        if (activeCall && activeCall.timeoutId) {
+          clearTimeout(activeCall.timeoutId);
+          console.log(`⏰ Call timeout cleared for ${callId}`);
+        }
+        
         // Update call status
         call.status = 'connected';
         call.startTime = new Date();
@@ -621,7 +650,11 @@ const initializeSocketIO = (server) => {
           call.endReason = 'rejected';
           await call.save();
           
-          // Remove from active calls
+          // Clear timeout and remove from active calls
+          const activeCall = activeCalls.get(callId);
+          if (activeCall && activeCall.timeoutId) {
+            clearTimeout(activeCall.timeoutId);
+          }
           activeCalls.delete(callId);
           
           // Notify caller about rejection
@@ -652,7 +685,11 @@ const initializeSocketIO = (server) => {
           call.calculateDuration();
           await call.save();
           
-          // Remove from active calls
+          // Clear timeout and remove from active calls
+          const activeCall = activeCalls.get(callId);
+          if (activeCall && activeCall.timeoutId) {
+            clearTimeout(activeCall.timeoutId);
+          }
           activeCalls.delete(callId);
           
           console.log(`✅ Call ${callId} ended, duration: ${call.duration}s`);
@@ -705,33 +742,87 @@ const initializeSocketIO = (server) => {
       }
     });
     
-    // Handle call timeout (if receiver doesn't answer in 60 seconds)
-    setTimeout(() => {
-      activeCalls.forEach(async (callData, callId) => {
-        const callAge = Date.now() - callData.startTime.getTime();
-        if (callAge > 60000) { // 60 seconds timeout
-          console.log(`⏰ Call ${callId} timed out`);
+    // Network quality update
+    socket.on('call:quality-update', async (data) => {
+      console.log(`📊 Quality update from ${userId} for call ${data.callId}: ${data.quality}`);
+      
+      try {
+        const { callId, quality, metrics } = data;
+        
+        // Find call to get other participant
+        const call = await Call.findOne({ callId });
+        if (call) {
+          const targetUserId = call.callerId === userId ? call.receiverId : call.callerId;
+          const targetSocket = userSockets.get(targetUserId);
           
-          // Update call status
-          const call = await Call.findOne({ callId });
-          if (call && call.status === 'ringing') {
-            call.status = 'missed';
-            call.endTime = new Date();
-            call.endReason = 'timeout';
-            await call.save();
-            
-            // Remove from active calls
-            activeCalls.delete(callId);
-            
-            // Notify caller
-            const callerSocket = userSockets.get(callData.callerId);
-            if (callerSocket && callerSocket.connected) {
-              callerSocket.emit('call:timeout', { callId });
-            }
+          if (targetSocket && targetSocket.connected) {
+            targetSocket.emit('call:quality-update', {
+              callId,
+              quality,
+              metrics
+            });
+            console.log(`✅ Quality update forwarded to ${targetUserId}`);
           }
         }
-      });
-    }, 30000); // Check every 30 seconds
+      } catch (error) {
+        console.error('❌ Error forwarding quality update:', error);
+      }
+    });
+    
+    // ICE restart
+    socket.on('call:ice-restart', async (data) => {
+      console.log(`🔄 ICE restart from ${userId} for call ${data.callId}`);
+      
+      try {
+        const { callId, offer } = data;
+        
+        // Find call to get other participant
+        const call = await Call.findOne({ callId });
+        if (call) {
+          const targetUserId = call.callerId === userId ? call.receiverId : call.callerId;
+          const targetSocket = userSockets.get(targetUserId);
+          
+          if (targetSocket && targetSocket.connected) {
+            targetSocket.emit('call:ice-restart', {
+              callId,
+              offer
+            });
+            console.log(`✅ ICE restart offer forwarded to ${targetUserId}`);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error forwarding ICE restart:', error);
+      }
+    });
+    
+    // ICE restart answer
+    socket.on('call:ice-restart-answer', async (data) => {
+      console.log(`🔄 ICE restart answer from ${userId} for call ${data.callId}`);
+      
+      try {
+        const { callId, answer } = data;
+        
+        // Find call to get other participant
+        const call = await Call.findOne({ callId });
+        if (call) {
+          const targetUserId = call.callerId === userId ? call.receiverId : call.callerId;
+          const targetSocket = userSockets.get(targetUserId);
+          
+          if (targetSocket && targetSocket.connected) {
+            targetSocket.emit('call:ice-restart-answer', {
+              callId,
+              answer
+            });
+            console.log(`✅ ICE restart answer forwarded to ${targetUserId}`);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error forwarding ICE restart answer:', error);
+      }
+    });
+    
+    // Note: Call timeout is now handled per-call using setTimeout in call:initiate
+    // This eliminates the need for inefficient polling every 30 seconds
     
     // 💬 CHAT FEATURES: Message Status Updates
     socket.on('message:delivered', (data) => {
