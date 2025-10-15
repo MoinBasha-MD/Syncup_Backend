@@ -91,13 +91,13 @@ const sendMessage = async (req, res) => {
     const savedMessage = await newMessage.save();
     console.log('✅ Message saved to database:', savedMessage._id);
 
-    // Broadcast message to receiver via WebSocket using userId (NOT MongoDB _id)
+    // ENHANCED: Multi-device notification broadcast
     try {
       console.log('📡 Attempting to broadcast message to receiver...');
       console.log('🔍 Broadcasting to receiverId (userId):', receiverId);
       console.log('🔍 Receiver MongoDB ObjectId:', receiverObjectId);
       
-      const broadcastSuccess = broadcastToUser(receiverId, 'message:new', {
+      const messageData = {
         _id: savedMessage._id,
         senderId: savedMessage.senderId,
         receiverId: savedMessage.receiverId,
@@ -105,15 +105,50 @@ const sendMessage = async (req, res) => {
         messageType: savedMessage.messageType,
         timestamp: savedMessage.timestamp,
         status: 'delivered'
-      });
+      };
+      
+      // Strategy 1: Primary WebSocket broadcast
+      const broadcastSuccess = broadcastToUser(receiverId, 'message:new', messageData);
       
       if (broadcastSuccess) {
-        console.log('✅ Message successfully broadcasted to receiver via WebSocket');
-        // Update message status to delivered
+        console.log('✅ Message successfully broadcasted via primary WebSocket');
         savedMessage.status = 'delivered';
         await savedMessage.save();
       } else {
-        console.log('⚠️ Message not delivered via WebSocket (receiver offline), but saved to database');
+        console.log('⚠️ Primary WebSocket failed, trying multi-device broadcast...');
+        
+        // Strategy 2: Multi-device notification broadcast
+        const receiverWithDevices = await User.findOne({ userId: receiverId }).select('deviceTokens');
+        if (receiverWithDevices && receiverWithDevices.deviceTokens && receiverWithDevices.deviceTokens.length > 0) {
+          console.log(`📱 [MESSAGE] Broadcasting to ${receiverWithDevices.deviceTokens.length} registered device(s)`);
+          
+          const io = req.app.get('io'); // Get Socket.IO instance
+          let deviceNotified = false;
+          
+          receiverWithDevices.deviceTokens.forEach((device, index) => {
+            if (device.isActive) {
+              console.log(`📱 [MESSAGE] Notifying device ${index + 1}:`, {
+                platform: device.platform,
+                tokenPreview: device.token.substring(0, 20) + '...',
+                lastActive: device.lastActive
+              });
+              
+              // Emit to device-specific channel
+              io.emit(`message:new:${device.token}`, messageData);
+              deviceNotified = true;
+            }
+          });
+          
+          if (deviceNotified) {
+            console.log('✅ [MESSAGE] Notification sent to active devices');
+            savedMessage.status = 'delivered';
+            await savedMessage.save();
+          } else {
+            console.log('⚠️ [MESSAGE] No active devices found');
+          }
+        } else {
+          console.log('⚠️ [MESSAGE] Receiver has no registered devices');
+        }
       }
     } catch (socketError) {
       console.error('❌ Error broadcasting message:', socketError);

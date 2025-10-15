@@ -556,13 +556,16 @@ const initializeSocketIO = (server) => {
           return;
         }
         
-        // Check if receiver is online
+        // Check if receiver is online (primary WebSocket)
         const receiverSocket = userSockets.get(receiver.userId);
-        if (!receiverSocket || !receiverSocket.connected) {
-          console.log(`❌ Receiver ${receiverId} is offline`);
-          socket.emit('call:failed', { reason: 'User is offline' });
-          return;
-        }
+        const isReceiverOnline = receiverSocket && receiverSocket.connected;
+        
+        console.log(`🔍 [CALL] Receiver online status:`, {
+          receiverId: receiver.userId,
+          hasSocket: !!receiverSocket,
+          isConnected: receiverSocket?.connected || false,
+          deviceTokens: receiver.deviceTokens?.length || 0
+        });
         
         // Check if receiver is busy (already on a call)
         if (isUserOnCall(receiver.userId)) {
@@ -630,15 +633,66 @@ const initializeSocketIO = (server) => {
         
         console.log(`✅ Call ${callId} created, notifying receiver ${receiver.name}`);
         
-        // Notify receiver about incoming call
-        receiverSocket.emit('call:incoming', {
+        // Prepare call notification data
+        const callNotificationData = {
           callId,
           callerId: userId,
           callerName: caller?.name || 'Unknown',
           callerAvatar: caller?.profileImage || null,
           callType,
           offer
-        });
+        };
+        
+        // MULTI-DEVICE NOTIFICATION STRATEGY
+        let notificationSent = false;
+        
+        // Strategy 1: Primary WebSocket (if online)
+        if (isReceiverOnline) {
+          console.log(`📱 [CALL] Strategy 1: Sending via primary WebSocket`);
+          receiverSocket.emit('call:incoming', callNotificationData);
+          notificationSent = true;
+          console.log(`✅ [CALL] Notification sent via WebSocket`);
+        }
+        
+        // Strategy 2: Fallback to all registered devices (if WebSocket failed or as backup)
+        const receiverWithDevices = await User.findOne({ userId: receiverId }).select('deviceTokens');
+        if (receiverWithDevices && receiverWithDevices.deviceTokens && receiverWithDevices.deviceTokens.length > 0) {
+          console.log(`📱 [CALL] Strategy 2: Notifying ${receiverWithDevices.deviceTokens.length} registered device(s)`);
+          
+          // Emit to all active device tokens (for foreground services)
+          receiverWithDevices.deviceTokens.forEach((device, index) => {
+            if (device.isActive) {
+              console.log(`📱 [CALL] Notifying device ${index + 1}:`, {
+                platform: device.platform,
+                tokenPreview: device.token.substring(0, 20) + '...',
+                lastActive: device.lastActive
+              });
+              
+              // Emit special event for background service
+              io.emit(`call:incoming:${device.token}`, callNotificationData);
+            }
+          });
+          
+          notificationSent = true;
+          console.log(`✅ [CALL] Notification sent to all active devices`);
+        }
+        
+        // Strategy 3: If still no notification sent, mark as offline
+        if (!notificationSent) {
+          console.log(`❌ [CALL] No notification method available - user truly offline`);
+          socket.emit('call:failed', { reason: 'User is offline' });
+          
+          // Clean up call
+          activeCalls.delete(callId);
+          clearTimeout(callTimeout);
+          
+          await Call.findOneAndUpdate(
+            { callId },
+            { status: 'failed', endTime: new Date(), endReason: 'receiver_offline' }
+          );
+          
+          return;
+        }
         
         // Confirm to caller that call is ringing
         socket.emit('call:ringing', {
@@ -647,7 +701,7 @@ const initializeSocketIO = (server) => {
           receiverName: receiver.name
         });
         
-        console.log(`📞 Call ${callId} is ringing`);
+        console.log(`📞 Call ${callId} is ringing - notification sent successfully`);
         
       } catch (error) {
         console.error('❌ Error initiating call:', error);
