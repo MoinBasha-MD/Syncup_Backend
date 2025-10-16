@@ -97,10 +97,19 @@ const sendMessage = async (req, res) => {
       console.log('🔍 Broadcasting to receiverId (userId):', receiverId);
       console.log('🔍 Receiver MongoDB ObjectId:', receiverObjectId);
       
+      // CRITICAL FIX: Get sender information for notifications
+      const sender = await User.findOne({ userId: senderId }).select('name profileImage');
+      const senderName = sender ? sender.name : 'Unknown User';
+      const senderProfileImage = sender ? sender.profileImage : null;
+      
+      console.log('👤 Sender info for notification:', { senderId, senderName, senderProfileImage });
+      
       const messageData = {
         _id: savedMessage._id,
         senderId: savedMessage.senderId,
         receiverId: savedMessage.receiverId,
+        senderName: senderName, // ✅ ADDED for notifications
+        senderProfileImage: senderProfileImage, // ✅ ADDED for notifications
         message: savedMessage.message,
         messageType: savedMessage.messageType,
         timestamp: savedMessage.timestamp,
@@ -688,10 +697,17 @@ const sendReply = async (req, res) => {
       console.log('🔍 Broadcasting to receiverId (userId):', receiverId);
       console.log('🔍 Receiver MongoDB ObjectId:', receiverObjectId);
       
+      // Get sender information for notifications
+      const sender = await User.findOne({ userId: senderId }).select('name profileImage');
+      const senderName = sender ? sender.name : 'Unknown User';
+      const senderProfileImage = sender ? sender.profileImage : null;
+      
       const broadcastSuccess = broadcastToUser(receiverId, 'message:new', {
         _id: savedMessage._id,
         senderId: savedMessage.senderId,
         receiverId: savedMessage.receiverId,
+        senderName: senderName, // ✅ ADDED for notifications
+        senderProfileImage: senderProfileImage, // ✅ ADDED for notifications
         message: savedMessage.message,
         messageType: savedMessage.messageType,
         replyTo: savedMessage.replyTo,
@@ -979,10 +995,17 @@ const sendVoiceMessage = async (req, res) => {
 
     // Broadcast to receiver via WebSocket
     try {
-      const broadcastResult = await broadcastToUser(receiverId, 'new_message', {
+      // Get sender information for notifications
+      const sender = await User.findOne({ userId: senderId }).select('name profileImage');
+      const senderName = sender ? sender.name : 'Unknown User';
+      const senderProfileImage = sender ? sender.profileImage : null;
+      
+      const broadcastResult = await broadcastToUser(receiverId, 'message:new', {
         _id: savedMessage._id,
         senderId: savedMessage.senderId,
         receiverId: savedMessage.receiverId,
+        senderName: senderName, // ✅ ADDED for notifications
+        senderProfileImage: senderProfileImage, // ✅ ADDED for notifications
         message: savedMessage.message,
         messageType: savedMessage.messageType,
         voiceMetadata: savedMessage.voiceMetadata,
