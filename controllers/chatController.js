@@ -2,6 +2,7 @@ const Message = require('../models/Message');
 const User = require('../models/userModel');
 const Block = require('../models/blockModel');
 const { broadcastToUser } = require('../socketManager');
+const enhancedNotificationService = require('../services/enhancedNotificationService');
 
 // Send a message
 const sendMessage = async (req, res) => {
@@ -118,6 +119,20 @@ const sendMessage = async (req, res) => {
       
       // Strategy 1: Primary WebSocket broadcast
       const broadcastSuccess = broadcastToUser(receiverId, 'message:new', messageData);
+      
+      // CRITICAL: Send notification via enhancedNotificationService
+      try {
+        console.log('🔔 [NOTIFICATION] Sending chat message notification...');
+        await enhancedNotificationService.sendChatMessageNotification(
+          senderId,
+          receiverId,
+          savedMessage
+        );
+        console.log('✅ [NOTIFICATION] Notification sent successfully');
+      } catch (notifError) {
+        console.error('❌ [NOTIFICATION] Error sending notification:', notifError);
+        // Don't fail the message send if notification fails
+      }
       
       if (broadcastSuccess) {
         console.log('✅ Message successfully broadcasted via primary WebSocket');
