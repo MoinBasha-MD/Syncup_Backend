@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
-const { updateUserStatus } = require('../controllers/statusController'); // Use statusController instead of userController
+const { updateUserStatus, getNearbyUsers } = require('../controllers/statusController'); // Use statusController instead of userController
 const {
   getStatusHistory,
   createStatusHistory,
@@ -30,6 +30,10 @@ const {
 // Current status routes
 router.route('/')
   .put(protect, updateUserStatus);
+
+// Nearby users route
+router.route('/nearby')
+  .get(protect, getNearbyUsers);
 
 // Status history routes
 router.route('/history')

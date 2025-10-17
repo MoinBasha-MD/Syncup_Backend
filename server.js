@@ -52,6 +52,7 @@ const globalSearchRoutes = require('./routes/globalSearchRoutes');
 const connectionRoutes = require('./routes/connectionRoutes');
 const blockRoutes = require('./routes/blockRoutes');
 const callRoutes = require('./routes/callRoutes');
+const locationRoutes = require('./routes/locationRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
@@ -207,6 +208,7 @@ app.use('/api/users', userDataLimiter, userDataRoutes); // User data routes with
 app.use('/api/status', statusLimiter, statusRoutes); // Status history, templates, schedules
 app.use('/api/status-management', statusLimiter, statusManagementRoutes); // Current status management
 app.use('/api/status-privacy', statusLimiter, statusPrivacyRoutes); // Current status management
+app.use('/api/location', apiLimiter, locationRoutes); // Location and geocoding services
 app.use('/api/bulk', apiLimiter, bulkOperationsRoutes); // Bulk operations
 app.use('/api/contacts', contactLimiter, contactRoutes); // Contact management routes
 app.use('/api/upload', apiLimiter, uploadRoutes); // File upload routes

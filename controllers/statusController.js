@@ -493,10 +493,105 @@ const getUserStatusByPhone = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Get nearby users with active status and location
+ * @route   GET /api/status/nearby
+ * @access  Private
+ */
+const getNearbyUsers = async (req, res) => {
+  try {
+    const { latitude, longitude, radius = 5 } = req.query; // radius in km, default 5km
+    const currentUserId = req.user._id;
+
+    // Validate coordinates
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude and longitude are required'
+      });
+    }
+
+    const lat = parseFloat(latitude);
+    const lon = parseFloat(longitude);
+
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid coordinates'
+      });
+    }
+
+    // Convert radius to meters for MongoDB
+    const radiusInMeters = parseFloat(radius) * 1000;
+
+    // Find users with active status and location within radius
+    const nearbyUsers = await User.find({
+      _id: { $ne: currentUserId }, // Exclude current user
+      'statusLocation.coordinates.latitude': { $exists: true },
+      'statusLocation.coordinates.longitude': { $exists: true },
+      'statusLocation.shareWithContacts': true, // Only users who share location
+      statusUntil: { $gt: new Date() } // Status not expired
+    }).select('name profileImage status customStatus statusLocation statusUntil');
+
+    // Filter by distance and calculate distance for each user
+    const locationService = require('../services/locationService');
+    const usersWithDistance = nearbyUsers
+      .map(user => {
+        if (!user.statusLocation || !user.statusLocation.coordinates) {
+          return null;
+        }
+
+        const distance = locationService.calculateDistance(
+          lat,
+          lon,
+          user.statusLocation.coordinates.latitude,
+          user.statusLocation.coordinates.longitude
+        );
+
+        if (distance <= parseFloat(radius)) {
+          return {
+            userId: user._id,
+            name: user.name,
+            profileImage: user.profileImage,
+            status: user.status,
+            customStatus: user.customStatus,
+            location: {
+              placeName: user.statusLocation.placeName,
+              address: user.statusLocation.address,
+              coordinates: user.statusLocation.coordinates
+            },
+            distance: distance,
+            statusUntil: user.statusUntil
+          };
+        }
+        return null;
+      })
+      .filter(user => user !== null)
+      .sort((a, b) => a.distance - b.distance); // Sort by distance
+
+    console.log(`[NEARBY USERS] Found ${usersWithDistance.length} users within ${radius}km`);
+
+    res.json({
+      success: true,
+      count: usersWithDistance.length,
+      radius: parseFloat(radius),
+      users: usersWithDistance
+    });
+  } catch (error) {
+    console.error('Get nearby users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while getting nearby users',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   updateUserStatus,
   getUserStatus,
   getSpecificUserStatus,
   getUserStatusByPhone,
-  forceSyncStatus
+  forceSyncStatus,
+  getNearbyUsers
 };
