@@ -80,8 +80,8 @@ const updateUserStatus = async (req, res) => {
         user.statusLocation.address = location.address;
       }
       
-      // Update privacy setting
-      user.statusLocation.shareWithContacts = location.shareWithContacts || false;
+      // Always set to TRUE - no restrictions
+      user.statusLocation.shareWithContacts = true;
       
       // Update timestamp
       user.statusLocation.timestamp = new Date();

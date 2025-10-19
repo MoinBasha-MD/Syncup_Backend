@@ -1114,20 +1114,12 @@ const initializeSocketIO = (server) => {
           statusLocation: location
         };
         
-        console.log(`📍 [BACKEND] Location data received:`, JSON.stringify(location));
-        console.log(`📍 [BACKEND] Location shareWithContacts:`, location?.shareWithContacts);
-        
-        // CRITICAL FIX: Check location's shareWithContacts flag first
-        if (location && location.shareWithContacts === false) {
-          console.log(`🔒 [STATUS] Location shareWithContacts is FALSE - removing location data`);
-          delete broadcastStatusData.statusLocation;
-        } else if (location && location.shareWithContacts === true) {
-          console.log(`✅ [STATUS] Location shareWithContacts is TRUE - keeping location data`);
-          // Keep the location - user explicitly wants to share it
-        } else if (locationSharingScope === 'none') {
-          // Only remove if global setting is 'none' AND location doesn't have explicit permission
-          console.log(`🔒 [STATUS] Global location sharing disabled - removing location data`);
-          delete broadcastStatusData.statusLocation;
+        // NO LOCATION RESTRICTIONS - If location exists, broadcast to EVERYONE
+        if (location) {
+          console.log(`📍 [BACKEND] Location data received:`, JSON.stringify(location));
+          console.log(`✅ [BACKEND] Location will be broadcast to ALL contacts & app connections`);
+        } else {
+          console.log(`⚠️ [BACKEND] No location data provided`);
         }
         
         console.log(`📡 [STATUS] Broadcasting status update with frontend privacy controls applied`);
