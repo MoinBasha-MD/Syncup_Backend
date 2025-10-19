@@ -55,8 +55,8 @@ const updateUserStatus = async (req, res) => {
       user.customStatus = '';
     }
     
-    // Update location data if provided
-    if (location) {
+    // Update location data if provided - CHECK if location has actual data
+    if (location && location.placeName && location.placeName.trim() !== '') {
       console.log(`[LOCATION UPDATE] Processing location data:`, JSON.stringify(location));
       
       // Initialize statusLocation if it doesn't exist
@@ -65,9 +65,7 @@ const updateUserStatus = async (req, res) => {
       }
       
       // Update location fields
-      if (location.placeName) {
-        user.statusLocation.placeName = location.placeName;
-      }
+      user.statusLocation.placeName = location.placeName;
       
       if (location.coordinates) {
         user.statusLocation.coordinates = {
@@ -88,8 +86,8 @@ const updateUserStatus = async (req, res) => {
       
       console.log(`[LOCATION SAVED] Location data saved to user:`, JSON.stringify(user.statusLocation));
     } else {
-      // Clear location data if no location provided
-      console.log(`[LOCATION CLEAR] No location data provided, clearing existing location`);
+      // Clear location data if no valid location provided
+      console.log(`[LOCATION CLEAR] No valid location data provided (location: ${JSON.stringify(location)}), clearing existing location`);
       if (user.statusLocation) {
         user.statusLocation = {
           placeName: '',
