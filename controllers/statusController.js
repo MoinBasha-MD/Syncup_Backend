@@ -22,6 +22,10 @@ const updateUserStatus = async (req, res) => {
 
     const { status, customStatus, duration, location } = req.body;
     
+    console.log('📥 [BACKEND] Received status update request');
+    console.log('📥 [BACKEND] Location data:', JSON.stringify(location));
+    console.log('📥 [BACKEND] shareWithContacts:', location?.shareWithContacts);
+    
     // Check if status is provided
     if (!status) {
       return res.status(400).json({

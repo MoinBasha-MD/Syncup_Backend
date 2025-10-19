@@ -1114,9 +1114,19 @@ const initializeSocketIO = (server) => {
           statusLocation: location
         };
         
-        // Remove location if location sharing is disabled
-        if (locationSharingScope === 'none' || !privacySettings?.locationSharing) {
-          console.log(`🔒 [STATUS] Location sharing disabled - removing location data`);
+        console.log(`📍 [BACKEND] Location data received:`, JSON.stringify(location));
+        console.log(`📍 [BACKEND] Location shareWithContacts:`, location?.shareWithContacts);
+        
+        // CRITICAL FIX: Check location's shareWithContacts flag first
+        if (location && location.shareWithContacts === false) {
+          console.log(`🔒 [STATUS] Location shareWithContacts is FALSE - removing location data`);
+          delete broadcastStatusData.statusLocation;
+        } else if (location && location.shareWithContacts === true) {
+          console.log(`✅ [STATUS] Location shareWithContacts is TRUE - keeping location data`);
+          // Keep the location - user explicitly wants to share it
+        } else if (locationSharingScope === 'none') {
+          // Only remove if global setting is 'none' AND location doesn't have explicit permission
+          console.log(`🔒 [STATUS] Global location sharing disabled - removing location data`);
           delete broadcastStatusData.statusLocation;
         }
         
@@ -1455,6 +1465,8 @@ const broadcastStatusUpdate = async (user, statusData) => {
             customStatus: statusData.customStatus,
             statusUntil: statusData.statusUntil,
             statusLocation: statusData.statusLocation,
+            // Also send as 'location' for frontend compatibility (just placeName)
+            location: statusData.statusLocation?.placeName || null,
             timestamp: new Date().toISOString()
           };
           
