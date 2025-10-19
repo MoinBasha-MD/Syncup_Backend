@@ -1456,11 +1456,18 @@ const broadcastStatusUpdate = async (user, statusData) => {
             status: statusData.status,
             customStatus: statusData.customStatus,
             statusUntil: statusData.statusUntil,
-            statusLocation: statusData.statusLocation,
-            // Also send as 'location' for frontend compatibility (just placeName)
-            location: statusData.statusLocation?.placeName || null,
             timestamp: new Date().toISOString()
           };
+          
+          // CRITICAL: Only include location if it has valid data
+          if (statusData.statusLocation && statusData.statusLocation.placeName && 
+              statusData.statusLocation.placeName.trim() !== '') {
+            statusUpdateData.statusLocation = statusData.statusLocation;
+            statusUpdateData.location = statusData.statusLocation.placeName;
+            console.log(`✅ Including location in broadcast: ${statusData.statusLocation.placeName}`);
+          } else {
+            console.log(`⚠️ No valid location to broadcast`);
+          }
           
           // Emit multiple event types to ensure frontend receives the update
           socket.emit('contact_status_update', statusUpdateData);
