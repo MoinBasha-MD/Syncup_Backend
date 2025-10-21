@@ -54,6 +54,7 @@ const blockRoutes = require('./routes/blockRoutes');
 const callRoutes = require('./routes/callRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const agentRoutes = require('./routes/agentRoutes');
+const agentDashboardRoutes = require('./routes/agentDashboardRoutes');
 const advancedDashboardRoutes = require('./routes/advancedDashboardRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
@@ -242,8 +243,7 @@ app.use('/api/connections', apiLimiter, connectionRoutes); // Connection request
 app.use('/api/blocks', apiLimiter, blockRoutes); // User blocking management routes
 app.use('/api/calls', apiLimiter, callRoutes); // Call history and management routes
 app.use('/api/agents', apiLimiter, agentRoutes); // Agentic framework management routes
-app.use('/dashboard', advancedDashboardRoutes); // Main Agent Dashboard
-app.use('/advanced-dashboard', advancedDashboardRoutes); // Backward compatibility
+app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Serve static files from the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

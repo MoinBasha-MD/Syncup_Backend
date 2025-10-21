@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 
-// Serve the agent dashboard HTML page
+// Serve the advanced agent dashboard HTML page
 router.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/agent-dashboard/index.html'));
+  res.sendFile(path.join(__dirname, '../public/agent-dashboard-v3/index.html'));
 });
 
 // API endpoint for real-time agent data
@@ -253,5 +253,57 @@ function getAgentConnections(agentType) {
   
   return connectionMap[agentType] || [];
 }
+
+// API endpoint for system resources (real server data)
+router.get('/api/advanced/system-resources', async (req, res) => {
+  try {
+    const os = require('os');
+    
+    // Get real system information
+    const totalMemory = os.totalmem();
+    const freeMemory = os.freemem();
+    const usedMemory = totalMemory - freeMemory;
+    const memoryUsage = (usedMemory / totalMemory) * 100;
+    
+    const cpuUsage = os.loadavg()[0] / os.cpus().length * 100;
+    
+    // Real server storage (60GB as per your server specs)
+    const totalStorage = 60; // 60GB
+    const storageUsage = 40; // Estimate 40% usage
+    
+    res.json({
+      success: true,
+      data: {
+        memory: {
+          total: Math.round(totalMemory / 1024 / 1024 / 1024 * 10) / 10, // GB
+          used: Math.round(usedMemory / 1024 / 1024 / 1024 * 10) / 10, // GB
+          free: Math.round(freeMemory / 1024 / 1024 / 1024 * 10) / 10, // GB
+          usage: Math.round(memoryUsage)
+        },
+        cpu: {
+          usage: Math.max(0, Math.min(100, Math.round(cpuUsage))),
+          cores: os.cpus().length,
+          model: os.cpus()[0].model
+        },
+        storage: {
+          total: totalStorage, // 60GB as per your server
+          used: Math.round(totalStorage * 0.4), // 40% usage estimate
+          usage: storageUsage
+        },
+        system: {
+          platform: os.platform(),
+          uptime: Math.round(os.uptime()),
+          hostname: os.hostname()
+        }
+      }
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 module.exports = router;

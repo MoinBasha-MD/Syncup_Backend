@@ -641,18 +641,47 @@
             }).join('');
         }
 
-        function updateMetrics() {
-            // More realistic metrics - start conservative
+        async function updateMetrics() {
+            try {
+                // Fetch real system data from API
+                const response = await fetch('/agent-dashboard/api/advanced/system-resources');
+                const systemData = await response.json();
+                
+                if (systemData.success) {
+                    const data = systemData.data;
+                    
+                    // Update with real system data
+                    document.getElementById('systemRAM').textContent = `${data.memory.total}GB`;
+                    const ramElement = document.getElementById('ramUsage');
+                    if (ramElement) {
+                        ramElement.textContent = `${data.memory.usage}% used`;
+                        ramElement.style.color = data.memory.usage > 80 ? '#ff3366' : data.memory.usage > 60 ? '#ff9500' : '#4CAF50';
+                    }
+                    
+                    document.getElementById('systemStorage').textContent = `${data.storage.total}GB`;
+                    const storageElement = document.getElementById('storageUsage');
+                    if (storageElement) {
+                        storageElement.textContent = `${data.storage.usage}% used`;
+                        storageElement.style.color = data.storage.usage > 80 ? '#ff3366' : data.storage.usage > 60 ? '#ff9500' : '#4CAF50';
+                    }
+                    
+                    document.getElementById('cpuUsage').textContent = `${data.cpu.usage}%`;
+                    const cpuStatusElement = document.getElementById('cpuStatus');
+                    if (cpuStatusElement) {
+                        cpuStatusElement.textContent = data.cpu.usage > 80 ? 'High load' : data.cpu.usage > 50 ? 'Medium load' : 'Normal load';
+                        cpuStatusElement.style.color = data.cpu.usage > 80 ? '#ff3366' : data.cpu.usage > 50 ? '#ff9500' : '#4CAF50';
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to fetch system data:', error);
+            }
+            
+            // Static metrics (these don't change frequently)
             const systemHealth = (97 + Math.random() * 2).toFixed(1); // 97-99%
             const intelligenceScore = 75; // Fixed base score
             const autoRecoveries = 0; // Start at 0
             const scalingEvents = 0; // Start at 0
             const issuesResolved = 0; // Start at 0
-            
-            // System resources with realistic values
-            const ramUsed = (60 + Math.random() * 15).toFixed(0); // 60-75%
-            const storageUsed = (35 + Math.random() * 10).toFixed(0); // 35-45%
-            const cpuUsed = (25 + Math.random() * 20).toFixed(0); // 25-45%
             const networkSpeed = (180 + Math.random() * 40).toFixed(0); // 180-220 MB/s
             
             // Update elements
@@ -662,27 +691,7 @@
             document.getElementById('autoRecoveries').textContent = autoRecoveries;
             document.getElementById('recoveryRate').textContent = 'No issues detected';
             
-            // System resources
-            document.getElementById('systemRAM').textContent = '8.2GB';
-            const ramElement = document.getElementById('ramUsage');
-            if (ramElement) {
-                ramElement.textContent = `${ramUsed}% used`;
-                ramElement.style.color = ramUsed > 80 ? '#ff3366' : ramUsed > 60 ? '#ff9500' : '#4CAF50';
-            }
-            
-            document.getElementById('systemStorage').textContent = '256GB';
-            const storageElement = document.getElementById('storageUsage');
-            if (storageElement) {
-                storageElement.textContent = `${storageUsed}% used`;
-                storageElement.style.color = storageUsed > 80 ? '#ff3366' : storageUsed > 60 ? '#ff9500' : '#4CAF50';
-            }
-            
-            document.getElementById('cpuUsage').textContent = `${cpuUsed}%`;
-            const cpuStatusElement = document.getElementById('cpuStatus');
-            if (cpuStatusElement) {
-                cpuStatusElement.textContent = cpuUsed > 80 ? 'High load' : cpuUsed > 50 ? 'Medium load' : 'Normal load';
-                cpuStatusElement.style.color = cpuUsed > 80 ? '#ff3366' : cpuUsed > 50 ? '#ff9500' : '#4CAF50';
-            }
+            // System resources are now fetched from API above
             
             document.getElementById('networkIO').textContent = `${networkSpeed}MB/s`;
             const networkStatusElement = document.getElementById('networkStatus');
