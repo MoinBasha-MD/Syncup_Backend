@@ -1,0 +1,102 @@
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+        <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Activity Timeline</h3>
+        <p style="color: #64748b; margin: 0;">Recent activities across the platform</p>
+    </div>
+    <button onclick="refreshTimeline()" class="btn btn-primary">
+        <i class="fas fa-sync-alt me-2"></i>Refresh
+    </button>
+</div>
+
+<!-- Timeline -->
+<div class="table-card">
+    <div id="timeline-container">
+        <% if (activities && activities.length > 0) { %>
+            <div style="position: relative; padding-left: 40px;">
+                <!-- Timeline Line -->
+                <div style="position: absolute; left: 20px; top: 0; bottom: 0; width: 2px; background: #E2E8F0;"></div>
+                
+                <% activities.forEach((activity, index) => { %>
+                    <div style="position: relative; margin-bottom: 32px;">
+                        <!-- Timeline Dot -->
+                        <div style="position: absolute; left: -28px; top: 8px; width: 16px; height: 16px; border-radius: 50%; background: <%= activity.color %>; border: 3px solid white; box-shadow: 0 0 0 2px <%= activity.color %>20;"></div>
+                        
+                        <!-- Activity Card -->
+                        <div style="background: #F8FAFC; border-radius: 12px; padding: 16px; border-left: 3px solid <%= activity.color %>;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="width: 40px; height: 40px; border-radius: 10px; background: <%= activity.color %>20; display: flex; align-items: center; justify-content: center; color: <%= activity.color %>;">
+                                        <i class="fas <%= activity.icon %>"></i>
+                                    </div>
+                                    <div>
+                                        <div style="font-weight: 600; color: #0f172a; margin-bottom: 2px;">
+                                            <%= activity.title %>
+                                        </div>
+                                        <div style="color: #64748b; font-size: 14px;">
+                                            <%= activity.description %>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="color: #94a3b8; font-size: 13px;">
+                                        <%= getTimeAgo(activity.time) %>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+                                <span style="background: white; padding: 4px 12px; border-radius: 6px; font-size: 13px; color: #64748b;">
+                                    <i class="fas fa-user" style="margin-right: 6px; color: <%= activity.color %>;"></i>
+                                    <%= activity.user %>
+                                </span>
+                                <span style="background: white; padding: 4px 12px; border-radius: 6px; font-size: 13px; color: #64748b;">
+                                    <i class="fas fa-clock" style="margin-right: 6px; color: <%= activity.color %>;"></i>
+                                    <%= new Date(activity.time).toLocaleTimeString() %>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                <% }) %>
+            </div>
+        <% } else { %>
+            <div style="text-align: center; padding: 60px;">
+                <i class="fas fa-history fa-3x mb-3" style="color: #cbd5e1;"></i>
+                <p style="color: #64748b; font-size: 18px;">No recent activities</p>
+            </div>
+        <% } %>
+    </div>
+</div>
+
+<%
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + " years ago";
+    
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + " months ago";
+    
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + " days ago";
+    
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + " hours ago";
+    
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + " minutes ago";
+    
+    return "Just now";
+}
+%>
+
+<script>
+function refreshTimeline() {
+    location.reload();
+}
+
+// Auto-refresh every 30 seconds
+setInterval(() => {
+    refreshTimeline();
+}, 30000);
+</script>

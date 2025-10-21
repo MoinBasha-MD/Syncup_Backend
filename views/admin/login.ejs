@@ -1,0 +1,37 @@
+<div class="auth-card">
+    <div class="auth-header">
+        <div class="auth-icon">🛡️</div>
+        <h1>Sync-Up Admin</h1>
+        <p>Sign in to access the admin panel</p>
+    </div>
+    
+    <div class="auth-body">
+        <% if (error) { %>
+            <div class="alert show">
+                <%= error %>
+            </div>
+        <% } %>
+        
+        <form method="POST" action="login-submit">
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" class="form-control" id="email" name="email" 
+                       placeholder="admin@syncup.com" required autocomplete="email">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" class="form-control" id="password" name="password" 
+                       placeholder="Enter your password" required autocomplete="current-password">
+            </div>
+            
+            <button type="submit" class="btn-login">
+                Sign In
+            </button>
+        </form>
+        
+        <div class="auth-footer">
+            🔒 Secure admin access only
+        </div>
+    </div>
+</div>

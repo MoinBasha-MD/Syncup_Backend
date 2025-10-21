@@ -1,0 +1,126 @@
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Broadcast System</h3>
+    <p style="color: #64748b; margin: 0;">Send messages to all users</p>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalUsers %></h3>
+            <p>Total Active Users</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #4F46E5 0%, #8B5CF6 100%);">
+            <i class="fas fa-users"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Broadcast Form -->
+<div class="table-card" style="margin-bottom: 24px;">
+    <h5 style="margin-bottom: 20px;">Send Broadcast Message</h5>
+    <form id="broadcastForm">
+        <div class="row g-4">
+            <div class="col-md-12">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Message *</label>
+                <textarea name="message" class="form-control" rows="4" required placeholder="Enter your message..." style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;"></textarea>
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Message Type</label>
+                <select name="messageType" class="form-select" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="text">Text</option>
+                    <option value="announcement">Announcement</option>
+                </select>
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Target Users</label>
+                <select name="targetType" class="form-select" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="all">All Users</option>
+                    <option value="active">Active Users (Last 24h)</option>
+                </select>
+            </div>
+        </div>
+        
+        <div style="margin-top: 24px;">
+            <button type="submit" class="btn btn-primary" id="sendBtn">
+                <i class="fas fa-paper-plane me-2"></i>Send Broadcast
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Broadcast History -->
+<div class="table-card">
+    <div class="table-header">
+        <h5>Recent Broadcasts</h5>
+        <button onclick="loadHistory()" class="btn btn-sm btn-primary">Refresh</button>
+    </div>
+    <div id="historyContainer">
+        <p style="text-align: center; padding: 20px; color: #64748b;">Loading...</p>
+    </div>
+</div>
+
+<script>
+document.getElementById('broadcastForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
+    
+    const formData = new FormData(this);
+    const data = Object.fromEntries(formData);
+    
+    try {
+        const res = await fetch('/admin/broadcast/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await res.json();
+        
+        if (result.success) {
+            alert(`✅ ${result.message}`);
+            this.reset();
+            loadHistory();
+        } else {
+            alert('❌ ' + result.message);
+        }
+    } catch (error) {
+        alert('Error sending broadcast');
+    } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send Broadcast';
+    }
+});
+
+async function loadHistory() {
+    try {
+        const res = await fetch('/admin/broadcast/history');
+        const data = await res.json();
+        
+        const container = document.getElementById('historyContainer');
+        
+        if (data.broadcasts && data.broadcasts.length > 0) {
+            container.innerHTML = data.broadcasts.map(b => `
+                <div style="padding: 16px; border-bottom: 1px solid #E2E8F0;">
+                    <div style="font-weight: 600; color: #0f172a;">${b._id.message}</div>
+                    <div style="color: #64748b; font-size: 14px; margin-top: 4px;">
+                        Sent to ${b.count} users • ${new Date(b.createdAt).toLocaleString()}
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            container.innerHTML = '<p style="text-align: center; padding: 20px; color: #94a3b8;">No broadcasts yet</p>';
+        }
+    } catch (error) {
+        document.getElementById('historyContainer').innerHTML = '<p style="text-align: center; padding: 20px; color: #ef4444;">Error loading history</p>';
+    }
+}
+
+loadHistory();
+</script>

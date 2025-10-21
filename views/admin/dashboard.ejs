@@ -1,0 +1,307 @@
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+        <h3 style="font-size: 24px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Dashboard</h3>
+        <p style="color: #64748b; margin: 0;">Welcome back! Here's what's happening today.</p>
+    </div>
+    <div style="display: flex; gap: 12px;">
+        <a href="/admin/users" class="btn btn-primary">
+            <i class="fas fa-users me-2"></i>View Users
+        </a>
+        <a href="/admin/broadcast" class="btn" style="background: #F59E0B; color: white;">
+            <i class="fas fa-bullhorn me-2"></i>Broadcast
+        </a>
+    </div>
+</div>
+
+<!-- Stats Grid -->
+<div class="stats-grid">
+    <!-- Total Users -->
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalUsers || 0 %></h3>
+            <p>Total Users</p>
+            <div class="stat-footer">
+                <% if (stats.newUsersToday > 0) { %>
+                    <span class="badge badge-success"><%= stats.newUsersToday %></span>
+                    <span style="color: #64748b;">new users today</span>
+                <% } else { %>
+                    <span style="color: #64748b;">No new users today</span>
+                <% } %>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">
+            <i class="fas fa-users"></i>
+        </div>
+    </div>
+    
+    <!-- Active Users -->
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.activeUsers || 0 %></h3>
+            <p>Active Users</p>
+            <div class="stat-footer">
+                <% const percentage = stats.totalUsers > 0 ? ((stats.activeUsers / stats.totalUsers) * 100).toFixed(1) : 0; %>
+                <span class="badge badge-info"><%= percentage %>%</span>
+                <span style="color: #64748b;">of total users</span>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+            <i class="fas fa-user-check"></i>
+        </div>
+    </div>
+    
+    <!-- Total Messages -->
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalMessages || 0 %></h3>
+            <p>Total Messages</p>
+            <div class="stat-footer">
+                <% if (stats.messagesToday > 0) { %>
+                    <span style="color: #64748b;"><%= stats.messagesToday %> messages today</span>
+                <% } else { %>
+                    <span style="color: #64748b;">No messages today</span>
+                <% } %>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+            <i class="fas fa-comments"></i>
+        </div>
+    </div>
+    
+    <!-- AI Instances -->
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalAIInstances || 0 %></h3>
+            <p>AI Instances</p>
+            <div class="stat-footer">
+                <span class="badge badge-success"><%= stats.activeAIInstances || 0 %></span>
+                <span style="color: #64748b;">active now</span>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);">
+            <i class="fas fa-brain"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Second Row -->
+<div class="stats-grid">
+    <!-- Total Posts -->
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalPosts || 0 %></h3>
+            <p>Total Posts</p>
+            <div class="stat-footer">
+                <% if (stats.postsToday > 0) { %>
+                    <span style="color: #64748b;"><%= stats.postsToday %> posts today</span>
+                <% } else { %>
+                    <span style="color: #64748b;">No posts today</span>
+                <% } %>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);">
+            <i class="fas fa-file-alt"></i>
+        </div>
+    </div>
+    
+    <!-- Active Stories -->
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.activeStories || 0 %></h3>
+            <p>Active Stories</p>
+            <div class="stat-footer">
+                <span class="badge badge-info"><%= stats.totalStories || 0 %></span>
+                <span style="color: #64748b;">total stories</span>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
+            <i class="fas fa-images"></i>
+        </div>
+    </div>
+    
+    <!-- Total Groups -->
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalGroups || 0 %></h3>
+            <p>Total Groups</p>
+            <div class="stat-footer">
+                <span class="badge badge-success">Active</span>
+                <span style="color: #64748b;">all groups</span>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);">
+            <i class="fas fa-layer-group"></i>
+        </div>
+    </div>
+    
+    <!-- Total Calls -->
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalCalls || 0 %></h3>
+            <p>Total Calls</p>
+            <div class="stat-footer">
+                <% if (stats.callsToday > 0) { %>
+                    <span style="color: #64748b;"><%= stats.callsToday %> calls today</span>
+                <% } else { %>
+                    <span style="color: #64748b;">No calls today</span>
+                <% } %>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">
+            <i class="fas fa-phone"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Users Table -->
+<div class="table-card">
+    <div class="table-header">
+        <h5>Recent Users</h5>
+        <a href="/admin/users" class="btn btn-primary btn-sm">View All</a>
+    </div>
+    
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Contact</th>
+                    <th>Joined</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% if (recentUsers && recentUsers.length > 0) { %>
+                    <% recentUsers.forEach(user => { %>
+                        <tr>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 14px;">
+                                        <%= user.name.charAt(0).toUpperCase() %>
+                                    </div>
+                                    <div>
+                                        <div style="font-weight: 600; color: #0f172a;"><%= user.name %></div>
+                                        <div style="font-size: 12px; color: #64748b;">
+                                            <%= user.phoneNumber ? user.phoneNumber.substring(0, 4) + '****' + user.phoneNumber.substring(user.phoneNumber.length - 2) : 'N/A' %>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="color: #64748b; font-size: 14px;">
+                                    <% if (user.email) { 
+                                        const parts = user.email.split('@');
+                                        const masked = parts[0].substring(0, 2) + '***@' + parts[1];
+                                    %>
+                                        <%= masked %>
+                                    <% } else { %>
+                                        N/A
+                                    <% } %>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="color: #64748b; font-size: 14px;">
+                                    <%= new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %>
+                                </div>
+                            </td>
+                            <td>
+                                <% if (user.isActive) { %>
+                                    <span class="badge badge-success">Active</span>
+                                <% } else { %>
+                                    <span class="badge badge-danger">Inactive</span>
+                                <% } %>
+                            </td>
+                            <td>
+                                <a href="/admin/users/<%= user._id %>" class="btn btn-sm" style="background: #f8fafc; color: #64748b; padding: 6px 12px;" title="View Details">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 40px; color: #94a3b8;">
+                            <i class="fas fa-inbox" style="font-size: 32px; display: block; margin-bottom: 12px;"></i>
+                            No recent users found
+                        </td>
+                    </tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Status Distribution -->
+<% if (statusDistribution && statusDistribution.length > 0) { %>
+<div class="table-card">
+    <div class="table-header">
+        <h5>User Status Distribution</h5>
+    </div>
+    
+    <div class="row g-3">
+        <% statusDistribution.forEach((status, index) => { 
+            const colorClasses = ['status-blue', 'status-green', 'status-yellow', 'status-red'];
+            const colorClass = colorClasses[index % colorClasses.length];
+        %>
+            <div class="col-md-3">
+                <div class="status-card <%= colorClass %>">
+                    <div class="status-count">
+                        <%= status.count %>
+                    </div>
+                    <div class="status-label">
+                        <%= status._id || 'Unknown' %>
+                    </div>
+                </div>
+            </div>
+        <% }) %>
+    </div>
+</div>
+
+<style>
+.status-card {
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+}
+.status-count {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 4px;
+}
+.status-label {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+.status-blue {
+    background-color: #e0e7ff;
+}
+.status-blue .status-count,
+.status-blue .status-label {
+    color: #4338ca;
+}
+.status-green {
+    background-color: #d1fae5;
+}
+.status-green .status-count,
+.status-green .status-label {
+    color: #065f46;
+}
+.status-yellow {
+    background-color: #fef3c7;
+}
+.status-yellow .status-count,
+.status-yellow .status-label {
+    color: #92400e;
+}
+.status-red {
+    background-color: #fee2e2;
+}
+.status-red .status-count,
+.status-red .status-label {
+    color: #991b1b;
+}
+</style>
+<% } %>

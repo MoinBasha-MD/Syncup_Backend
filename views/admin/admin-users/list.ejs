@@ -1,0 +1,104 @@
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+        <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Admin Users</h3>
+        <p style="color: #64748b; margin: 0;">Manage admin accounts and permissions</p>
+    </div>
+    <a href="/admin/admin-users/create" class="btn btn-primary">
+        <i class="fas fa-plus me-2"></i>Create Admin
+    </a>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= admins.length %></h3>
+            <p>Total Admins</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #4F46E5 0%, #8B5CF6 100%);">
+            <i class="fas fa-user-shield"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= admins.filter(a => a.isActive).length %></h3>
+            <p>Active Admins</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #10B981 0%, #059669 100%);">
+            <i class="fas fa-check-circle"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Admins Table -->
+<div class="table-card">
+    <div class="table-header">
+        <h5>All Admin Users</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Last Login</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% admins.forEach(admin => { %>
+                    <tr>
+                        <td>
+                            <div style="font-weight: 600; color: #0f172a;"><%= admin.username %></div>
+                        </td>
+                        <td><%= admin.email %></td>
+                        <td>
+                            <span class="badge" style="background: #E0E7FF; color: #4338CA; text-transform: capitalize;">
+                                <%= admin.role %>
+                            </span>
+                        </td>
+                        <td>
+                            <% if (admin.isActive) { %>
+                                <span class="badge badge-success">Active</span>
+                            <% } else { %>
+                                <span class="badge badge-danger">Inactive</span>
+                            <% } %>
+                        </td>
+                        <td>
+                            <% if (admin.lastLogin) { %>
+                                <%= new Date(admin.lastLogin).toLocaleString() %>
+                            <% } else { %>
+                                Never
+                            <% } %>
+                        </td>
+                        <td>
+                            <div style="display: flex; gap: 8px;">
+                                <a href="/admin/admin-users/<%= admin._id %>/edit" class="btn btn-sm" style="background: #E0E7FF; color: #4338CA; padding: 6px 12px;">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                                <button onclick="deleteAdmin('<%= admin._id %>')" class="btn btn-sm" style="background: #FEE2E2; color: #DC2626; padding: 6px 12px;">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function deleteAdmin(id) {
+    if (!confirm('Delete this admin? This action cannot be undone.')) return;
+    try {
+        const res = await fetch(`/admin/admin-users/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { alert(data.message); location.reload(); }
+        else { alert(data.message); }
+    } catch (error) { alert('Error deleting admin'); }
+}
+</script>

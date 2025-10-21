@@ -1,0 +1,136 @@
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+        <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Analytics & Reports</h3>
+        <p style="color: #64748b; margin: 0;">Detailed insights and data analysis</p>
+    </div>
+    <div style="display: flex; gap: 12px;">
+        <a href="/admin/export/analytics-pdf?days=<%= days %>" class="btn btn-primary">
+            <i class="fas fa-file-pdf me-2"></i>Export PDF
+        </a>
+        <a href="/admin/analytics/export?format=csv&days=<%= days %>" class="btn" style="background: #10B981; color: white;">
+            <i class="fas fa-file-csv me-2"></i>Export CSV
+        </a>
+        <a href="/admin/analytics/export?format=json&days=<%= days %>" class="btn" style="background: #F8FAFC; color: #64748b; border: 1px solid #E2E8F0;">
+            <i class="fas fa-file-code me-2"></i>Export JSON
+        </a>
+    </div>
+</div>
+
+<!-- Summary Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalUsers %></h3>
+            <p>Total Users</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #4F46E5 0%, #8B5CF6 100%);">
+            <i class="fas fa-users"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalMessages %></h3>
+            <p>Total Messages</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">
+            <i class="fas fa-comments"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalPosts %></h3>
+            <p>Total Posts</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #EC4899 0%, #DB2777 100%);">
+            <i class="fas fa-file-alt"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalStories %></h3>
+            <p>Total Stories</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);">
+            <i class="fas fa-images"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Placeholder -->
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="table-card">
+            <h5 style="margin-bottom: 16px;">User Growth (Last <%= days %> days)</h5>
+            <canvas id="userGrowthChart" height="200"></canvas>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="table-card">
+            <h5 style="margin-bottom: 16px;">Message Volume (Last <%= days %> days)</h5>
+            <canvas id="messageVolumeChart" height="200"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Top Users -->
+<div class="table-card" style="margin-top: 24px;">
+    <h5 style="margin-bottom: 16px;">Top Active Users</h5>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Messages Sent</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% topUsers.forEach(u => { %>
+                    <tr>
+                        <td><%= u.user ? u.user.name : 'Unknown' %></td>
+                        <td><%= u.messageCount %></td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+const userGrowthData = JSON.parse('<%- JSON.stringify(userGrowth) %>');
+const messageVolumeData = JSON.parse('<%- JSON.stringify(messageVolume) %>');
+</script>
+
+<script>
+// User Growth Chart
+new Chart(document.getElementById('userGrowthChart'), {
+    type: 'line',
+    data: {
+        labels: userGrowthData.map(d => d._id),
+        datasets: [{
+            label: 'New Users',
+            data: userGrowthData.map(d => d.count),
+            borderColor: '#4F46E5',
+            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+            tension: 0.4
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+});
+
+// Message Volume Chart
+new Chart(document.getElementById('messageVolumeChart'), {
+    type: 'bar',
+    data: {
+        labels: messageVolumeData.map(d => d._id),
+        datasets: [{
+            label: 'Messages',
+            data: messageVolumeData.map(d => d.count),
+            backgroundColor: '#F59E0B'
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+});
+</script>

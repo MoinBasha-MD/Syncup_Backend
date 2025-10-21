@@ -1,0 +1,67 @@
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Notifications</h3>
+    <p style="color: #64748b; margin: 0;">System notifications and alerts</p>
+</div>
+
+<!-- Notifications List -->
+<div class="table-card">
+    <div class="table-header">
+        <h5>All Notifications</h5>
+        <button onclick="markAllRead()" class="btn btn-sm btn-primary">Mark All as Read</button>
+    </div>
+    
+    <div style="padding: 0;">
+        <% if (notifications && notifications.length > 0) { %>
+            <% notifications.forEach(notif => { %>
+                <div style="padding: 20px; border-bottom: 1px solid #E2E8F0; <%= notif.read ? '' : 'background: #F0F9FF;' %>">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                <div style="width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; 
+                                    <%= notif.type === 'user' ? 'background: #DBEAFE; color: #1E40AF;' : 
+                                        notif.type === 'system' ? 'background: #D1FAE5; color: #065F46;' : 
+                                        'background: #FEF3C7; color: #92400E;' %>">
+                                    <i class="fas <%= notif.type === 'user' ? 'fa-user' : notif.type === 'system' ? 'fa-server' : 'fa-bell' %>"></i>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #0f172a; margin-bottom: 4px;"><%= notif.title %></div>
+                                    <div style="color: #64748b; font-size: 14px;"><%= notif.message %></div>
+                                </div>
+                            </div>
+                            <div style="color: #94a3b8; font-size: 13px; margin-left: 52px;">
+                                <%= new Date(notif.time).toLocaleString() %>
+                            </div>
+                        </div>
+                        <% if (!notif.read) { %>
+                            <button onclick="markAsRead(<%= notif.id %>)" class="btn btn-sm" style="background: #F8FAFC; color: #64748b;">
+                                <i class="fas fa-check"></i>
+                            </button>
+                        <% } %>
+                    </div>
+                </div>
+            <% }) %>
+        <% } else { %>
+            <div style="text-align: center; padding: 60px;">
+                <i class="fas fa-bell-slash fa-3x mb-3" style="color: #cbd5e1;"></i>
+                <p style="color: #64748b; font-size: 18px;">No notifications</p>
+            </div>
+        <% } %>
+    </div>
+</div>
+
+<script>
+async function markAsRead(id) {
+    try {
+        const res = await fetch(`/admin/api/notifications/${id}/read`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) location.reload();
+    } catch (error) { console.error('Error'); }
+}
+
+async function markAllRead() {
+    // Mock - implement when notification system is ready
+    alert('All notifications marked as read');
+    location.reload();
+}
+</script>

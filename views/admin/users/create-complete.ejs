@@ -1,0 +1,205 @@
+<!-- Back Button -->
+<div style="margin-bottom: 24px;">
+    <a href="/admin/users" class="btn" style="background: #F8FAFC; color: #64748b;">
+        <i class="fas fa-arrow-left me-2"></i>Back to Users
+    </a>
+</div>
+
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Create New User (Complete)</h3>
+    <p style="color: #64748b; margin: 0;">Add a new user with full profile details</p>
+</div>
+
+<!-- Create Form -->
+<div class="table-card">
+    <form id="createUserForm">
+        <!-- Basic Information -->
+        <h5 style="margin-bottom: 20px; color: #4F46E5;">Basic Information</h5>
+        <div class="row g-4" style="margin-bottom: 32px;">
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Full Name *</label>
+                <input type="text" name="name" class="form-control" required placeholder="Enter full name" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Email *</label>
+                <input type="email" name="email" class="form-control" required placeholder="user@example.com" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Phone Number *</label>
+                <input type="tel" name="phoneNumber" class="form-control" required placeholder="+1234567890" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Password *</label>
+                <input type="password" name="password" class="form-control" required placeholder="Minimum 6 characters" minlength="6" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Username (Optional)</label>
+                <input type="text" name="username" class="form-control" placeholder="unique_username" pattern="[a-zA-Z0-9_]+" minlength="3" maxlength="20" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                <small style="color: #64748b;">Letters, numbers, and underscores only</small>
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Profile Image URL</label>
+                <input type="url" name="profileImage" class="form-control" placeholder="https://example.com/image.jpg" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+        </div>
+
+        <!-- Personal Information -->
+        <h5 style="margin-bottom: 20px; color: #4F46E5;">Personal Information</h5>
+        <div class="row g-4" style="margin-bottom: 32px;">
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Date of Birth</label>
+                <input type="date" name="dateOfBirth" class="form-control" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Gender</label>
+                <select name="gender" class="form-select" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="">Select Gender</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                    <option value="prefer_not_to_say">Prefer not to say</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Status Settings -->
+        <h5 style="margin-bottom: 20px; color: #4F46E5;">Status Settings</h5>
+        <div class="row g-4" style="margin-bottom: 32px;">
+            <div class="col-md-4">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Initial Status</label>
+                <select name="status" class="form-select" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="available">Available</option>
+                    <option value="busy">Busy</option>
+                    <option value="away">Away</option>
+                    <option value="offline">Offline</option>
+                </select>
+            </div>
+            
+            <div class="col-md-8">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Custom Status Message</label>
+                <input type="text" name="customStatus" class="form-control" placeholder="e.g., In a meeting" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Status Until (Optional)</label>
+                <input type="datetime-local" name="statusUntil" class="form-control" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+        </div>
+
+        <!-- Discovery & Privacy -->
+        <h5 style="margin-bottom: 20px; color: #4F46E5;">Discovery & Privacy</h5>
+        <div class="row g-4" style="margin-bottom: 32px;">
+            <div class="col-md-12">
+                <div class="form-check" style="padding-left: 2rem;">
+                    <input class="form-check-input" type="checkbox" name="isPublic" id="isPublic" style="width: 20px; height: 20px;">
+                    <label class="form-check-label" for="isPublic" style="margin-left: 10px; font-weight: 600; color: #64748b;">
+                        Make profile publicly discoverable
+                    </label>
+                    <div style="margin-left: 30px; margin-top: 4px;">
+                        <small style="color: #64748b;">Allow other users to find this profile through search</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Location (Optional) -->
+        <h5 style="margin-bottom: 20px; color: #4F46E5;">Location (Optional)</h5>
+        <div class="row g-4" style="margin-bottom: 32px;">
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Place Name</label>
+                <input type="text" name="statusLocation_placeName" class="form-control" placeholder="e.g., Office, Home" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Address</label>
+                <input type="text" name="statusLocation_address" class="form-control" placeholder="Full address" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Latitude</label>
+                <input type="number" name="statusLocation_latitude" class="form-control" placeholder="e.g., 40.7128" step="0.000001" min="-90" max="90" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Longitude</label>
+                <input type="number" name="statusLocation_longitude" class="form-control" placeholder="e.g., -74.0060" step="0.000001" min="-180" max="180" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-12">
+                <div class="form-check" style="padding-left: 2rem;">
+                    <input class="form-check-input" type="checkbox" name="statusLocation_shareWithContacts" id="shareLocation" style="width: 20px; height: 20px;">
+                    <label class="form-check-label" for="shareLocation" style="margin-left: 10px; font-weight: 600; color: #64748b;">
+                        Share location with contacts
+                    </label>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #E2E8F0; display: flex; gap: 12px;">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-user-plus me-2"></i>Create User
+            </button>
+            <a href="/admin/users" class="btn" style="background: #F8FAFC; color: #64748b; border: 1px solid #E2E8F0;">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<script>
+document.getElementById('createUserForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const data = {};
+    
+    // Basic fields
+    for (let [key, value] of formData.entries()) {
+        if (key.startsWith('statusLocation_')) {
+            // Handle nested location fields
+            if (!data.statusLocation) data.statusLocation = {};
+            const field = key.replace('statusLocation_', '');
+            
+            if (field === 'latitude' || field === 'longitude') {
+                if (!data.statusLocation.coordinates) data.statusLocation.coordinates = {};
+                data.statusLocation.coordinates[field] = value ? parseFloat(value) : null;
+            } else if (field === 'shareWithContacts') {
+                data.statusLocation[field] = formData.get(key) === 'on';
+            } else {
+                data.statusLocation[field] = value;
+            }
+        } else if (key === 'isPublic') {
+            data[key] = formData.get(key) === 'on';
+        } else {
+            data[key] = value || null;
+        }
+    }
+    
+    try {
+        const res = await fetch('/admin/users/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await res.json();
+        
+        if (result.success) {
+            alert(result.message);
+            window.location.href = '/admin/users/' + result.userId;
+        } else {
+            alert(result.message);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error creating user');
+    }
+});
+</script>

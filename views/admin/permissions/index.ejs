@@ -1,0 +1,122 @@
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Role Permissions</h3>
+    <p style="color: #64748b; margin: 0;">Manage permissions for different admin roles</p>
+</div>
+
+<!-- Role Cards -->
+<div class="row g-4">
+    <% roles.forEach(role => { %>
+        <div class="col-md-6">
+            <div class="table-card">
+                <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 16px;">
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                            <div style="width: 12px; height: 12px; border-radius: 50%; background: <%= role.color %>;"></div>
+                            <h5 style="margin: 0;"><%= role.displayName %></h5>
+                            <% if (counts[role.name]) { %>
+                                <span class="badge badge-info"><%= counts[role.name] %> admins</span>
+                            <% } %>
+                        </div>
+                        <p style="color: #64748b; font-size: 14px; margin: 0;"><%= role.description %></p>
+                    </div>
+                    <button onclick="editRole('<%= role.name %>')" class="btn btn-sm btn-primary">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                </div>
+                
+                <!-- Permissions Grid -->
+                <div style="margin-top: 20px;">
+                    <div style="font-weight: 600; color: #64748b; font-size: 13px; margin-bottom: 12px;">
+                        PERMISSIONS (<%= role.permissions.length %>)
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                        <% 
+                        const categories = {};
+                        allPermissions.forEach(perm => {
+                            if (role.permissions.includes(perm.id)) {
+                                if (!categories[perm.category]) categories[perm.category] = [];
+                                categories[perm.category].push(perm);
+                            }
+                        });
+                        
+                        Object.keys(categories).forEach(category => {
+                            categories[category].forEach(perm => { %>
+                                <span class="badge" style="background: #E0E7FF; color: #4338CA; padding: 6px 12px; font-weight: 500;">
+                                    <%= perm.name %>
+                                </span>
+                            <% });
+                        });
+                        %>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <% }) %>
+</div>
+
+<!-- Permission Matrix -->
+<div class="table-card" style="margin-top: 24px;">
+    <h5 style="margin-bottom: 20px;">Permission Matrix</h5>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Permission</th>
+                    <% roles.forEach(role => { %>
+                        <th style="text-align: center;"><%= role.displayName %></th>
+                    <% }) %>
+                </tr>
+            </thead>
+            <tbody>
+                <% 
+                const groupedPerms = {};
+                allPermissions.forEach(perm => {
+                    if (!groupedPerms[perm.category]) groupedPerms[perm.category] = [];
+                    groupedPerms[perm.category].push(perm);
+                });
+                
+                Object.keys(groupedPerms).forEach(category => { %>
+                    <tr style="background: #F8FAFC;">
+                        <td colspan="<%= roles.length + 1 %>" style="font-weight: 600; color: #0f172a;">
+                            <%= category %>
+                        </td>
+                    </tr>
+                    <% groupedPerms[category].forEach(perm => { %>
+                        <tr>
+                            <td><%= perm.name %></td>
+                            <% roles.forEach(role => { %>
+                                <td style="text-align: center;">
+                                    <% if (role.permissions.includes(perm.id)) { %>
+                                        <i class="fas fa-check-circle" style="color: #10B981; font-size: 18px;"></i>
+                                    <% } else { %>
+                                        <i class="fas fa-times-circle" style="color: #E2E8F0; font-size: 18px;"></i>
+                                    <% } %>
+                                </td>
+                            <% }) %>
+                        </tr>
+                    <% }) %>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Edit Modal (Simple) -->
+<div id="editModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: white; border-radius: 16px; padding: 32px; max-width: 600px; width: 90%;">
+        <h5 style="margin-bottom: 20px;">Edit Role Permissions</h5>
+        <p style="color: #64748b;">Permission editing will be available in the next update.</p>
+        <button onclick="closeModal()" class="btn btn-primary">Close</button>
+    </div>
+</div>
+
+<script>
+function editRole(roleName) {
+    document.getElementById('editModal').style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('editModal').style.display = 'none';
+}
+</script>

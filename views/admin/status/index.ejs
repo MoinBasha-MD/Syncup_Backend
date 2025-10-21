@@ -1,0 +1,167 @@
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Status Management</h3>
+    <p style="color: #64748b; margin: 0;">Manage user status history and schedules</p>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalStatuses %></h3>
+            <p>Total Status Changes</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);">
+            <i class="fas fa-history"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= activeStatuses %></h3>
+            <p>Currently Active</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #10B981 0%, #059669 100%);">
+            <i class="fas fa-signal"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= scheduledStatuses %></h3>
+            <p>Scheduled</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">
+            <i class="fas fa-calendar-alt"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Actions -->
+<div class="table-card" style="margin-bottom: 24px;">
+    <h5 style="margin-bottom: 16px;">Quick Actions</h5>
+    <div style="display: flex; gap: 12px;">
+        <button onclick="clearOld()" class="btn btn-primary">
+            <i class="fas fa-trash me-2"></i>Clear Old Statuses
+        </button>
+    </div>
+</div>
+
+<!-- Recent Status History -->
+<div class="table-card" style="margin-bottom: 24px;">
+    <div class="table-header">
+        <h5>Recent Status Changes</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Status</th>
+                    <th>Custom Status</th>
+                    <th>Start Time</th>
+                    <th>Duration</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% recentStatuses.forEach(status => { %>
+                    <tr>
+                        <td><%= status.user ? status.user.name : 'Unknown' %></td>
+                        <td style="text-transform: capitalize;"><%= status.status %></td>
+                        <td><%= status.customStatus || 'N/A' %></td>
+                        <td><%= new Date(status.startTime).toLocaleString() %></td>
+                        <td>
+                            <% if (status.duration) { %>
+                                <%= Math.round(status.duration / 60) %> min
+                            <% } else { %>
+                                <span class="badge badge-success">Active</span>
+                            <% } %>
+                        </td>
+                        <td>
+                            <button onclick="deleteStatus('<%= status._id %>')" class="btn btn-sm" style="background: #FEE2E2; color: #DC2626; padding: 6px 12px;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Scheduled Statuses -->
+<% if (schedules && schedules.length > 0) { %>
+<div class="table-card">
+    <div class="table-header">
+        <h5>Scheduled Statuses</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Status</th>
+                    <th>Scheduled Time</th>
+                    <th>Recurring</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% schedules.forEach(schedule => { %>
+                    <tr>
+                        <td><%= schedule.user ? schedule.user.name : 'Unknown' %></td>
+                        <td style="text-transform: capitalize;"><%= schedule.status %></td>
+                        <td><%= new Date(schedule.scheduledTime).toLocaleString() %></td>
+                        <td>
+                            <% if (schedule.isRecurring) { %>
+                                <span class="badge badge-info">Yes</span>
+                            <% } else { %>
+                                <span class="badge badge-secondary">No</span>
+                            <% } %>
+                        </td>
+                        <td>
+                            <button onclick="deleteSchedule('<%= schedule._id %>')" class="btn btn-sm" style="background: #FEE2E2; color: #DC2626; padding: 6px 12px;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+<% } %>
+
+<script>
+async function deleteStatus(id) {
+    if (!confirm('Delete this status history?')) return;
+    try {
+        const res = await fetch(`/admin/status-management/history/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { alert(data.message); location.reload(); }
+    } catch (error) { alert('Error'); }
+}
+
+async function deleteSchedule(id) {
+    if (!confirm('Delete this scheduled status?')) return;
+    try {
+        const res = await fetch(`/admin/status-management/schedule/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { alert(data.message); location.reload(); }
+    } catch (error) { alert('Error'); }
+}
+
+async function clearOld() {
+    const days = prompt('Clear statuses older than how many days?', '30');
+    if (!days) return;
+    
+    try {
+        const res = await fetch('/admin/status-management/clear-old', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: parseInt(days) })
+        });
+        const data = await res.json();
+        if (data.success) { alert(data.message); location.reload(); }
+    } catch (error) { alert('Error'); }
+}
+</script>

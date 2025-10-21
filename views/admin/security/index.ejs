@@ -1,0 +1,144 @@
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Security & Logs</h3>
+    <p style="color: #64748b; margin: 0;">Monitor admin activity and security</p>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalAdmins %></h3>
+            <p>Total Admins</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #4F46E5 0%, #8B5CF6 100%);">
+            <i class="fas fa-user-shield"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= activeAdmins %></h3>
+            <p>Active Admins</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #10B981 0%, #059669 100%);">
+            <i class="fas fa-check-circle"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= lockedAccounts.length %></h3>
+            <p>Locked Accounts</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);">
+            <i class="fas fa-lock"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="table-card" style="margin-bottom: 24px;">
+    <h5 style="margin-bottom: 16px;">Quick Actions</h5>
+    <div style="display: flex; gap: 12px;">
+        <button onclick="resetAllAttempts()" class="btn btn-primary">
+            <i class="fas fa-redo me-2"></i>Reset All Login Attempts
+        </button>
+    </div>
+</div>
+
+<!-- Locked Accounts -->
+<% if (lockedAccounts.length > 0) { %>
+<div class="table-card" style="margin-bottom: 24px;">
+    <div class="table-header">
+        <h5>Locked Accounts</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Lock Until</th>
+                    <th>Attempts</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% lockedAccounts.forEach(admin => { %>
+                    <tr>
+                        <td><%= admin.username %></td>
+                        <td><%= admin.email %></td>
+                        <td><%= new Date(admin.lockUntil).toLocaleString() %></td>
+                        <td><span class="badge badge-danger"><%= admin.loginAttempts %></span></td>
+                        <td>
+                            <button onclick="unlockAccount('<%= admin._id %>')" class="btn btn-sm btn-primary">
+                                <i class="fas fa-unlock"></i> Unlock
+                            </button>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+<% } %>
+
+<!-- Recent Logins -->
+<div class="table-card">
+    <div class="table-header">
+        <h5>Recent Admin Logins</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Last Login</th>
+                    <th>Login Attempts</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% recentLogins.forEach(admin => { %>
+                    <tr>
+                        <td><%= admin.username %></td>
+                        <td><%= admin.email %></td>
+                        <td>
+                            <% if (admin.lastLogin) { %>
+                                <%= new Date(admin.lastLogin).toLocaleString() %>
+                            <% } else { %>
+                                Never
+                            <% } %>
+                        </td>
+                        <td>
+                            <% if (admin.loginAttempts > 0) { %>
+                                <span class="badge badge-warning"><%= admin.loginAttempts %></span>
+                            <% } else { %>
+                                <span class="badge badge-success">0</span>
+                            <% } %>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function unlockAccount(id) {
+    if (!confirm('Unlock this account?')) return;
+    try {
+        const res = await fetch(`/admin/security/unlock/${id}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) { alert(data.message); location.reload(); }
+    } catch (error) { alert('Error unlocking account'); }
+}
+
+async function resetAllAttempts() {
+    if (!confirm('Reset all login attempts? This will unlock all accounts.')) return;
+    try {
+        const res = await fetch('/admin/security/reset-attempts', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) { alert(data.message); location.reload(); }
+    } catch (error) { alert('Error resetting attempts'); }
+}
+</script>

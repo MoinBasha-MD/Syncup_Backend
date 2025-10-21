@@ -1,0 +1,42 @@
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Messages</h3>
+    <p style="color: #64748b; margin: 0;">View and manage all messages</p>
+</div>
+
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalMessages %></h3>
+            <p>Total Messages</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">
+            <i class="fas fa-comments"></i>
+        </div>
+    </div>
+</div>
+
+<div class="table-card">
+    <div class="table-header"><h5>Recent Messages</h5></div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr><th>From</th><th>To</th><th>Type</th><th>Status</th><th>Date</th></tr>
+            </thead>
+            <tbody>
+                <% if (recentMessages && recentMessages.length > 0) { %>
+                    <% recentMessages.forEach(msg => { %>
+                        <tr>
+                            <td><%= msg.sender ? msg.sender.name : 'Unknown' %></td>
+                            <td><%= msg.receiver ? msg.receiver.name : 'Unknown' %></td>
+                            <td><%= msg.messageType %></td>
+                            <td><span class="badge badge-success"><%= msg.status %></span></td>
+                            <td><%= new Date(msg.createdAt).toLocaleDateString() %></td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="5" style="text-align: center; color: #94a3b8;">No messages found</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>

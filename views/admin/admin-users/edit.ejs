@@ -1,0 +1,84 @@
+<!-- Back Button -->
+<div style="margin-bottom: 24px;">
+    <a href="/admin/admin-users" class="btn" style="background: #F8FAFC; color: #64748b;">
+        <i class="fas fa-arrow-left me-2"></i>Back to Admin Users
+    </a>
+</div>
+
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Edit Admin User</h3>
+    <p style="color: #64748b; margin: 0;">Update administrator details</p>
+</div>
+
+<!-- Edit Form -->
+<div class="table-card">
+    <form id="editForm">
+        <div class="row g-4">
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Username *</label>
+                <input type="text" name="username" class="form-control" value="<%= admin.username %>" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Email *</label>
+                <input type="email" name="email" class="form-control" value="<%= admin.email %>" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Role *</label>
+                <select name="role" class="form-select" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="moderator" <%= admin.role === 'moderator' ? 'selected' : '' %>>Moderator</option>
+                    <option value="admin" <%= admin.role === 'admin' ? 'selected' : '' %>>Admin</option>
+                    <option value="super-admin" <%= admin.role === 'super-admin' ? 'selected' : '' %>>Super Admin</option>
+                </select>
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Status</label>
+                <select name="isActive" class="form-select" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="true" <%= admin.isActive ? 'selected' : '' %>>Active</option>
+                    <option value="false" <%= !admin.isActive ? 'selected' : '' %>>Inactive</option>
+                </select>
+            </div>
+        </div>
+        
+        <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #E2E8F0; display: flex; gap: 12px;">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save me-2"></i>Update Admin
+            </button>
+            <a href="/admin/admin-users" class="btn" style="background: #F8FAFC; color: #64748b; border: 1px solid #E2E8F0;">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<script>
+document.getElementById('editForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const data = Object.fromEntries(formData);
+    data.isActive = data.isActive === 'true';
+    
+    try {
+        const res = await fetch('/admin/admin-users/<%= admin._id %>', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await res.json();
+        
+        if (result.success) {
+            alert(result.message);
+            window.location.href = '/admin/admin-users';
+        } else {
+            alert(result.message);
+        }
+    } catch (error) {
+        alert('Error updating admin');
+    }
+});
+</script>

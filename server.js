@@ -53,9 +53,16 @@ const connectionRoutes = require('./routes/connectionRoutes');
 const blockRoutes = require('./routes/blockRoutes');
 const callRoutes = require('./routes/callRoutes');
 const locationRoutes = require('./routes/locationRoutes');
+const agentRoutes = require('./routes/agentRoutes');
+const advancedDashboardRoutes = require('./routes/advancedDashboardRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
+const agentIntegrationService = require('./services/agentIntegrationService');
+const SelfHealingService = require('./services/selfHealingService');
+const DynamicScalingService = require('./services/dynamicScalingService');
+const AgentIntelligenceService = require('./services/agentIntelligenceService');
+// Admin dependencies removed for production
 
 // Load environment variables
 dotenv.config();
@@ -167,6 +174,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// Production setup - Admin panels removed
+
+// Handle Chrome DevTools request to prevent 404 errors
+app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
+  res.status(204).end(); // No Content - silently handle the request
+});
+
 // Health check and monitoring routes (before API versioning)
 const { healthCheck, liveness, readiness, metrics } = require('./middleware/healthCheckMiddleware');
 app.get('/health', healthCheck);
@@ -227,10 +241,14 @@ app.use('/api/search', apiLimiter, globalSearchRoutes); // Global user search ro
 app.use('/api/connections', apiLimiter, connectionRoutes); // Connection request management routes
 app.use('/api/blocks', apiLimiter, blockRoutes); // User blocking management routes
 app.use('/api/calls', apiLimiter, callRoutes); // Call history and management routes
+app.use('/api/agents', apiLimiter, agentRoutes); // Agentic framework management routes
+app.use('/dashboard', advancedDashboardRoutes); // Main Agent Dashboard
+app.use('/advanced-dashboard', advancedDashboardRoutes); // Backward compatibility
 
 // Serve static files from the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
+// Serve static files from public directory (for JS, CSS, images)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Also serve uploads under /api/uploads for compatibility
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -261,7 +279,8 @@ app.get('/api', (req, res) => {
       chat: '/api/chat',
       stories: '/api/stories',
       diya: '/api/diya',
-      ai: '/api/ai'
+      ai: '/api/ai',
+      agents: '/api/agents'
     },
     documentation: '/api/docs',
     timestamp: new Date().toISOString()
@@ -382,6 +401,51 @@ const storyCleanupScheduler = require('./services/storyCleanupScheduler');
 storyCleanupScheduler.start();
 console.log('✅ Story cleanup scheduler started');
 
+// Initialize Agent System
+(async () => {
+  try {
+    console.log('🤖 Initializing Agentic Framework...');
+    await agentIntegrationService.initialize();
+    app.set('agentService', agentIntegrationService);
+    app.set('agentOrchestrator', agentIntegrationService.getOrchestrator());
+    console.log('✅ Agentic Framework initialized successfully');
+    
+    // Initialize Phase 3 services
+    console.log('🚀 Initializing Phase 3 Advanced Services...');
+    
+    // Initialize Self-Healing Service
+    const selfHealingService = new SelfHealingService();
+    await selfHealingService.initialize();
+    app.set('selfHealingService', selfHealingService);
+    console.log('🔧 Self-Healing Service initialized');
+    
+    // Initialize Dynamic Scaling Service
+    const dynamicScalingService = new DynamicScalingService();
+    await dynamicScalingService.initialize(agentIntegrationService.getOrchestrator());
+    app.set('dynamicScalingService', dynamicScalingService);
+    console.log('⚡ Dynamic Scaling Service initialized');
+    
+    // Initialize Agent Intelligence Service
+    const intelligenceService = new AgentIntelligenceService();
+    await intelligenceService.initialize(agentIntegrationService.getOrchestrator());
+    app.set('intelligenceService', intelligenceService);
+    console.log('🧠 Agent Intelligence Service initialized');
+    
+    console.log('🎉 Phase 3 Advanced Services initialized successfully!');
+    
+    // Log agent system status
+    const systemStatus = agentIntegrationService.getSystemStatus();
+    console.log('📊 Agent System Status:', {
+      agents: systemStatus.agents?.length || 0,
+      orchestrator: systemStatus.orchestrator?.isRunning || false
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to initialize Agentic Framework:', error.message);
+    console.log('⚠️  Server will continue without agent system');
+  }
+})();
+
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
@@ -394,6 +458,30 @@ process.on('SIGTERM', () => {
     storyCleanupScheduler.stop();
     console.log('✅ Story cleanup scheduler stopped');
   }
+  // Shutdown agent system
+  if (agentIntegrationService) {
+    agentIntegrationService.shutdown().then(() => {
+      console.log('✅ Agent system shutdown complete');
+    }).catch(error => {
+      console.error('❌ Agent system shutdown error:', error);
+    });
+  }
+  
+  // Shutdown Phase 3 services
+  const selfHealingService = app.get('selfHealingService');
+  const dynamicScalingService = app.get('dynamicScalingService');
+  const intelligenceService = app.get('intelligenceService');
+  
+  if (selfHealingService) {
+    selfHealingService.shutdown();
+  }
+  if (dynamicScalingService) {
+    dynamicScalingService.shutdown();
+  }
+  if (intelligenceService) {
+    intelligenceService.shutdown();
+  }
+  
   // Close Socket.IO connections
   if (io) {
     io.close(() => {
@@ -417,6 +505,30 @@ process.on('SIGINT', () => {
     storyCleanupScheduler.stop();
     console.log('✅ Story cleanup scheduler stopped');
   }
+  // Shutdown agent system
+  if (agentIntegrationService) {
+    agentIntegrationService.shutdown().then(() => {
+      console.log('✅ Agent system shutdown complete');
+    }).catch(error => {
+      console.error('❌ Agent system shutdown error:', error);
+    });
+  }
+  
+  // Shutdown Phase 3 services
+  const selfHealingService = app.get('selfHealingService');
+  const dynamicScalingService = app.get('dynamicScalingService');
+  const intelligenceService = app.get('intelligenceService');
+  
+  if (selfHealingService) {
+    selfHealingService.shutdown();
+  }
+  if (dynamicScalingService) {
+    dynamicScalingService.shutdown();
+  }
+  if (intelligenceService) {
+    intelligenceService.shutdown();
+  }
+  
   // Close Socket.IO connections
   if (io) {
     io.close(() => {

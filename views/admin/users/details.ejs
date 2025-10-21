@@ -1,0 +1,635 @@
+<!-- Back Button -->
+<div style="margin-bottom: 24px;">
+    <a href="/admin/users" class="btn" style="background: #F8FAFC; color: #64748b;">
+        <i class="fas fa-arrow-left me-2"></i>Back to Users
+    </a>
+</div>
+
+<!-- User Info Card -->
+<div class="table-card" style="margin-bottom: 24px;" data-user-id="<%= user._id %>">
+    <div style="display: flex; justify-content: space-between; align-items: start;">
+        <div style="display: flex; gap: 20px;">
+            <div style="width: 80px; height: 80px; border-radius: 16px; background: linear-gradient(135deg, #4F46E5 0%, #8B5CF6 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 32px;">
+                <%= user.name.charAt(0).toUpperCase() %>
+            </div>
+            <div>
+                <h3 style="font-size: 24px; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;"><%= user.name %></h3>
+                <p style="color: #64748b; margin: 0 0 12px 0;"><%= user.userId %></p>
+                <div style="display: flex; gap: 8px;">
+                    <% if (user.isActive) { %>
+                        <span class="badge badge-success">Active</span>
+                    <% } else { %>
+                        <span class="badge badge-danger">Inactive</span>
+                    <% } %>
+                    <span class="badge badge-info" style="text-transform: capitalize;"><%= user.status || 'Unknown' %></span>
+                </div>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <button onclick="toggleStatus()" class="btn btn-primary" id="toggleStatusBtn">
+                <i class="fas fa-power-off me-2"></i>Toggle Status
+            </button>
+            <button onclick="showStatusModal()" class="btn" style="background: #F59E0B; color: white;" id="setStatusBtn">
+                <i class="fas fa-circle me-2"></i>Set Status
+            </button>
+            <button onclick="showNotificationModal()" class="btn" style="background: #10B981; color: white;" id="sendNotifBtn">
+                <i class="fas fa-bell me-2"></i>Send Notification
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= messageCount || 0 %></h3>
+            <p>Messages</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">
+            <i class="fas fa-comments"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= postCount || 0 %></h3>
+            <p>Posts</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #EC4899 0%, #DB2777 100%);">
+            <i class="fas fa-file-alt"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= aiInstances.length || 0 %></h3>
+            <p>AI Instances</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);">
+            <i class="fas fa-brain"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= storyCount || 0 %></h3>
+            <p>Stories</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);">
+            <i class="fas fa-images"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= connectionCount || 0 %></h3>
+            <p>Connections</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #10B981 0%, #059669 100%);">
+            <i class="fas fa-user-friends"></i>
+        </div>
+    </div>
+</div>
+
+<!-- User Details -->
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="table-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h5 style="margin: 0;">Contact Information</h5>
+                <button onclick="toggleSensitiveData()" class="btn btn-sm" style="background: #E0E7FF; color: #4338CA;">
+                    <i class="fas fa-eye" id="toggleIcon"></i>
+                    <span id="toggleText">Show Full</span>
+                </button>
+            </div>
+            <table class="table">
+                <tbody>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Email</td>
+                        <td>
+                            <span id="emailMasked">
+                                <% if (user.email) { 
+                                    const parts = user.email.split('@');
+                                    const masked = parts[0].substring(0, 2) + '***@' + parts[1];
+                                %>
+                                    <%= masked %>
+                                <% } else { %>
+                                    N/A
+                                <% } %>
+                            </span>
+                            <span id="emailFull" style="display: none;"><%= user.email || 'N/A' %></span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Phone</td>
+                        <td>
+                            <span id="phoneMasked">
+                                <%= user.phoneNumber ? user.phoneNumber.substring(0, 4) + '****' + user.phoneNumber.substring(user.phoneNumber.length - 2) : 'N/A' %>
+                            </span>
+                            <span id="phoneFull" style="display: none;"><%= user.phoneNumber %></span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Status</td>
+                        <td style="text-transform: capitalize;"><%= user.status || 'Unknown' %></td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Custom Status</td>
+                        <td><%= user.customStatus || 'N/A' %></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="table-card">
+            <h5 style="margin-bottom: 20px;">Account Information</h5>
+            <table class="table">
+                <tbody>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">User ID</td>
+                        <td><%= user.userId %></td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Joined</td>
+                        <td><%= new Date(user.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) %></td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Last Seen</td>
+                        <td>
+                            <% if (user.lastSeen) { %>
+                                <%= new Date(user.lastSeen).toLocaleString('en-US') %>
+                            <% } else { %>
+                                Never
+                            <% } %>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Active</td>
+                        <td>
+                            <% if (user.isActive) { %>
+                                <span class="badge badge-success">Yes</span>
+                            <% } else { %>
+                                <span class="badge badge-danger">No</span>
+                            <% } %>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Status History -->
+<div class="table-card" style="margin-top: 24px;">
+    <h5 style="margin-bottom: 20px;">
+        <i class="fas fa-history me-2"></i>Status History
+    </h5>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Custom Status</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Duration</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% if (statusHistory && statusHistory.length > 0) { %>
+                    <% statusHistory.forEach(status => { %>
+                        <tr>
+                            <td style="text-transform: capitalize;"><%= status.status %></td>
+                            <td><%= status.customStatus || 'N/A' %></td>
+                            <td><%= new Date(status.startTime).toLocaleString() %></td>
+                            <td>
+                                <% if (status.endTime) { %>
+                                    <%= new Date(status.endTime).toLocaleString() %>
+                                <% } else { %>
+                                    <span class="badge badge-success">Current</span>
+                                <% } %>
+                            </td>
+                            <td>
+                                <% if (status.duration) { %>
+                                    <%= Math.round(status.duration / 60) %> min
+                                <% } else { %>
+                                    -
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">
+                            No status history found
+                        </td>
+                    </tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Scheduled Statuses -->
+<% if (scheduledStatuses && scheduledStatuses.length > 0) { %>
+<div class="table-card" style="margin-top: 24px;">
+    <h5 style="margin-bottom: 20px;">
+        <i class="fas fa-calendar-alt me-2"></i>Scheduled Statuses
+    </h5>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Custom Status</th>
+                    <th>Scheduled Time</th>
+                    <th>Recurring</th>
+                    <th>Active</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% scheduledStatuses.forEach(schedule => { %>
+                    <tr>
+                        <td style="text-transform: capitalize;"><%= schedule.status %></td>
+                        <td><%= schedule.customStatus || 'N/A' %></td>
+                        <td><%= new Date(schedule.scheduledTime).toLocaleString() %></td>
+                        <td>
+                            <% if (schedule.isRecurring) { %>
+                                <span class="badge badge-info">Yes</span>
+                            <% } else { %>
+                                <span class="badge badge-secondary">No</span>
+                            <% } %>
+                        </td>
+                        <td>
+                            <% if (schedule.isActive) { %>
+                                <span class="badge badge-success">Active</span>
+                            <% } else { %>
+                                <span class="badge badge-danger">Inactive</span>
+                            <% } %>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+<% } %>
+
+<!-- AI Instances -->
+<% if (aiInstances && aiInstances.length > 0) { %>
+<div class="table-card" style="margin-top: 24px;">
+    <h5 style="margin-bottom: 20px;">
+        <i class="fas fa-brain me-2"></i>AI Instances
+    </h5>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Active</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% aiInstances.forEach(ai => { %>
+                    <tr>
+                        <td><%= ai.name %></td>
+                        <td style="text-transform: capitalize;"><%= ai.status %></td>
+                        <td>
+                            <% if (ai.isActive) { %>
+                                <span class="badge badge-success">Active</span>
+                            <% } else { %>
+                                <span class="badge badge-danger">Inactive</span>
+                            <% } %>
+                        </td>
+                        <td><%= new Date(ai.createdAt).toLocaleDateString() %></td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</div>
+<% } %>
+
+<!-- Test JavaScript execution -->
+<script>
+console.log('=== JAVASCRIPT TEST START ===');
+alert('JavaScript is working! Check console for more details.');
+console.log('=== JAVASCRIPT TEST END ===');
+</script>
+
+<!-- Simple inline JavaScript -->
+<script>
+console.log('=== DEFINING ADMIN FUNCTIONS START ===');
+
+function showStatusModal() {
+    console.log('Show status modal clicked');
+    const modal = document.getElementById('statusModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        console.log('Modal displayed');
+    } else {
+        console.error('Status modal not found!');
+        alert('Error: Status modal not found');
+    }
+}
+
+function closeStatusModal() {
+    console.log('Close status modal');
+    const modal = document.getElementById('statusModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function toggleStatus() {
+    console.log('Toggle status clicked');
+    
+    const userIdElement = document.querySelector('[data-user-id]');
+    console.log('User ID element found:', userIdElement);
+    
+    const userId = userIdElement?.getAttribute('data-user-id');
+    console.log('Extracted user ID:', userId);
+    
+    if (!userId) {
+        console.error('User ID not found');
+        alert('Error: User ID not found. Please refresh the page and try again.');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to toggle this user status?')) {
+        console.log('User cancelled toggle operation');
+        return;
+    }
+    
+    const toggleBtn = document.getElementById('toggleStatusBtn');
+    if (toggleBtn) {
+        toggleBtn.disabled = true;
+        toggleBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Processing...';
+    }
+    
+    try {
+        const url = `/admin/users/${userId}/toggle-status`;
+        console.log('Sending toggle request to:', url);
+        
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        });
+        
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Toggle response:', data);
+        
+        if (data.success) {
+            alert(data.message || 'User status updated successfully');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to update user status');
+        }
+    } catch (error) {
+        console.error('Toggle error details:', error);
+        alert(`Error updating user status: ${error.message}`);
+    } finally {
+        if (toggleBtn) {
+            toggleBtn.disabled = false;
+            toggleBtn.innerHTML = '<i class="fas fa-power-off me-2"></i>Toggle Status';
+        }
+    }
+}
+
+async function setStatus() {
+    console.log('Set status clicked');
+    
+    const userIdElement = document.querySelector('[data-user-id]');
+    const userId = userIdElement?.getAttribute('data-user-id');
+    
+    if (!userId) {
+        console.error('User ID not found');
+        alert('Error: User ID not found. Please refresh the page and try again.');
+        return;
+    }
+    
+    const statusSelect = document.getElementById('statusSelect');
+    const customStatusInput = document.getElementById('customStatus');
+    
+    if (!statusSelect || !customStatusInput) {
+        console.error('Status form elements not found');
+        alert('Error: Form elements not found');
+        return;
+    }
+    
+    const status = statusSelect.value;
+    const customStatus = customStatusInput.value.trim();
+    
+    console.log('Status data:', { status, customStatus, userId });
+    
+    try {
+        const url = `/admin/users/${userId}/set-status`;
+        console.log('Setting status at:', url);
+        
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ status, customStatus })
+        });
+        
+        console.log('Set status response status:', res.status);
+        
+        if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
+        const data = await res.json();
+        console.log('Set status response data:', data);
+        
+        if (data.success) {
+            alert(data.message || 'Status updated successfully');
+            closeStatusModal();
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to update status');
+        }
+    } catch (error) {
+        console.error('Set status error details:', error);
+        alert(`Error setting status: ${error.message}`);
+    }
+}
+
+function showNotificationModal() {
+    console.log('Show notification modal clicked');
+    const modal = document.getElementById('notificationModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        console.log('Notification modal displayed');
+    } else {
+        console.error('Notification modal not found!');
+        alert('Error: Notification modal not found');
+    }
+}
+
+function closeNotificationModal() {
+    console.log('Close notification modal');
+    const modal = document.getElementById('notificationModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function sendNotification() {
+    console.log('Send notification clicked');
+    
+    const userId = document.querySelector('[data-user-id]')?.getAttribute('data-user-id');
+    if (!userId) {
+        console.error('User ID not found');
+        alert('Error: User ID not found');
+        return;
+    }
+    
+    const title = document.getElementById('notifTitle').value;
+    const message = document.getElementById('notifMessage').value;
+    const type = document.getElementById('notifType').value;
+    
+    if (!title || !message) {
+        alert('Please fill all fields');
+        return;
+    }
+    
+    try {
+        console.log('Sending notification:', { title, message, type });
+        const res = await fetch(`/admin/users/${userId}/send-notification`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, message, type })
+        });
+        
+        const data = await res.json();
+        console.log('Send notification response:', data);
+        
+        if (data.success) {
+            alert(data.message);
+            closeNotificationModal();
+            document.getElementById('notificationForm').reset();
+        } else {
+            alert(data.message);
+        }
+    } catch (error) {
+        console.error('Send notification error:', error);
+        alert('Error sending notification');
+    }
+}
+
+let showingSensitiveData = false;
+
+function toggleSensitiveData() {
+    console.log('Toggle sensitive data clicked');
+    showingSensitiveData = !showingSensitiveData;
+    
+    const emailMasked = document.getElementById('emailMasked');
+    const emailFull = document.getElementById('emailFull');
+    const phoneMasked = document.getElementById('phoneMasked');
+    const phoneFull = document.getElementById('phoneFull');
+    const toggleIcon = document.getElementById('toggleIcon');
+    const toggleText = document.getElementById('toggleText');
+    
+    if (showingSensitiveData) {
+        emailMasked.style.display = 'none';
+        emailFull.style.display = 'inline';
+        phoneMasked.style.display = 'none';
+        phoneFull.style.display = 'inline';
+        toggleIcon.className = 'fas fa-eye-slash';
+        toggleText.textContent = 'Hide Full';
+    } else {
+        emailMasked.style.display = 'inline';
+        emailFull.style.display = 'none';
+        phoneMasked.style.display = 'inline';
+        phoneFull.style.display = 'none';
+        toggleIcon.className = 'fas fa-eye';
+        toggleText.textContent = 'Show Full';
+    }
+}
+
+console.log('=== ALL ADMIN FUNCTIONS DEFINED SUCCESSFULLY ===');
+
+// Test function availability
+window.testFunctions = function() {
+    console.log('Testing function availability:');
+    console.log('showStatusModal:', typeof showStatusModal);
+    console.log('toggleStatus:', typeof toggleStatus);
+    console.log('setStatus:', typeof setStatus);
+};
+
+// Call test function
+testFunctions();
+</script>
+
+<!-- Status Modal -->
+<div id="statusModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: white; border-radius: 16px; padding: 32px; max-width: 500px; width: 90%;">
+        <h5 style="margin-bottom: 20px;">Set User Status</h5>
+        <div style="margin-bottom: 16px;">
+            <label for="statusSelect" class="form-label" style="font-weight: 600; color: #64748b; display: block; margin-bottom: 8px;">Status</label>
+            <select id="statusSelect" class="form-select" aria-label="Select user status" aria-describedby="statusHelp">
+                <option value="available">Available</option>
+                <option value="busy">Busy</option>
+                <option value="away">Away</option>
+                <option value="offline">Offline</option>
+            </select>
+            <div id="statusHelp" class="form-text" style="font-size: 12px; color: #6b7280; margin-top: 4px;">Choose the user's availability status</div>
+        </div>
+        <div style="margin-bottom: 20px;">
+            <label for="customStatus" class="form-label" style="font-weight: 600; color: #64748b; display: block; margin-bottom: 8px;">Custom Status</label>
+            <input type="text" id="customStatus" class="form-control" placeholder="e.g., In a meeting" aria-label="Custom status message" aria-describedby="customStatusHelp">
+            <div id="customStatusHelp" class="form-text" style="font-size: 12px; color: #6b7280; margin-top: 4px;">Optional custom status message</div>
+        </div>
+        <div style="display: flex; gap: 12px;">
+            <button onclick="setStatus()" class="btn btn-primary">Set Status</button>
+            <button onclick="closeStatusModal()" class="btn" style="background: #F8FAFC; color: #64748b;">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Modal -->
+<div id="notificationModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: white; border-radius: 16px; padding: 32px; max-width: 500px; width: 90%;">
+        <h5 style="margin-bottom: 20px;">Send Push Notification</h5>
+        <form id="notificationForm">
+            <div style="margin-bottom: 16px;">
+                <label for="notifTitle" class="form-label" style="font-weight: 600; color: #64748b; display: block; margin-bottom: 8px;">Title</label>
+                <input type="text" id="notifTitle" class="form-control" placeholder="Notification title" required aria-label="Notification title">
+            </div>
+            <div style="margin-bottom: 16px;">
+                <label for="notifMessage" class="form-label" style="font-weight: 600; color: #64748b; display: block; margin-bottom: 8px;">Message</label>
+                <textarea id="notifMessage" class="form-control" rows="3" placeholder="Notification message" required aria-label="Notification message"></textarea>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label for="notifType" class="form-label" style="font-weight: 600; color: #64748b; display: block; margin-bottom: 8px;">Type</label>
+                <select id="notifType" class="form-select" aria-label="Notification type">
+                    <option value="info">Info</option>
+                    <option value="success">Success</option>
+                    <option value="warning">Warning</option>
+                    <option value="error">Error</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 12px;">
+                <button type="button" onclick="sendNotification()" class="btn btn-primary">Send Notification</button>
+                <button type="button" onclick="closeNotificationModal()" class="btn" style="background: #F8FAFC; color: #64748b;">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

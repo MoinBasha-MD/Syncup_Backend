@@ -1,0 +1,95 @@
+<!-- Back Button -->
+<div style="margin-bottom: 24px;">
+    <a href="/admin/users/<%= user._id %>" class="btn" style="background: #F8FAFC; color: #64748b;">
+        <i class="fas fa-arrow-left me-2"></i>Back to User Details
+    </a>
+</div>
+
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Edit User</h3>
+    <p style="color: #64748b; margin: 0;">Update user information</p>
+</div>
+
+<!-- Edit Form -->
+<div class="table-card">
+    <form id="editUserForm">
+        <div class="row g-4">
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Name *</label>
+                <input type="text" name="name" class="form-control" value="<%= user.name %>" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Email *</label>
+                <input type="email" name="email" class="form-control" value="<%= user.email %>" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Phone Number *</label>
+                <input type="text" name="phoneNumber" class="form-control" value="<%= user.phoneNumber %>" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Status</label>
+                <select name="status" class="form-select" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="available" <%= user.status === 'available' ? 'selected' : '' %>>Available</option>
+                    <option value="busy" <%= user.status === 'busy' ? 'selected' : '' %>>Busy</option>
+                    <option value="away" <%= user.status === 'away' ? 'selected' : '' %>>Away</option>
+                    <option value="offline" <%= user.status === 'offline' ? 'selected' : '' %>>Offline</option>
+                </select>
+            </div>
+            
+            <div class="col-md-12">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Custom Status</label>
+                <input type="text" name="customStatus" class="form-control" value="<%= user.customStatus || '' %>" placeholder="Enter custom status..." style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Active Status</label>
+                <select name="isActive" class="form-select" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="true" <%= user.isActive ? 'selected' : '' %>>Active</option>
+                    <option value="false" <%= !user.isActive ? 'selected' : '' %>>Inactive</option>
+                </select>
+            </div>
+        </div>
+        
+        <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #E2E8F0; display: flex; gap: 12px;">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save me-2"></i>Save Changes
+            </button>
+            <a href="/admin/users/<%= user._id %>" class="btn" style="background: #F8FAFC; color: #64748b; border: 1px solid #E2E8F0;">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<script>
+document.getElementById('editUserForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    data.isActive = data.isActive === 'true';
+    
+    try {
+        const response = await fetch('/admin/users/<%= user._id %>', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(result.message);
+            window.location.href = '/admin/users/<%= user._id %>';
+        } else {
+            alert(result.message);
+        }
+    } catch (error) {
+        alert('Error updating user');
+    }
+});
+</script>

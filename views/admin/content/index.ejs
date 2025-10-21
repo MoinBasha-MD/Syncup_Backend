@@ -1,0 +1,140 @@
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Content Management</h3>
+    <p style="color: #64748b; margin: 0;">Manage posts, stories, and media content</p>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalPosts %></h3>
+            <p>Total Posts</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #EC4899 0%, #DB2777 100%);">
+            <i class="fas fa-file-alt"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalStories %></h3>
+            <p>Total Stories</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);">
+            <i class="fas fa-images"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= activeStories %></h3>
+            <p>Active Stories</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #10B981 0%, #059669 100%);">
+            <i class="fas fa-check-circle"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Posts -->
+<div class="table-card" style="margin-bottom: 24px;">
+    <div class="table-header">
+        <h5>Recent Posts</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Content</th>
+                    <th>Likes</th>
+                    <th>Comments</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% if (recentPosts && recentPosts.length > 0) { %>
+                    <% recentPosts.forEach(post => { %>
+                        <tr>
+                            <td><%= post.user ? post.user.name : 'Unknown' %></td>
+                            <td><%= post.content ? post.content.substring(0, 50) + '...' : 'N/A' %></td>
+                            <td><%= post.likesCount || 0 %></td>
+                            <td><%= post.commentsCount || 0 %></td>
+                            <td><%= new Date(post.createdAt).toLocaleDateString() %></td>
+                            <td>
+                                <button onclick="deletePost('<%= post._id %>')" class="btn btn-sm" style="background: #FEE2E2; color: #DC2626;">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="6" style="text-align: center; color: #94a3b8;">No posts found</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Recent Stories -->
+<div class="table-card">
+    <div class="table-header">
+        <h5>Recent Stories</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Type</th>
+                    <th>Views</th>
+                    <th>Expires</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% if (recentStories && recentStories.length > 0) { %>
+                    <% recentStories.forEach(story => { %>
+                        <tr>
+                            <td><%= story.user ? story.user.name : 'Unknown' %></td>
+                            <td><%= story.mediaType || 'Unknown' %></td>
+                            <td><%= story.viewsCount || 0 %></td>
+                            <td><%= new Date(story.expiresAt).toLocaleDateString() %></td>
+                            <td><%= new Date(story.createdAt).toLocaleDateString() %></td>
+                            <td>
+                                <button onclick="deleteStory('<%= story._id %>')" class="btn btn-sm" style="background: #FEE2E2; color: #DC2626;">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="6" style="text-align: center; color: #94a3b8;">No stories found</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function deletePost(id) {
+    if (!confirm('Delete this post?')) return;
+    try {
+        const res = await fetch(`/admin/content/posts/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { alert(data.message); location.reload(); }
+    } catch (error) { alert('Error deleting post'); }
+}
+
+async function deleteStory(id) {
+    if (!confirm('Delete this story?')) return;
+    try {
+        const res = await fetch(`/admin/content/stories/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { alert(data.message); location.reload(); }
+    } catch (error) { alert('Error deleting story'); }
+}
+</script>

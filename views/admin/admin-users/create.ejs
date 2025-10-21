@@ -1,0 +1,81 @@
+<!-- Back Button -->
+<div style="margin-bottom: 24px;">
+    <a href="/admin/admin-users" class="btn" style="background: #F8FAFC; color: #64748b;">
+        <i class="fas fa-arrow-left me-2"></i>Back to Admin Users
+    </a>
+</div>
+
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Create Admin User</h3>
+    <p style="color: #64748b; margin: 0;">Add a new administrator to the system</p>
+</div>
+
+<!-- Create Form -->
+<div class="table-card">
+    <form method="POST" action="create">
+        <div class="row g-4">
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Username *</label>
+                <input type="text" name="username" class="form-control" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Email *</label>
+                <input type="email" name="email" class="form-control" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Password *</label>
+                <input type="password" name="password" class="form-control" required minlength="6" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                <small style="color: #64748b;">Minimum 6 characters</small>
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Role *</label>
+                <select name="role" class="form-select" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <option value="moderator">Moderator</option>
+                    <option value="admin">Admin</option>
+                    <option value="super-admin">Super Admin</option>
+                </select>
+            </div>
+        </div>
+        
+        <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #E2E8F0; display: flex; gap: 12px;">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save me-2"></i>Create Admin
+            </button>
+            <a href="/admin/admin-users" class="btn" style="background: #F8FAFC; color: #64748b; border: 1px solid #E2E8F0;">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<script>
+document.querySelector('form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const data = Object.fromEntries(formData);
+    
+    try {
+        const res = await fetch('/admin/admin-users/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await res.json();
+        
+        if (result.success) {
+            alert(result.message);
+            window.location.href = '/admin/admin-users';
+        } else {
+            alert(result.message);
+        }
+    } catch (error) {
+        alert('Error creating admin');
+    }
+});
+</script>

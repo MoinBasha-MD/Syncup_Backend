@@ -1,0 +1,99 @@
+<!-- Back Button -->
+<div style="margin-bottom: 24px;">
+    <a href="/admin/groups" class="btn" style="background: #F8FAFC; color: #64748b;">
+        <i class="fas fa-arrow-left me-2"></i>Back to Groups
+    </a>
+</div>
+
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+        <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;"><%= group.name %></h3>
+        <p style="color: #64748b; margin: 0;">Group Details</p>
+    </div>
+    <a href="/admin/groups/<%= group._id %>/edit" class="btn btn-primary">
+        <i class="fas fa-edit me-2"></i>Edit Group
+    </a>
+</div>
+
+<!-- Group Info -->
+<div class="table-card" style="margin-bottom: 24px;">
+    <h5 style="margin-bottom: 20px;">Group Information</h5>
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div style="margin-bottom: 16px;">
+                <label style="font-weight: 600; color: #64748b; display: block; margin-bottom: 4px;">Group Name</label>
+                <div style="color: #0f172a;"><%= group.name %></div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div style="margin-bottom: 16px;">
+                <label style="font-weight: 600; color: #64748b; display: block; margin-bottom: 4px;">Members Count</label>
+                <div style="color: #0f172a;"><%= group.membersCount || 0 %> members</div>
+            </div>
+        </div>
+        <div class="col-md-12">
+            <div style="margin-bottom: 16px;">
+                <label style="font-weight: 600; color: #64748b; display: block; margin-bottom: 4px;">Description</label>
+                <div style="color: #0f172a;"><%= group.description || 'No description' %></div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div style="margin-bottom: 16px;">
+                <label style="font-weight: 600; color: #64748b; display: block; margin-bottom: 4px;">Created By</label>
+                <div style="color: #0f172a;">
+                    <% if (group.createdBy) { %>
+                        <%= group.createdBy.name %> (<%= group.createdBy.phoneNumber %>)
+                    <% } else { %>
+                        Unknown
+                    <% } %>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div style="margin-bottom: 16px;">
+                <label style="font-weight: 600; color: #64748b; display: block; margin-bottom: 4px;">Created At</label>
+                <div style="color: #0f172a;"><%= new Date(group.createdAt).toLocaleString() %></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Members List -->
+<div class="table-card">
+    <div class="table-header">
+        <h5>Group Members (<%= group.members.length %>)</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Phone Number</th>
+                    <th>Email</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% if (group.members && group.members.length > 0) { %>
+                    <% group.members.forEach(member => { %>
+                        <tr>
+                            <td>
+                                <a href="/admin/users/<%= member._id %>" style="color: #4F46E5; text-decoration: none;">
+                                    <%= member.name %>
+                                </a>
+                            </td>
+                            <td><%= member.phoneNumber %></td>
+                            <td><%= member.email || 'N/A' %></td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr>
+                        <td colspan="3" style="text-align: center; padding: 40px; color: #94a3b8;">
+                            No members in this group
+                        </td>
+                    </tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>

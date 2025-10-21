@@ -1460,13 +1460,23 @@ const broadcastStatusUpdate = async (user, statusData) => {
           };
           
           // CRITICAL: Only include location if it has valid data
+          console.log(`🔍 [BROADCAST] Checking location for ${user.name}:`);
+          console.log(`🔍 [BROADCAST] statusData.statusLocation:`, JSON.stringify(statusData.statusLocation));
+          console.log(`🔍 [BROADCAST] user.statusLocation:`, JSON.stringify(user.statusLocation));
+          
           if (statusData.statusLocation && statusData.statusLocation.placeName && 
               statusData.statusLocation.placeName.trim() !== '') {
             statusUpdateData.statusLocation = statusData.statusLocation;
             statusUpdateData.location = statusData.statusLocation.placeName;
             console.log(`✅ Including location in broadcast: ${statusData.statusLocation.placeName}`);
+          } else if (user.statusLocation && user.statusLocation.placeName && 
+                     user.statusLocation.placeName.trim() !== '') {
+            // Fallback to user's saved location if statusData doesn't have it
+            statusUpdateData.statusLocation = user.statusLocation;
+            statusUpdateData.location = user.statusLocation.placeName;
+            console.log(`✅ Including location from user object: ${user.statusLocation.placeName}`);
           } else {
-            console.log(`⚠️ No valid location to broadcast`);
+            console.log(`⚠️ No valid location to broadcast (statusData: ${!!statusData.statusLocation}, user: ${!!user.statusLocation})`);
           }
           
           // Emit multiple event types to ensure frontend receives the update

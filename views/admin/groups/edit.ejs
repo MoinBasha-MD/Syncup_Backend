@@ -1,0 +1,84 @@
+<!-- Back Button -->
+<div style="margin-bottom: 24px;">
+    <a href="/admin/groups" class="btn" style="background: #F8FAFC; color: #64748b;">
+        <i class="fas fa-arrow-left me-2"></i>Back to Groups
+    </a>
+</div>
+
+<!-- Page Header -->
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Edit Group</h3>
+    <p style="color: #64748b; margin: 0;">Update group details</p>
+</div>
+
+<!-- Edit Form -->
+<div class="table-card">
+    <form id="editForm">
+        <div class="row g-4">
+            <div class="col-md-12">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Group Name *</label>
+                <input type="text" name="name" class="form-control" value="<%= group.name %>" required style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+            </div>
+            
+            <div class="col-md-12">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Description</label>
+                <textarea name="description" class="form-control" rows="3" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;"><%= group.description || '' %></textarea>
+            </div>
+            
+            <div class="col-md-12">
+                <label class="form-label" style="font-weight: 600; color: #64748b;">Members</label>
+                <select name="members" class="form-select" multiple size="8" style="border-radius: 10px; border: 1px solid #E2E8F0; padding: 10px 16px;">
+                    <% users.forEach(user => { 
+                        const isSelected = group.members.some(m => m._id.toString() === user._id.toString());
+                    %>
+                        <option value="<%= user._id %>" <%= isSelected ? 'selected' : '' %>>
+                            <%= user.name %> (<%= user.phoneNumber %>)
+                        </option>
+                    <% }) %>
+                </select>
+                <small style="color: #64748b;">Hold Ctrl/Cmd to select multiple members</small>
+            </div>
+        </div>
+        
+        <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #E2E8F0; display: flex; gap: 12px;">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save me-2"></i>Update Group
+            </button>
+            <a href="/admin/groups" class="btn" style="background: #F8FAFC; color: #64748b; border: 1px solid #E2E8F0;">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<script>
+document.getElementById('editForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const data = {
+        name: formData.get('name'),
+        description: formData.get('description'),
+        members: formData.getAll('members')
+    };
+    
+    try {
+        const res = await fetch('/admin/groups/<%= group._id %>', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await res.json();
+        
+        if (result.success) {
+            alert(result.message);
+            window.location.href = '/admin/groups';
+        } else {
+            alert(result.message);
+        }
+    } catch (error) {
+        alert('Error updating group');
+    }
+});
+</script>

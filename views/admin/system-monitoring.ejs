@@ -1,0 +1,204 @@
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+        <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">System Monitoring</h3>
+        <p style="color: #64748b; margin: 0;">Real-time system status and performance metrics</p>
+    </div>
+    <button onclick="location.reload()" class="btn btn-primary">
+        <i class="fas fa-sync-alt me-2"></i>Refresh
+    </button>
+</div>
+
+<!-- System Health -->
+<div class="table-card" style="margin-bottom: 24px; background: linear-gradient(135deg, #4F46E5 0%, #8B5CF6 100%); color: white;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h4 style="margin: 0 0 8px 0; color: white;">System Status</h4>
+            <p style="margin: 0; opacity: 0.9; font-size: 14px;">All systems operational</p>
+        </div>
+        <div style="font-size: 48px;">
+            <i class="fas fa-check-circle"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Status Broadcasting Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalStatusChanges %></h3>
+            <p>Total Status Changes</p>
+            <div class="stat-footer">
+                <span class="badge badge-success"><%= stats.statusChangesToday %></span>
+                <span style="color: #64748b;">today</span>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);">
+            <i class="fas fa-broadcast-tower"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.activeStatuses %></h3>
+            <p>Currently Broadcasting</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #10B981 0%, #059669 100%);">
+            <i class="fas fa-signal"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.scheduledStatuses %></h3>
+            <p>Scheduled Statuses</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">
+            <i class="fas fa-calendar-alt"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.connectedUsers %></h3>
+            <p>Connected Users</p>
+            <div class="stat-footer">
+                <span style="color: #64748b;"><%= stats.activeUsers %> active</span>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);">
+            <i class="fas fa-users"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Server Stats -->
+<div class="row g-4" style="margin-bottom: 24px;">
+    <div class="col-md-6">
+        <div class="table-card">
+            <h5 style="margin-bottom: 20px;"><i class="fas fa-server me-2"></i>Server Information</h5>
+            <table class="table">
+                <tbody>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Uptime</td>
+                        <td><%= server.uptime.days %>d <%= server.uptime.hours %>h <%= server.uptime.minutes %>m</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Node Version</td>
+                        <td><%= server.nodeVersion %></td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Platform</td>
+                        <td><%= server.platform %> (<%= server.arch %>)</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">CPU</td>
+                        <td><%= server.cpu.cores %> cores</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="table-card">
+            <h5 style="margin-bottom: 20px;"><i class="fas fa-memory me-2"></i>Memory Usage</h5>
+            <div style="margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="font-weight: 600; color: #64748b;">Used: <%= server.memory.used %> GB</span>
+                    <span style="font-weight: 600; color: #64748b;">Total: <%= server.memory.total %> GB</span>
+                </div>
+                <div style="width: 100%; height: 12px; background: #F1F5F9; border-radius: 6px; overflow: hidden;">
+                    <div style="width: <%= server.memory.usagePercent %>%; height: 100%; background: linear-gradient(90deg, #4F46E5 0%, #8B5CF6 100%);"></div>
+                </div>
+                <div style="text-align: center; margin-top: 8px; font-size: 14px; color: #64748b;">
+                    <%= server.memory.usagePercent %>% Used
+                </div>
+            </div>
+            <table class="table">
+                <tbody>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Free Memory</td>
+                        <td><%= server.memory.free %> GB</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Activity Stats -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalMessages %></h3>
+            <p>Total Messages</p>
+            <div class="stat-footer">
+                <span class="badge badge-primary"><%= stats.messagesToday %></span>
+                <span style="color: #64748b;">today</span>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">
+            <i class="fas fa-comments"></i>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= stats.totalAI %></h3>
+            <p>AI Instances</p>
+            <div class="stat-footer">
+                <span class="badge badge-success"><%= stats.activeAI %></span>
+                <span style="color: #64748b;">active</span>
+            </div>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);">
+            <i class="fas fa-brain"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Status Changes -->
+<div class="table-card">
+    <div class="table-header">
+        <h5><i class="fas fa-history me-2"></i>Recent Status Broadcasts</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Status</th>
+                    <th>Custom Status</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% if (recentStatusChanges && recentStatusChanges.length > 0) { %>
+                    <% recentStatusChanges.forEach(status => { %>
+                        <tr>
+                            <td><%= status.user ? status.user.name : 'Unknown' %></td>
+                            <td style="text-transform: capitalize;"><%= status.status %></td>
+                            <td><%= status.customStatus || 'N/A' %></td>
+                            <td><%= new Date(status.startTime).toLocaleString() %></td>
+                            <td>
+                                <% if (status.endTime) { %>
+                                    <%= Math.round((new Date(status.endTime) - new Date(status.startTime)) / 60000) %> min
+                                <% } else { %>
+                                    <span class="badge badge-success">Active</span>
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">
+                            No recent status changes
+                        </td>
+                    </tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>

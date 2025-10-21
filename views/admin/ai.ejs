@@ -1,0 +1,57 @@
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">AI System</h3>
+    <p style="color: #64748b; margin: 0;">Monitor and manage AI instances</p>
+</div>
+
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= totalAI %></h3>
+            <p>Total AI Instances</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);">
+            <i class="fas fa-brain"></i>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3><%= activeAI %></h3>
+            <p>Active AI</p>
+        </div>
+        <div class="stat-icon" style="background: linear-gradient(135deg, #10B981 0%, #059669 100%);">
+            <i class="fas fa-check-circle"></i>
+        </div>
+    </div>
+</div>
+
+<div class="table-card">
+    <div class="table-header"><h5>AI Instances</h5></div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr><th>Name</th><th>User</th><th>Status</th><th>Active</th><th>Created</th></tr>
+            </thead>
+            <tbody>
+                <% if (aiInstances && aiInstances.length > 0) { %>
+                    <% aiInstances.forEach(ai => { %>
+                        <tr>
+                            <td><%= ai.name %></td>
+                            <td><%= ai.user ? ai.user.name : 'Unknown' %></td>
+                            <td style="text-transform: capitalize;"><%= ai.status %></td>
+                            <td>
+                                <% if (ai.isActive) { %>
+                                    <span class="badge badge-success">Active</span>
+                                <% } else { %>
+                                    <span class="badge badge-danger">Inactive</span>
+                                <% } %>
+                            </td>
+                            <td><%= new Date(ai.createdAt).toLocaleDateString() %></td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="5" style="text-align: center; color: #94a3b8;">No AI instances found</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>

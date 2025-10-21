@@ -1,0 +1,48 @@
+<div style="margin-bottom: 24px;">
+    <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">Settings</h3>
+    <p style="color: #64748b; margin: 0;">Manage system settings and preferences</p>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="table-card">
+            <h5 style="margin-bottom: 20px;">Profile Settings</h5>
+            <form>
+                <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-control" value="<%= adminUser.username %>" readonly style="border-radius: 10px;">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-control" value="<%= adminUser.email %>" readonly style="border-radius: 10px;">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Role</label>
+                    <input type="text" class="form-control" value="<%= adminUser.role %>" readonly style="border-radius: 10px; text-transform: capitalize;">
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="table-card">
+            <h5 style="margin-bottom: 20px;">System Information</h5>
+            <table class="table">
+                <tbody>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Version</td>
+                        <td>1.0.0</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Environment</td>
+                        <td><%= process.env.NODE_ENV || 'development' %></td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600; color: #64748b;">Node Version</td>
+                        <td><%= process.version %></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
