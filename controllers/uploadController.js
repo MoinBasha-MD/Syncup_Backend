@@ -98,6 +98,45 @@ const chatUpload = multer({
   fileFilter: fileFilter
 });
 
+// Configure storage for post media (photos and videos)
+const postMediaStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../uploads/post-media');
+    
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Create unique filename with original extension
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    const prefix = file.mimetype.startsWith('video/') ? 'video' : 'photo';
+    cb(null, `post-${prefix}-${uniqueSuffix}${ext}`);
+  }
+});
+
+// File filter for post media (images and videos)
+const postMediaFilter = (req, file, cb) => {
+  // Accept images and videos
+  if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image and video files are allowed!'), false);
+  }
+};
+
+const postMediaUpload = multer({ 
+  storage: postMediaStorage,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB max file size for post media
+  },
+  fileFilter: postMediaFilter
+});
+
 // Configure storage for chat files (documents, etc.)
 const chatFileStorage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -508,13 +547,82 @@ const uploadChatFile = async (req, res) => {
   }
 };
 
+// Upload post media (photo or video)
+const uploadPostMedia = async (req, res) => {
+  try {
+    console.log('📸 Post media upload - Request received');
+    console.log('📸 Post media upload - Authenticated user:', req.user?.userId);
+    console.log('📸 Post media upload - File:', req.file ? {
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    } : 'No file');
+    
+    if (!req.file) {
+      console.error('📸 Post media upload - No file in request');
+      return res.status(400).json({
+        success: false,
+        message: 'Please upload a file'
+      });
+    }
+
+    // Validate user authentication
+    if (!req.user || !req.user.userId) {
+      console.error('📸 Post media upload - User not authenticated');
+      // Clean up uploaded file
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
+    // Determine if it's a photo or video
+    const isVideo = req.file.mimetype.startsWith('video/');
+    const mediaUrl = `/uploads/post-media/${req.file.filename}`;
+    
+    console.log(`📸 Post media upload - ${isVideo ? 'Video' : 'Photo'} URL:`, mediaUrl);
+    console.log('📸 Post media upload - File saved successfully');
+
+    // Return the media URL
+    res.status(200).json({
+      success: true,
+      data: {
+        [isVideo ? 'videoUrl' : 'imageUrl']: mediaUrl,
+        fileName: req.file.filename,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
+        uploadedBy: req.user.userId
+      },
+      message: `Post ${isVideo ? 'video' : 'photo'} uploaded successfully`
+    });
+  } catch (error) {
+    console.error('❌ Error uploading post media:', error);
+    // If there was an error and a file was uploaded, delete it
+    if (req.file && fs.existsSync(req.file.path)) {
+      console.log('📸 Cleaning up file due to error:', req.file.path);
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading post media',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   uploadProfileImage,
   uploadStoryImage,
   uploadChatImage,
   uploadChatFile,
+  uploadPostMedia,
   profileUploadMiddleware: profileUpload.single('profileImage'),
   storyUploadMiddleware: storyUpload.single('storyImage'),
   chatUploadMiddleware: chatUpload.single('chatImage'),
-  chatFileUploadMiddleware: chatFileUpload.single('chatFile')
+  chatFileUploadMiddleware: chatFileUpload.single('chatFile'),
+  postMediaUploadMiddleware: postMediaUpload.single('postMedia')
 };
