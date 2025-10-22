@@ -98,14 +98,40 @@ const createFeedPost = async (req, res) => {
   }
 };
 
-// Get feed posts
+// Get feed posts (Instagram-style with contacts + app connections)
 const getFeedPosts = async (req, res) => {
   try {
     const userId = req.user.userId;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    const posts = await FeedPost.getFeedPosts(userId, page, limit);
+    // Get user's contacts AND app connections for Instagram-style feed filtering
+    const currentUser = await User.findOne({ userId }).select('contacts appConnections');
+    const contactObjectIds = currentUser?.contacts || [];
+    const appConnections = currentUser?.appConnections || [];
+    
+    // Convert contact ObjectIds to userIds
+    const contactUsers = await User.find({ 
+      _id: { $in: contactObjectIds } 
+    }).select('userId');
+    
+    const contactUserIds = contactUsers.map(user => user.userId);
+    
+    // Extract userIds from app connections
+    const appConnectionUserIds = appConnections.map(conn => conn.userId).filter(Boolean);
+    
+    // Combine both contact types (device contacts + app connections)
+    const allConnectionUserIds = [...new Set([...contactUserIds, ...appConnectionUserIds])];
+    
+    console.log(`📱 Getting feed for user ${userId}:`);
+    console.log(`  📞 Device contacts: ${contactUserIds.length}`);
+    console.log(`  🌐 App connections: ${appConnectionUserIds.length}`);
+    console.log(`  ✅ Total connections: ${allConnectionUserIds.length}`);
+
+    // Pass all connection IDs to getFeedPosts for Instagram-style filtering
+    const posts = await FeedPost.getFeedPosts(userId, page, limit, allConnectionUserIds);
+
+    console.log(`✅ Returning ${posts.length} posts (own + contacts + app connections + public)`);
 
     res.status(200).json({
       success: true,

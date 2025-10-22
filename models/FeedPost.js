@@ -168,22 +168,64 @@ feedPostSchema.methods.incrementViews = function() {
   return this.save();
 };
 
-// Static method to get feed posts for user
-feedPostSchema.statics.getFeedPosts = function(userId, page = 1, limit = 20) {
+// Static method to get feed posts for user (Instagram-style)
+feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 20, contactIds = []) {
   const skip = (page - 1) * limit;
   
-  return this.find({
+  // Instagram-style feed logic:
+  // 1. Posts from people you follow (contacts) - all privacy levels
+  // 2. Your own posts - all privacy levels
+  // 3. Public posts from everyone (suggested content)
+  
+  const query = {
     isActive: true,
     $or: [
-      { privacy: 'public' },
-      { userId: userId }, // User's own posts
-      // TODO: Add friends-only logic when friendship system is implemented
+      // Own posts (all privacy levels)
+      { userId: userId },
+      
+      // Contacts' posts with 'public' or 'friends' privacy
+      { 
+        userId: { $in: contactIds },
+        privacy: { $in: ['public', 'friends'] }
+      },
+      
+      // Public posts from everyone (suggested content)
+      { privacy: 'public' }
     ]
-  })
-  .sort({ createdAt: -1 })
-  .skip(skip)
-  .limit(limit)
-  .lean();
+  };
+  
+  const posts = await this.find(query)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+  
+  // Prioritize: Own posts & contacts' posts first, then public posts
+  const ownAndContactPosts = posts.filter(post => 
+    post.userId === userId || contactIds.includes(post.userId)
+  );
+  
+  const publicPosts = posts.filter(post => 
+    post.userId !== userId && !contactIds.includes(post.userId)
+  );
+  
+  // Mix them: 70% own/contacts, 30% public (Instagram-style algorithm)
+  const mixedPosts = [];
+  let ownContactIndex = 0;
+  let publicIndex = 0;
+  
+  for (let i = 0; i < posts.length; i++) {
+    // Every 3-4 posts, show a public post (if available)
+    if (i % 4 === 3 && publicIndex < publicPosts.length) {
+      mixedPosts.push(publicPosts[publicIndex++]);
+    } else if (ownContactIndex < ownAndContactPosts.length) {
+      mixedPosts.push(ownAndContactPosts[ownContactIndex++]);
+    } else if (publicIndex < publicPosts.length) {
+      mixedPosts.push(publicPosts[publicIndex++]);
+    }
+  }
+  
+  return mixedPosts;
 };
 
 // Static method to get user's posts
