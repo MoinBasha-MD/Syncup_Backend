@@ -179,7 +179,8 @@ const syncContacts = asyncHandler(async (req, res) => {
       throw new Error('Phone numbers array is required');
     }
 
-    console.log('Received phone numbers for sync:', phoneNumbers);
+    console.log('\n📞 [PHONE SYNC] Received phone numbers for sync:', phoneNumbers);
+    console.log(`📞 [PHONE SYNC] Total phone numbers received: ${phoneNumbers.length}`);
     
     // Normalize phone numbers to ensure consistent format
     const normalizedPhoneNumbers = phoneNumbers.map(phone => {
@@ -212,10 +213,12 @@ const syncContacts = asyncHandler(async (req, res) => {
         console.log(`Warning: Phone number ${phoneStr} normalized to ${normalized} is not 10 digits`);
       }
       
+      console.log(`📞 [NORMALIZE] ${phoneStr} → ${normalized}`);
       return normalized;
     }).filter(phone => phone); // Remove any null/empty values
     
-    console.log('Normalized phone numbers for sync:', normalizedPhoneNumbers);
+    console.log('\n📞 [PHONE SYNC] Normalized phone numbers:', normalizedPhoneNumbers);
+    console.log(`📞 [PHONE SYNC] Searching for ${normalizedPhoneNumbers.length} phone numbers in database...`);
     
     // Find users with matching phone numbers
     const registeredUsers = await User.find(
@@ -223,39 +226,55 @@ const syncContacts = asyncHandler(async (req, res) => {
       '_id name phoneNumber email profileImage currentStatus'
     );
     
-    console.log(`Found ${registeredUsers.length} registered users:`);
+    console.log(`\n✅ [PHONE SYNC] Found ${registeredUsers.length} registered users:`);
     
     // Log each found user for debugging
     if (registeredUsers.length > 0) {
       registeredUsers.forEach(user => {
-        console.log(`Matched user: ${user.name}, Phone: ${user.phoneNumber}, ID: ${user._id}`);
+        console.log(`   ✅ Matched: ${user.name}, Phone: ${user.phoneNumber}, ID: ${user._id}`);
       });
     } else {
-      console.log('No matching users found in database. Checking database phone number format...');
+      console.log('\n❌ [PHONE SYNC] No matching users found in database!');
+      console.log('📊 [PHONE SYNC] Checking database phone number format...');
       
       // Check a sample of users in the database to verify phone number format
-      const sampleUsers = await User.find({}, 'name phoneNumber').limit(5);
-      console.log('Sample users in database:', sampleUsers.map(u => ({ name: u.name, phone: u.phoneNumber })));
-      
-      // Check if any normalized numbers are close matches (debugging)
-      const allUsers = await User.find({}, 'phoneNumber');
-      const allPhones = allUsers.map(u => u.phoneNumber);
-      console.log(`Database has ${allUsers.length} total users with phone numbers`);
-      
-      // Look for partial matches
-      const partialMatches = [];
-      normalizedPhoneNumbers.forEach(normalizedPhone => {
-        allPhones.forEach(dbPhone => {
-          // Check if last 8 digits match (in case of country code issues)
-          if (normalizedPhone.slice(-8) === dbPhone.slice(-8)) {
-            partialMatches.push({ normalized: normalizedPhone, dbPhone });
-          }
-        });
+      const sampleUsers = await User.find({}, 'name phoneNumber').limit(10);
+      console.log('\n📊 [DEBUG] Sample users in database:');
+      sampleUsers.forEach(u => {
+        console.log(`   - ${u.name}: ${u.phoneNumber} (${u.phoneNumber?.length} digits)`);
       });
       
-      if (partialMatches.length > 0) {
-        console.log('Found partial matches:', partialMatches);
-      }
+      // Check if any normalized numbers are close matches (debugging)
+      const allUsers = await User.find({}, 'name phoneNumber');
+      const allPhones = allUsers.map(u => ({ name: u.name, phone: u.phoneNumber }));
+      console.log(`\n📊 [DEBUG] Database has ${allUsers.length} total users`);
+      
+      // Look for exact and partial matches
+      console.log('\n🔍 [DEBUG] Checking for matches:');
+      normalizedPhoneNumbers.forEach(normalizedPhone => {
+        console.log(`\n   Searching for: ${normalizedPhone}`);
+        
+        // Check exact match
+        const exactMatch = allPhones.find(u => u.phone === normalizedPhone);
+        if (exactMatch) {
+          console.log(`   ✅ EXACT MATCH: ${exactMatch.name} (${exactMatch.phone})`);
+        } else {
+          console.log(`   ❌ No exact match found`);
+          
+          // Check partial matches (last 8 digits)
+          const partialMatches = allPhones.filter(u => {
+            if (!u.phone || u.phone.length < 8) return false;
+            return normalizedPhone.slice(-8) === u.phone.slice(-8);
+          });
+          
+          if (partialMatches.length > 0) {
+            console.log(`   ⚠️  Partial matches (last 8 digits):`);
+            partialMatches.forEach(m => {
+              console.log(`      - ${m.name}: ${m.phone}`);
+            });
+          }
+        }
+      });
     }
 
     // Get current user
