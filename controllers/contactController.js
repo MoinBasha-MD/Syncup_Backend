@@ -298,10 +298,38 @@ const syncContacts = asyncHandler(async (req, res) => {
     // Return both the success message and the updated contacts list
     const updatedContacts = await User.find(
       { _id: { $in: user.contacts } },
-      '_id name phoneNumber email profileImage currentStatus'
+      '_id userId name phoneNumber email profileImage currentStatus isPublic'
     );
   
-    console.log(`Returning ${updatedContacts.length} contacts to client`);
+    console.log(`\n📊 [SYNC RESULT] Contact sync completed:`);
+    console.log(`   Total contacts in database: ${user.contacts.length}`);
+    console.log(`   Registered users found: ${registeredUsers.length}`);
+    console.log(`   Contacts being returned: ${updatedContacts.length}`);
+    
+    // Check for missing contacts
+    if (user.contacts.length > updatedContacts.length) {
+      console.log(`\n⚠️ [MISSING CONTACTS] ${user.contacts.length - updatedContacts.length} contact(s) in database but not returned!`);
+      const returnedIds = updatedContacts.map(c => c._id.toString());
+      const missingIds = user.contacts.filter(id => !returnedIds.includes(id.toString()));
+      console.log(`   Missing contact IDs: ${missingIds.join(', ')}`);
+      
+      // Try to find these missing contacts
+      for (const missingId of missingIds) {
+        const missingContact = await User.findById(missingId);
+        if (missingContact) {
+          console.log(`   ❌ Missing contact found in DB: ${missingContact.name} (${missingContact.phoneNumber})`);
+          console.log(`      userId: ${missingContact.userId}`);
+          console.log(`      isPublic: ${missingContact.isPublic}`);
+        } else {
+          console.log(`   ❌ Missing contact ID ${missingId} - USER DELETED FROM DATABASE`);
+        }
+      }
+    }
+    
+    console.log(`\n📋 [CONTACTS RETURNED]:`);
+    updatedContacts.forEach(c => {
+      console.log(`   ✅ ${c.name} (${c.phoneNumber}) - userId: ${c.userId}, isPublic: ${c.isPublic}`);
+    });
   
     res.status(200).json({
       success: true,

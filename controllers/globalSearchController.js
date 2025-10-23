@@ -85,10 +85,20 @@ const searchUsers = asyncHandler(async (req, res) => {
     // Get existing contacts (device contacts) - these are MongoDB ObjectIds
     const existingContactIds = currentUser.contacts.map(id => id.toString());
     
-    // Get existing app connections - these have userId field (only accepted ones)
+    // Get existing app connections - ONLY include currently accepted connections
+    // Exclude declined, cancelled, or removed connections so they can be re-discovered
     const existingAppConnectionIds = currentUser.appConnections
       .filter(conn => conn.status === 'accepted')
       .map(conn => conn.userId);
+    
+    console.log(`🔍 [CONNECTION STATUS] App connections breakdown:`, {
+      total: currentUser.appConnections.length,
+      accepted: currentUser.appConnections.filter(c => c.status === 'accepted').length,
+      pending: currentUser.appConnections.filter(c => c.status === 'pending').length,
+      declined: currentUser.appConnections.filter(c => c.status === 'declined').length,
+      cancelled: currentUser.appConnections.filter(c => c.status === 'cancelled').length,
+      acceptedUserIds: existingAppConnectionIds
+    });
     
     console.log(`🔍 [DEBUG] Current user app connections:`, {
       total: currentUser.appConnections.length,
