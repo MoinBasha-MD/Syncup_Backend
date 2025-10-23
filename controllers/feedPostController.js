@@ -515,6 +515,15 @@ const toggleBookmark = async (req, res) => {
   try {
     const userId = req.user.userId;
     const { postId } = req.params;
+    const mongoose = require('mongoose');
+
+    // Validate postId
+    if (!mongoose.Types.ObjectId.isValid(postId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid post ID format'
+      });
+    }
 
     // Check if post exists
     const post = await FeedPost.findOne({ _id: postId, isActive: true });
@@ -533,6 +542,20 @@ const toggleBookmark = async (req, res) => {
         message: 'User not found'
       });
     }
+
+    // Initialize savedPosts if it doesn't exist
+    if (!user.savedPosts) {
+      user.savedPosts = [];
+    }
+
+    // Clean up invalid ObjectIds from savedPosts
+    user.savedPosts = user.savedPosts.filter(savedPost => {
+      try {
+        return mongoose.Types.ObjectId.isValid(savedPost);
+      } catch (err) {
+        return false;
+      }
+    });
 
     // Toggle bookmark
     const postObjectId = post._id;
@@ -579,20 +602,10 @@ const getSavedPosts = async (req, res) => {
     const userId = req.user.userId;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
+    const mongoose = require('mongoose');
 
-    // Get user with saved posts
-    const user = await User.findOne({ userId })
-      .select('savedPosts')
-      .populate({
-        path: 'savedPosts',
-        match: { isActive: true },
-        options: {
-          sort: { createdAt: -1 },
-          skip: skip,
-          limit: limit
-        }
-      });
+    // Get user to get saved post IDs
+    const user = await User.findOne({ userId }).select('savedPosts');
 
     if (!user) {
       return res.status(404).json({
@@ -601,9 +614,51 @@ const getSavedPosts = async (req, res) => {
       });
     }
 
-    const savedPosts = user.savedPosts || [];
+    if (!user.savedPosts || user.savedPosts.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        pagination: {
+          page,
+          limit,
+          total: 0
+        }
+      });
+    }
 
-    console.log(`📚 Retrieved ${savedPosts.length} saved posts for ${userId}`);
+    // Filter out invalid ObjectIds
+    const validPostIds = user.savedPosts.filter(postId => {
+      try {
+        return mongoose.Types.ObjectId.isValid(postId);
+      } catch (err) {
+        console.warn(`⚠️ Invalid ObjectId in savedPosts: ${postId}`);
+        return false;
+      }
+    });
+
+    if (validPostIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        pagination: {
+          page,
+          limit,
+          total: 0
+        }
+      });
+    }
+
+    // Get the saved posts
+    const savedPosts = await FeedPost.find({
+      _id: { $in: validPostIds },
+      isActive: true
+    })
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
+
+    console.log(`📚 Retrieved ${savedPosts.length} saved posts for ${userId} (${validPostIds.length} valid IDs)`);
 
     res.status(200).json({
       success: true,
@@ -611,7 +666,7 @@ const getSavedPosts = async (req, res) => {
       pagination: {
         page,
         limit,
-        total: savedPosts.length
+        total: validPostIds.length
       }
     });
 
@@ -625,15 +680,153 @@ const getSavedPosts = async (req, res) => {
   }
 };
 
+// Get posts user has liked
+const getLikedPosts = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    // Find posts where user has liked
+    const likedPosts = await FeedPost.find({
+      likes: userId,
+      isActive: true
+    })
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
+
+    const total = await FeedPost.countDocuments({
+      likes: userId,
+      isActive: true
+    });
+
+    console.log(`❤️ Retrieved ${likedPosts.length} liked posts for ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      data: likedPosts,
+      pagination: {
+        page,
+        limit,
+        total
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get liked posts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get liked posts',
+      error: error.message
+    });
+  }
+};
+
+// Get posts user has commented on
+const getCommentedPosts = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const Comment = require('../models/Comment');
+
+    // Find unique post IDs where user has commented
+    const comments = await Comment.find({
+      userId: userId,
+      isActive: true
+    }).distinct('postId');
+
+    // Get the posts
+    const commentedPosts = await FeedPost.find({
+      _id: { $in: comments },
+      isActive: true
+    })
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
+
+    console.log(`💬 Retrieved ${commentedPosts.length} commented posts for ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      data: commentedPosts,
+      pagination: {
+        page,
+        limit,
+        total: comments.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get commented posts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get commented posts',
+      error: error.message
+    });
+  }
+};
+
+// Get view statistics for user's posts
+const getPostViewStats = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Get all user's posts with view counts
+    const posts = await FeedPost.find({
+      userId: userId,
+      isActive: true
+    })
+    .select('caption media viewsCount createdAt')
+    .sort({ createdAt: -1 })
+    .lean();
+
+    // Calculate total views
+    const totalViews = posts.reduce((sum, post) => sum + (post.viewsCount || 0), 0);
+
+    console.log(`👁️ Retrieved view stats for ${userId}: ${totalViews} total views`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalPosts: posts.length,
+        totalViews: totalViews,
+        posts: posts.map(post => ({
+          _id: post._id,
+          caption: post.caption,
+          thumbnail: post.media && post.media[0] ? post.media[0].url : null,
+          viewsCount: post.viewsCount || 0,
+          createdAt: post.createdAt
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get view stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get view statistics',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
-  createFeedPost,
+  createPost,
   getFeedPosts,
-  getPost,
-  deletePost,
+  getPostById,
   updatePost,
+  deletePost,
   repostPost,
   toggleLike,
   toggleBookmark,
   getSavedPosts,
-  getUserPosts
+  getUserPosts,
+  getLikedPosts,
+  getCommentedPosts,
+  getPostViewStats
 };

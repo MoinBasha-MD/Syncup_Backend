@@ -10,16 +10,19 @@ const {
 } = require('../controllers/postController');
 
 const {
-  createFeedPost,
+  createPost,
   getFeedPosts,
-  getPost,
-  deletePost: deleteFeedPost,
+  getPostById,
   updatePost,
+  deletePost,
   repostPost,
   toggleLike,
   toggleBookmark,
   getSavedPosts,
-  getUserPosts
+  getUserPosts,
+  getLikedPosts,
+  getCommentedPosts,
+  getPostViewStats
 } = require('../controllers/feedPostController');
 
 const {
@@ -109,6 +112,21 @@ router.get('/saved', protect, getSavedPosts);
 // @desc    Get user's feed posts
 // @access  Private
 router.get('/user/:userId', protect, getUserPosts);
+
+// @route   GET /api/posts/liked
+// @desc    Get posts user has liked
+// @access  Private
+router.get('/liked', protect, getLikedPosts);
+
+// @route   GET /api/posts/commented
+// @desc    Get posts user has commented on
+// @access  Private
+router.get('/commented', protect, getCommentedPosts);
+
+// @route   GET /api/posts/views/stats
+// @desc    Get view statistics for user's posts
+// @access  Private
+router.get('/views/stats', protect, getPostViewStats);
 
 // ===== COMMENT ROUTES =====
 // @route   POST /api/posts/:postId/comments
