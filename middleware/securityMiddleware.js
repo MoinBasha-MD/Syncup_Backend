@@ -208,12 +208,12 @@ const hppProtection = hpp({
 // Request size limiter
 const requestSizeLimiter = (req, res, next) => {
   const contentLength = parseInt(req.get('Content-Length'));
-  const maxSize = 10 * 1024 * 1024; // 10MB
+  const maxSize = 150 * 1024 * 1024; // 150MB (increased for video uploads)
   
   if (contentLength > maxSize) {
     return res.status(413).json({
       success: false,
-      message: 'Request entity too large',
+      message: 'Request entity too large. Maximum file size is 150MB.',
       error: 'PayloadTooLargeError'
     });
   }
