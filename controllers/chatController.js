@@ -31,6 +31,33 @@ const sendMessage = async (req, res) => {
       hasImageUrl: !!imageUrl,
       hasFileMetadata: !!fileMetadata
     });
+    
+    // Debug and fix sharedPost data
+    if (sharedPost) {
+      console.log('📤 [BACKEND] Received sharedPost:', JSON.stringify(sharedPost, null, 2));
+      console.log('📤 [BACKEND] sharedPost.postMedia type:', typeof sharedPost.postMedia);
+      console.log('📤 [BACKEND] sharedPost.postMedia is array?', Array.isArray(sharedPost.postMedia));
+      console.log('📤 [BACKEND] sharedPost.postMedia value:', sharedPost.postMedia);
+      
+      // Fix: If postMedia is a string, try to parse it
+      if (sharedPost.postMedia && typeof sharedPost.postMedia === 'string') {
+        try {
+          console.log('⚠️ [BACKEND] postMedia is a string, attempting to parse...');
+          sharedPost.postMedia = JSON.parse(sharedPost.postMedia);
+          console.log('✅ [BACKEND] Successfully parsed postMedia:', sharedPost.postMedia);
+        } catch (parseError) {
+          console.error('❌ [BACKEND] Failed to parse postMedia string:', parseError);
+          // If parsing fails, set to empty array
+          sharedPost.postMedia = [];
+        }
+      }
+      
+      // Ensure postMedia is an array
+      if (!Array.isArray(sharedPost.postMedia)) {
+        console.warn('⚠️ [BACKEND] postMedia is not an array, converting to empty array');
+        sharedPost.postMedia = [];
+      }
+    }
 
     // Validate input
     if (!receiverId || !message) {
