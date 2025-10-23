@@ -175,6 +175,11 @@ const userSchema = mongoose.Schema(
         default: 'accepted'
       }
     }],
+    // Saved/Bookmarked posts
+    savedPosts: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'FeedPost'
+    }],
     resetPasswordToken: String,
     resetPasswordExpire: Date,
     // Device tokens for push notifications and background service

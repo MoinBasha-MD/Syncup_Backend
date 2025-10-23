@@ -98,6 +98,17 @@ const feedPostSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  isRepost: {
+    type: Boolean,
+    default: false
+  },
+  originalPostId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FeedPost'
+  },
+  originalUserId: {
+    type: String
+  },
   isActive: {
     type: Boolean,
     default: true,
@@ -144,6 +155,32 @@ feedPostSchema.pre('save', function(next) {
   }
   next();
 });
+
+// Method to extract hashtags
+feedPostSchema.methods.extractHashtags = function() {
+  const hashtagRegex = /#(\w+)/g;
+  const hashtags = [];
+  let match;
+  
+  while ((match = hashtagRegex.exec(this.caption)) !== null) {
+    hashtags.push(match[1].toLowerCase());
+  }
+  
+  return [...new Set(hashtags)]; // Remove duplicates
+};
+
+// Method to extract mentions
+feedPostSchema.methods.extractMentions = function() {
+  const mentionRegex = /@(\w+)/g;
+  const mentions = [];
+  let match;
+  
+  while ((match = mentionRegex.exec(this.caption)) !== null) {
+    mentions.push(match[1].toLowerCase());
+  }
+  
+  return [...new Set(mentions)]; // Remove duplicates
+};
 
 // Method to toggle like
 feedPostSchema.methods.toggleLike = function(userId) {

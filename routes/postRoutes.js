@@ -14,9 +14,24 @@ const {
   getFeedPosts,
   getPost,
   deletePost: deleteFeedPost,
+  updatePost,
+  repostPost,
   toggleLike,
+  toggleBookmark,
+  getSavedPosts,
   getUserPosts
 } = require('../controllers/feedPostController');
+
+const {
+  createComment,
+  getComments,
+  updateComment,
+  deleteComment,
+  toggleCommentLike,
+  addReply,
+  toggleReplyLike,
+  deleteReply
+} = require('../controllers/commentController');
 
 // ===== OLD POST ROUTES (Simple status posts) =====
 // @route   POST /api/posts/status
@@ -60,19 +75,80 @@ router.get('/feed', protect, getFeedPosts);
 // @access  Private
 router.get('/:postId', protect, getPost);
 
+// @route   PUT /api/posts/:postId
+// @desc    Update/Edit feed post
+// @access  Private
+router.put('/:postId', protect, updatePost);
+
 // @route   DELETE /api/posts/:postId
 // @desc    Delete feed post
 // @access  Private
 router.delete('/:postId', protect, deleteFeedPost);
+
+// @route   POST /api/posts/:postId/repost
+// @desc    Repost a feed post
+// @access  Private
+router.post('/:postId/repost', protect, repostPost);
 
 // @route   POST /api/posts/:postId/like
 // @desc    Toggle like on post
 // @access  Private
 router.post('/:postId/like', protect, toggleLike);
 
+// @route   POST /api/posts/:postId/bookmark
+// @desc    Toggle bookmark on post
+// @access  Private
+router.post('/:postId/bookmark', protect, toggleBookmark);
+
+// @route   GET /api/posts/saved
+// @desc    Get user's saved/bookmarked posts
+// @access  Private
+router.get('/saved', protect, getSavedPosts);
+
 // @route   GET /api/posts/user/:userId
 // @desc    Get user's feed posts
 // @access  Private
 router.get('/user/:userId', protect, getUserPosts);
+
+// ===== COMMENT ROUTES =====
+// @route   POST /api/posts/:postId/comments
+// @desc    Create a comment on a post
+// @access  Private
+router.post('/:postId/comments', protect, createComment);
+
+// @route   GET /api/posts/:postId/comments
+// @desc    Get comments for a post
+// @access  Private
+router.get('/:postId/comments', protect, getComments);
+
+// @route   PUT /api/comments/:commentId
+// @desc    Update/Edit comment
+// @access  Private
+router.put('/comments/:commentId', protect, updateComment);
+
+// @route   DELETE /api/comments/:commentId
+// @desc    Delete comment
+// @access  Private
+router.delete('/comments/:commentId', protect, deleteComment);
+
+// @route   POST /api/comments/:commentId/like
+// @desc    Toggle like on comment
+// @access  Private
+router.post('/comments/:commentId/like', protect, toggleCommentLike);
+
+// @route   POST /api/comments/:commentId/reply
+// @desc    Add reply to comment
+// @access  Private
+router.post('/comments/:commentId/reply', protect, addReply);
+
+// @route   POST /api/comments/:commentId/replies/:replyId/like
+// @desc    Toggle like on reply
+// @access  Private
+router.post('/comments/:commentId/replies/:replyId/like', protect, toggleReplyLike);
+
+// @route   DELETE /api/comments/:commentId/replies/:replyId
+// @desc    Delete reply
+// @access  Private
+router.delete('/comments/:commentId/replies/:replyId', protect, deleteReply);
 
 module.exports = router;
