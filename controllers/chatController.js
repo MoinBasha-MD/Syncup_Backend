@@ -13,7 +13,10 @@ const sendMessage = async (req, res) => {
       messageType = 'text',
       voiceMetadata,
       encryptionData,
-      encrypted = false
+      encrypted = false,
+      sharedPost,      // ✅ For shared posts
+      imageUrl,        // ✅ For images
+      fileMetadata     // ✅ For files
     } = req.body;
     const senderId = req.user.userId;
     const senderObjectId = req.user.id; // MongoDB _id of sender
@@ -23,7 +26,10 @@ const sendMessage = async (req, res) => {
       senderObjectId,
       receiverId,
       messageType,
-      messageLength: message?.length
+      messageLength: message?.length,
+      hasSharedPost: !!sharedPost,
+      hasImageUrl: !!imageUrl,
+      hasFileMetadata: !!fileMetadata
     });
 
     // Validate input
@@ -85,7 +91,10 @@ const sendMessage = async (req, res) => {
       message,
       messageType,
       timestamp: new Date(),
-      status: 'sent'
+      status: 'sent',
+      sharedPost,      // ✅ Include shared post data
+      imageUrl,        // ✅ Include image URL
+      fileMetadata     // ✅ Include file metadata
     });
 
     // Save message to database
@@ -114,7 +123,10 @@ const sendMessage = async (req, res) => {
         message: savedMessage.message,
         messageType: savedMessage.messageType,
         timestamp: savedMessage.timestamp,
-        status: 'delivered'
+        status: 'delivered',
+        sharedPost: savedMessage.sharedPost,     // ✅ Include shared post
+        imageUrl: savedMessage.imageUrl,         // ✅ Include image URL
+        fileMetadata: savedMessage.fileMetadata  // ✅ Include file metadata
       };
       
       // Strategy 1: Primary WebSocket broadcast
@@ -649,7 +661,15 @@ const searchMessages = async (req, res) => {
 // Send reply message
 const sendReply = async (req, res) => {
   try {
-    const { receiverId, message, messageType = 'text', replyToId } = req.body;
+    const { 
+      receiverId, 
+      message, 
+      messageType = 'text', 
+      replyToId,
+      sharedPost,      // ✅ For shared posts
+      imageUrl,        // ✅ For images
+      fileMetadata     // ✅ For files
+    } = req.body;
     const senderId = req.user.userId;
     const senderObjectId = req.user.id;
 
@@ -658,7 +678,8 @@ const sendReply = async (req, res) => {
       receiverId,
       messageType,
       replyToId,
-      messageLength: message?.length
+      messageLength: message?.length,
+      hasSharedPost: !!sharedPost
     });
 
     // Validate input
@@ -697,7 +718,10 @@ const sendReply = async (req, res) => {
       messageType,
       replyTo: replyToId,
       timestamp: new Date(),
-      status: 'sent'
+      status: 'sent',
+      sharedPost,      // ✅ Include shared post data
+      imageUrl,        // ✅ Include image URL
+      fileMetadata     // ✅ Include file metadata
     });
 
     // Save message to database
@@ -727,7 +751,10 @@ const sendReply = async (req, res) => {
         messageType: savedMessage.messageType,
         replyTo: savedMessage.replyTo,
         timestamp: savedMessage.timestamp,
-        status: 'delivered'
+        status: 'delivered',
+        sharedPost: savedMessage.sharedPost,     // ✅ Include shared post
+        imageUrl: savedMessage.imageUrl,         // ✅ Include image URL
+        fileMetadata: savedMessage.fileMetadata  // ✅ Include file metadata
       });
       
       if (broadcastSuccess) {

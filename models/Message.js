@@ -17,7 +17,7 @@ const messageSchema = new mongoose.Schema({
   },
   messageType: {
     type: String,
-    enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice'],
+    enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice', 'shared_post'],
     default: 'text'
   },
   imageUrl: {
@@ -51,6 +51,26 @@ const messageSchema = new mongoose.Schema({
     fileUrl: {
       type: String,
       default: null
+    }
+  },
+  // Shared post metadata
+  sharedPost: {
+    postId: {
+      type: String,
+      default: null
+    },
+    postCaption: {
+      type: String,
+      default: null
+    },
+    postMedia: [{
+      url: String,
+      type: String
+    }],
+    postAuthor: {
+      userId: String,
+      userName: String,
+      userProfileImage: String
     }
   },
   timestamp: {
