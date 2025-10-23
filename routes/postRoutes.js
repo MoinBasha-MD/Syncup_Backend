@@ -73,6 +73,31 @@ router.post('/create', protect, createFeedPost);
 // @access  Private
 router.get('/feed', protect, getFeedPosts);
 
+// @route   GET /api/posts/saved
+// @desc    Get user's saved/bookmarked posts
+// @access  Private
+router.get('/saved', protect, getSavedPosts);
+
+// @route   GET /api/posts/liked
+// @desc    Get posts user has liked
+// @access  Private
+router.get('/liked', protect, getLikedPosts);
+
+// @route   GET /api/posts/commented
+// @desc    Get posts user has commented on
+// @access  Private
+router.get('/commented', protect, getCommentedPosts);
+
+// @route   GET /api/posts/views/stats
+// @desc    Get view statistics for user's posts
+// @access  Private
+router.get('/views/stats', protect, getPostViewStats);
+
+// @route   GET /api/posts/user/:userId
+// @desc    Get user's feed posts
+// @access  Private
+router.get('/user/:userId', protect, getUserPosts);
+
 // @route   GET /api/posts/:postId
 // @desc    Get single post
 // @access  Private
@@ -102,31 +127,6 @@ router.post('/:postId/like', protect, toggleLike);
 // @desc    Toggle bookmark on post
 // @access  Private
 router.post('/:postId/bookmark', protect, toggleBookmark);
-
-// @route   GET /api/posts/saved
-// @desc    Get user's saved/bookmarked posts
-// @access  Private
-router.get('/saved', protect, getSavedPosts);
-
-// @route   GET /api/posts/user/:userId
-// @desc    Get user's feed posts
-// @access  Private
-router.get('/user/:userId', protect, getUserPosts);
-
-// @route   GET /api/posts/liked
-// @desc    Get posts user has liked
-// @access  Private
-router.get('/liked', protect, getLikedPosts);
-
-// @route   GET /api/posts/commented
-// @desc    Get posts user has commented on
-// @access  Private
-router.get('/commented', protect, getCommentedPosts);
-
-// @route   GET /api/posts/views/stats
-// @desc    Get view statistics for user's posts
-// @access  Private
-router.get('/views/stats', protect, getPostViewStats);
 
 // ===== COMMENT ROUTES =====
 // @route   POST /api/posts/:postId/comments
