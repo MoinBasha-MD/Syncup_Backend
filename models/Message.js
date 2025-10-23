@@ -171,33 +171,34 @@ messageSchema.pre('save', function(next) {
   }
   
   // Clean sharedPost data - remove newlines and extra whitespace
-  if (this.sharedPost && this.sharedPost.postMedia) {
+  if (this.sharedPost && Array.isArray(this.sharedPost.postMedia)) {
     this.sharedPost.postMedia = this.sharedPost.postMedia.map(media => {
-      if (media.url) {
-        media.url = String(media.url).replace(/[\n\r\t]/g, '').replace(/\s+/g, ' ').trim();
+      const cleanedMedia = {};
+      if (media.url && typeof media.url === 'string') {
+        cleanedMedia.url = media.url.replace(/[\n\r\t]/g, '').replace(/\s+/g, ' ').trim();
       }
-      if (media.type) {
-        media.type = String(media.type).replace(/[\n\r\t]/g, '').trim();
+      if (media.type && typeof media.type === 'string') {
+        cleanedMedia.type = media.type.replace(/[\n\r\t]/g, '').trim();
       }
-      return media;
+      return cleanedMedia;
     }).filter(media => media.url && media.type); // Remove invalid entries
     
     // Clean other sharedPost fields
-    if (this.sharedPost.postId) {
-      this.sharedPost.postId = String(this.sharedPost.postId).replace(/[\n\r\t]/g, '').trim();
+    if (this.sharedPost.postId && typeof this.sharedPost.postId === 'string') {
+      this.sharedPost.postId = this.sharedPost.postId.replace(/[\n\r\t]/g, '').trim();
     }
-    if (this.sharedPost.postCaption) {
-      this.sharedPost.postCaption = String(this.sharedPost.postCaption).replace(/[\n\r\t]/g, ' ').trim();
+    if (this.sharedPost.postCaption && typeof this.sharedPost.postCaption === 'string') {
+      this.sharedPost.postCaption = this.sharedPost.postCaption.replace(/[\n\r\t]/g, ' ').trim();
     }
     if (this.sharedPost.postAuthor) {
-      if (this.sharedPost.postAuthor.userId) {
-        this.sharedPost.postAuthor.userId = String(this.sharedPost.postAuthor.userId).replace(/[\n\r\t]/g, '').trim();
+      if (this.sharedPost.postAuthor.userId && typeof this.sharedPost.postAuthor.userId === 'string') {
+        this.sharedPost.postAuthor.userId = this.sharedPost.postAuthor.userId.replace(/[\n\r\t]/g, '').trim();
       }
-      if (this.sharedPost.postAuthor.userName) {
-        this.sharedPost.postAuthor.userName = String(this.sharedPost.postAuthor.userName).replace(/[\n\r\t]/g, ' ').trim();
+      if (this.sharedPost.postAuthor.userName && typeof this.sharedPost.postAuthor.userName === 'string') {
+        this.sharedPost.postAuthor.userName = this.sharedPost.postAuthor.userName.replace(/[\n\r\t]/g, ' ').trim();
       }
-      if (this.sharedPost.postAuthor.userProfileImage) {
-        this.sharedPost.postAuthor.userProfileImage = String(this.sharedPost.postAuthor.userProfileImage).replace(/[\n\r\t]/g, '').trim();
+      if (this.sharedPost.postAuthor.userProfileImage && typeof this.sharedPost.postAuthor.userProfileImage === 'string') {
+        this.sharedPost.postAuthor.userProfileImage = this.sharedPost.postAuthor.userProfileImage.replace(/[\n\r\t]/g, '').trim();
       }
     }
   }
