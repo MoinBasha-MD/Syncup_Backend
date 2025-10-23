@@ -7,6 +7,11 @@ const enhancedNotificationService = require('../services/enhancedNotificationSer
 // Send a message
 const sendMessage = async (req, res) => {
   try {
+    // Log raw request body first
+    console.log('📥 [BACKEND] Raw req.body:', JSON.stringify(req.body, null, 2));
+    console.log('📥 [BACKEND] req.body.sharedPost:', req.body.sharedPost);
+    console.log('📥 [BACKEND] req.body.sharedPost type:', typeof req.body.sharedPost);
+    
     const { 
       receiverId, 
       message, 
@@ -20,6 +25,9 @@ const sendMessage = async (req, res) => {
     } = req.body;
     const senderId = req.user.userId;
     const senderObjectId = req.user.id; // MongoDB _id of sender
+    
+    console.log('📥 [BACKEND] After destructuring - sharedPost:', sharedPost);
+    console.log('📥 [BACKEND] After destructuring - sharedPost type:', typeof sharedPost);
 
     console.log('💬 Chat Controller - Send Message:', {
       senderId,
