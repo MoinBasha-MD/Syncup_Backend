@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
 
+// Separate schema for post media to avoid casting issues
+const postMediaSchema = new mongoose.Schema({
+  url: { type: String },
+  type: { type: String }
+}, { _id: false });
+
 const messageSchema = new mongoose.Schema({
   senderId: {
     type: String,
@@ -63,14 +69,11 @@ const messageSchema = new mongoose.Schema({
       type: String,
       default: null
     },
-    postMedia: [{
-      url: String,
-      type: String
-    }],
+    postMedia: [postMediaSchema],
     postAuthor: {
-      userId: String,
-      userName: String,
-      userProfileImage: String
+      userId: { type: String, required: false },
+      userName: { type: String, required: false },
+      userProfileImage: { type: String, required: false }
     }
   },
   timestamp: {
