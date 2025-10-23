@@ -377,9 +377,11 @@ const getRegisteredUsers = async (req, res) => {
       }
     }
     
-    // Build query to exclude existing connections if userId provided AND only show public users
+    // Build query to exclude existing connections if userId provided
+    // NOTE: We do NOT filter by isPublic here because this endpoint is used for:
+    // 1. Device contact sync (should show ALL registered contacts, regardless of privacy)
+    // 2. Global search (handled separately with isPublic filter)
     const query = {
-      isPublic: true, // CRITICAL FIX: Only show public users
       ...(excludedUserIds.length > 0 && { userId: { $nin: excludedUserIds } })
     };
     
@@ -389,18 +391,19 @@ const getRegisteredUsers = async (req, res) => {
     console.log(`🔍 [REGISTERED USERS] Query: ${JSON.stringify(query)}`);
     console.log(`🔍 [REGISTERED USERS] Found ${users.length} users after filtering`);
     
-    // CRITICAL DEBUG: Check how many users have isPublic: true in database
+    // DEBUG: Show database stats (isPublic only matters for global search, not device contacts)
     const totalPublicUsers = await User.countDocuments({ isPublic: true });
     const totalUsers = await User.countDocuments({});
-    console.log(`🔍 [CRITICAL DEBUG] Database stats:`, {
+    console.log(`📊 [REGISTERED USERS] Database stats:`, {
       totalUsers,
       totalPublicUsers,
-      publicPercentage: totalUsers > 0 ? ((totalPublicUsers / totalUsers) * 100).toFixed(1) + '%' : '0%'
+      publicPercentage: totalUsers > 0 ? ((totalPublicUsers / totalUsers) * 100).toFixed(1) + '%' : '0%',
+      note: 'isPublic only affects global search, not device contact sync'
     });
     
     if (totalPublicUsers === 0) {
-      console.log(`🚨 [CRITICAL ISSUE] NO USERS HAVE isPublic: true IN DATABASE!`);
-      console.log(`🚨 Users need to update their profile to set isPublic: true to appear in search`);
+      console.log(`⚠️  [INFO] No users have isPublic: true - they won't appear in global search`);
+      console.log(`ℹ️  Note: Device contacts will still sync regardless of isPublic status`);
     }
     
     console.log(`\n=== BACKEND STEP 1: DATABASE QUERY ===`);
