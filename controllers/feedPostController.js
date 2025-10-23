@@ -816,9 +816,9 @@ const getPostViewStats = async (req, res) => {
 };
 
 module.exports = {
-  createPost,
+  createPost: createFeedPost,
   getFeedPosts,
-  getPostById,
+  getPostById: getPost,
   updatePost,
   deletePost,
   repostPost,

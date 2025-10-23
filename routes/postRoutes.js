@@ -2,19 +2,19 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const {
-  createPost,
+  createPost: createStatusPost,
   getUserPost,
   getContactsPosts,
-  deletePost,
+  deletePost: deleteStatusPost,
   cleanupExpiredPosts
 } = require('../controllers/postController');
 
 const {
-  createPost,
+  createPost: createFeedPost,
   getFeedPosts,
   getPostById,
   updatePost,
-  deletePost,
+  deletePost: deleteFeedPost,
   repostPost,
   toggleLike,
   toggleBookmark,
@@ -40,7 +40,7 @@ const {
 // @route   POST /api/posts/status
 // @desc    Create a new status post
 // @access  Private
-router.post('/status', protect, createPost);
+router.post('/status', protect, createStatusPost);
 
 // @route   GET /api/posts/my-post
 // @desc    Get user's current active post
@@ -55,7 +55,7 @@ router.get('/contacts', protect, getContactsPosts);
 // @route   DELETE /api/posts/status/:postId
 // @desc    Delete user's status post
 // @access  Private
-router.delete('/status/:postId', protect, deletePost);
+router.delete('/status/:postId', protect, deleteStatusPost);
 
 // @route   POST /api/posts/cleanup
 // @desc    Cleanup expired posts (for scheduled jobs)
@@ -76,7 +76,7 @@ router.get('/feed', protect, getFeedPosts);
 // @route   GET /api/posts/:postId
 // @desc    Get single post
 // @access  Private
-router.get('/:postId', protect, getPost);
+router.get('/:postId', protect, getPostById);
 
 // @route   PUT /api/posts/:postId
 // @desc    Update/Edit feed post
