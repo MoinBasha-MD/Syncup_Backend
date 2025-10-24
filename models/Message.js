@@ -59,22 +59,19 @@ const messageSchema = new mongoose.Schema({
       default: null
     }
   },
-  // Shared post metadata
+  // Shared post metadata - using Mixed type to prevent Mongoose from converting arrays to strings
   sharedPost: {
-    postId: {
-      type: String,
-      default: null
+    type: {
+      postId: String,
+      postCaption: String,
+      postMedia: [postMediaSchema],
+      postAuthor: {
+        userId: String,
+        userName: String,
+        userProfileImage: String
+      }
     },
-    postCaption: {
-      type: String,
-      default: null
-    },
-    postMedia: [postMediaSchema],
-    postAuthor: {
-      userId: { type: String, required: false },
-      userName: { type: String, required: false },
-      userProfileImage: { type: String, required: false }
-    }
+    default: null
   },
   timestamp: {
     type: Date,
