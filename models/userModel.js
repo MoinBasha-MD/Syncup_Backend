@@ -39,6 +39,7 @@ const userSchema = mongoose.Schema(
       minlength: 6,
       select: false,
     },
+    // BACKWARD COMPATIBILITY - Keep old fields
     status: {
       type: String,
       default: 'available'
@@ -48,6 +49,50 @@ const userSchema = mongoose.Schema(
       default: ''
     },
     statusUntil: {
+      type: Date,
+      default: null
+    },
+    
+    // NEW: Hierarchical Status System
+    mainStatus: {
+      type: String,
+      default: 'Available'
+    },
+    mainDuration: {
+      type: Number,  // Minutes
+      default: 0
+    },
+    mainDurationLabel: {
+      type: String,
+      default: ''
+    },
+    mainStartTime: {
+      type: Date,
+      default: null
+    },
+    mainEndTime: {
+      type: Date,
+      default: null
+    },
+    
+    // Sub-Status (Activity)
+    subStatus: {
+      type: String,
+      default: null
+    },
+    subDuration: {
+      type: Number,  // Minutes
+      default: 0
+    },
+    subDurationLabel: {
+      type: String,
+      default: ''
+    },
+    subStartTime: {
+      type: Date,
+      default: null
+    },
+    subEndTime: {
       type: Date,
       default: null
     },

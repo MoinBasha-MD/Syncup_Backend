@@ -13,6 +13,7 @@ const {
   createStatusTemplate,
   updateStatusTemplate,
   deleteStatusTemplate,
+  autoGenerateTemplates,
 } = require('../controllers/statusTemplateController');
 const {
   getStatusSchedules,
@@ -50,6 +51,10 @@ router.route('/history/analytics')
 router.route('/templates')
   .get(protect, getStatusTemplates)
   .post(protect, createStatusTemplate);
+
+// NEW: AI Auto-generate templates
+router.route('/templates/auto-generate')
+  .post(protect, autoGenerateTemplates);
 
 router.route('/templates/:id')
   .put(protect, updateStatusTemplate)

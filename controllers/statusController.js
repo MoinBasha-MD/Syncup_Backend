@@ -20,7 +20,12 @@ const updateUserStatus = async (req, res) => {
       });
     }
 
-    const { status, customStatus, duration, location } = req.body;
+    const { 
+      status, customStatus, duration, location,
+      // NEW: Hierarchical status fields
+      mainStatus, mainDuration, mainDurationLabel,
+      subStatus, subDuration, subDurationLabel
+    } = req.body;
     
     console.log('📥 [BACKEND] Received status update request');
     console.log('📥 [BACKEND] Location data:', JSON.stringify(location));
@@ -45,14 +50,60 @@ const updateUserStatus = async (req, res) => {
     const previousCustomStatus = user.customStatus || '';
     const statusChangeTime = new Date();
     
-    // Update status fields with the original status
-    user.status = status;
-    
-    // Update custom status if provided
-    if (customStatus) {
-      user.customStatus = customStatus;
+    // NEW: Update hierarchical status if provided
+    if (mainStatus) {
+      user.mainStatus = mainStatus;
+      user.mainDuration = mainDuration || 0;
+      user.mainDurationLabel = mainDurationLabel || '';
+      user.mainStartTime = new Date();
+      
+      if (mainDuration) {
+        user.mainEndTime = new Date(Date.now() + mainDuration * 60000);
+      }
+      
+      // Update sub-status if provided
+      if (subStatus) {
+        user.subStatus = subStatus;
+        user.subDuration = subDuration || 0;
+        user.subDurationLabel = subDurationLabel || '';
+        user.subStartTime = new Date();
+        
+        if (subDuration) {
+          user.subEndTime = new Date(Date.now() + subDuration * 60000);
+        }
+      } else {
+        // Clear sub-status
+        user.subStatus = null;
+        user.subDuration = 0;
+        user.subDurationLabel = '';
+        user.subStartTime = null;
+        user.subEndTime = null;
+      }
+      
+      // BACKWARD COMPATIBILITY: Map to old fields
+      user.status = mainStatus;
+      user.customStatus = mainStatus;
+      if (mainDuration) {
+        user.statusUntil = user.mainEndTime;
+      }
     } else {
-      user.customStatus = '';
+      // OLD FORMAT: Update status fields with the original status
+      user.status = status;
+      
+      // Update custom status if provided
+      if (customStatus) {
+        user.customStatus = customStatus;
+      } else {
+        user.customStatus = '';
+      }
+      
+      // Map old to new for consistency
+      user.mainStatus = customStatus || status;
+      if (duration) {
+        user.mainDuration = duration;
+        user.mainStartTime = new Date();
+        user.mainEndTime = new Date(Date.now() + duration * 60000);
+      }
     }
     
     // Update location data if provided - CHECK if location has actual data
@@ -135,11 +186,27 @@ const updateUserStatus = async (req, res) => {
     
     // Broadcast status update to all users who have this user in their contacts
     const statusData = {
+      // OLD FORMAT (backward compatibility)
       status: updatedUser.status,
       customStatus: updatedUser.customStatus,
       statusUntil: updatedUser.statusUntil,
-      statusLocation: updatedUser.statusLocation
+      statusLocation: updatedUser.statusLocation,
+      
+      // NEW: Hierarchical status
+      mainStatus: updatedUser.mainStatus,
+      mainDuration: updatedUser.mainDuration,
+      mainDurationLabel: updatedUser.mainDurationLabel,
+      mainStartTime: updatedUser.mainStartTime,
+      mainEndTime: updatedUser.mainEndTime,
+      
+      subStatus: updatedUser.subStatus,
+      subDuration: updatedUser.subDuration,
+      subDurationLabel: updatedUser.subDurationLabel,
+      subStartTime: updatedUser.subStartTime,
+      subEndTime: updatedUser.subEndTime
     };
+    
+    console.log('📡 [SOCKET BROADCAST] Broadcasting hierarchical status:', JSON.stringify(statusData));
     
     // Use the enhanced socketManager to broadcast the status update
     socketManager.broadcastStatusUpdate(updatedUser, statusData);
@@ -148,10 +215,22 @@ const updateUserStatus = async (req, res) => {
       success: true,
       data: {
         userId: updatedUser.userId,
+        // OLD FORMAT
         status: updatedUser.status,
         customStatus: updatedUser.customStatus,
         statusUntil: updatedUser.statusUntil,
-        statusLocation: updatedUser.statusLocation
+        statusLocation: updatedUser.statusLocation,
+        // NEW: Hierarchical status
+        mainStatus: updatedUser.mainStatus,
+        mainDuration: updatedUser.mainDuration,
+        mainDurationLabel: updatedUser.mainDurationLabel,
+        mainStartTime: updatedUser.mainStartTime,
+        mainEndTime: updatedUser.mainEndTime,
+        subStatus: updatedUser.subStatus,
+        subDuration: updatedUser.subDuration,
+        subDurationLabel: updatedUser.subDurationLabel,
+        subStartTime: updatedUser.subStartTime,
+        subEndTime: updatedUser.subEndTime
       }
     });
   } catch (error) {

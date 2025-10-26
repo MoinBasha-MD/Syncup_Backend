@@ -16,6 +16,8 @@ const statusTemplateSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+    
+    // BACKWARD COMPATIBILITY
     status: {
       type: String,
       required: true,
@@ -26,6 +28,44 @@ const statusTemplateSchema = mongoose.Schema(
     duration: {
       type: Number, // Duration in minutes
       required: true,
+    },
+    
+    // NEW: Hierarchical Status
+    mainStatus: {
+      type: String,
+      required: true,
+    },
+    mainDuration: {
+      type: Number,  // Minutes
+      required: true,
+    },
+    mainDurationLabel: {
+      type: String,
+      required: true,
+    },
+    
+    // Sub-Status (Optional)
+    subStatus: {
+      type: String,
+      default: null,
+    },
+    subDuration: {
+      type: Number,  // Minutes
+      default: 0,
+    },
+    subDurationLabel: {
+      type: String,
+      default: '',
+    },
+    
+    // Location (Optional)
+    location: {
+      placeName: String,
+      address: String,
+      coordinates: {
+        latitude: Number,
+        longitude: Number,
+      }
     },
     
     // 🆕 Enhanced Template Features
@@ -52,6 +92,17 @@ const statusTemplateSchema = mongoose.Schema(
     lastUsed: Date,
     isSystemTemplate: { type: Boolean, default: false }, // Pre-built templates
     isPublic: { type: Boolean, default: false }, // Can be shared with other users
+    
+    // 🆕 AI Auto-Generation
+    autoCreated: { type: Boolean, default: false }, // AI-generated template
+    pattern: String, // Description of detected pattern
+    confidence: { type: Number, default: 0, min: 0, max: 1 }, // AI confidence score
+    patternData: {
+      frequency: Number, // How many times this pattern was used
+      daysOfWeek: [Number], // Which days (0-6)
+      timeOfDay: [Number], // Which hours (0-23)
+      locations: [String], // Common locations
+    },
     
     // 🆕 Smart Features
     autoTriggers: {
