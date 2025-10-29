@@ -104,25 +104,45 @@ exports.startSession = async (req, res) => {
       });
     }
     
-    // Verify friendship
-    const user = await User.findById(userId).select('friends');
-    if (!user || !user.friends || user.friends.length === 0) {
-      console.log('⚠️ [LOCATION SHARING] User has no friends:', userId);
+    // Verify contact/connection (using 'contacts' field, not 'friends')
+    const user = await User.findById(userId).select('contacts appConnections');
+    if (!user) {
+      console.log('❌ [LOCATION SHARING] User not found:', userId);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
     }
     
     // Convert friendId to string for comparison
     const friendIdStr = friendId.toString();
-    const hasFriend = user && user.friends && user.friends.some(
-      f => f.toString() === friendIdStr
+    
+    // Check if friend is in contacts (device contacts)
+    const isContact = user.contacts && user.contacts.some(
+      c => c.toString() === friendIdStr
     );
     
-    if (!hasFriend) {
-      console.log('⚠️ [LOCATION SHARING] Not friends:', { userId, friendId, userFriends: user?.friends });
+    // Check if friend is in app connections
+    const isAppConnection = user.appConnections && user.appConnections.some(
+      conn => conn.userId === friendIdStr
+    );
+    
+    const hasConnection = isContact || isAppConnection;
+    
+    if (!hasConnection) {
+      console.log('⚠️ [LOCATION SHARING] Not connected:', { 
+        userId, 
+        friendId, 
+        hasContacts: user.contacts?.length > 0,
+        hasAppConnections: user.appConnections?.length > 0 
+      });
       return res.status(403).json({
         success: false,
-        message: 'Not friends with this user'
+        message: 'Not connected with this user'
       });
     }
+    
+    console.log('✅ [LOCATION SHARING] Connection verified:', { userId, friendId, isContact, isAppConnection });
     
     let settings = await LocationSettings.findOne({ userId });
     
