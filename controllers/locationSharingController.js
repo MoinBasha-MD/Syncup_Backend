@@ -191,46 +191,46 @@ exports.startSession = async (req, res) => {
           receiverId: friendId
         });
         
-        // Emit socket event for real-time chat update
-        const io = req.app.get('io');
-        if (io) {
-          // Send to RECEIVER
-          io.to(friendId).emit('new_message', {
-            message: locationMessage,
-            sender: {
-              userId: userId,
-              name: senderUser.name
-            }
-          });
-          console.log('📤 [LOCATION SHARING] Message sent to receiver:', friendId);
-          
-          // Send to SENDER (so they see it in their chat too)
-          io.to(userId).emit('new_message', {
-            message: locationMessage,
-            sender: {
-              userId: userId,
-              name: senderUser.name
-            }
-          });
-          console.log('📤 [LOCATION SHARING] Message sent to sender:', userId);
-          
-          // Send notification to receiver
-          io.to(friendId).emit('notification', {
-            type: 'location_share',
-            title: 'Location Shared',
-            message: `${senderUser.name} is sharing their live location with you`,
-            data: {
-              senderId: userId,
-              messageId: locationMessage._id,
-              duration: parseInt(duration),
-              expiresAt: expiresAt
-            }
-          });
-          
-          console.log('✅ [LOCATION SHARING] All socket events emitted successfully');
-        } else {
-          console.warn('⚠️ [LOCATION SHARING] Socket.io not available!');
+        // Use the SAME notification system as regular chat messages
+        const { broadcastToUser } = require('../socketManager');
+        const enhancedNotificationService = require('../services/enhancedNotificationService');
+        
+        const messageData = {
+          _id: locationMessage._id,
+          senderId: locationMessage.senderId,
+          receiverId: locationMessage.receiverId,
+          senderName: senderUser.name,
+          senderProfileImage: senderUser.profileImage || null,
+          message: locationMessage.message,
+          messageType: locationMessage.messageType,
+          locationData: locationMessage.locationData,
+          timestamp: locationMessage.timestamp,
+          status: 'delivered'
+        };
+        
+        // Broadcast to RECEIVER using the same system as chat
+        const broadcastSuccess = broadcastToUser(friendId, 'message:new', messageData);
+        console.log('📤 [LOCATION SHARING] Broadcast to receiver:', broadcastSuccess ? 'SUCCESS' : 'FAILED');
+        
+        // Broadcast to SENDER (so they see it in their chat too)
+        broadcastToUser(userId, 'message:new', messageData);
+        console.log('📤 [LOCATION SHARING] Broadcast to sender: SUCCESS');
+        
+        // Send push notification using the same service as chat
+        try {
+          console.log('🔔 [LOCATION SHARING] Sending notification via enhancedNotificationService...');
+          await enhancedNotificationService.sendChatMessageNotification(
+            userId,
+            friendId,
+            locationMessage
+          );
+          console.log('✅ [LOCATION SHARING] Notification sent successfully');
+        } catch (notifError) {
+          console.error('❌ [LOCATION SHARING] Notification error:', notifError);
+          // Don't fail if notification fails
         }
+        
+        console.log('✅ [LOCATION SHARING] All events sent using chat notification system');
       }
     } catch (msgError) {
       console.error('⚠️ [LOCATION SHARING] Error sending chat message:', msgError);
