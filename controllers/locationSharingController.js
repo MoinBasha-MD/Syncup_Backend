@@ -172,6 +172,7 @@ exports.startSession = async (req, res) => {
     console.log(`✅ [LOCATION SHARING] Started ${duration}min session: ${userId} → ${friendId}`);
     
     // Send location message to chat
+    let createdLocationMessage = null;
     try {
       const Message = require('../models/Message');
       // Use the user object we already fetched earlier
@@ -181,7 +182,7 @@ exports.startSession = async (req, res) => {
         const expiresAt = new Date(Date.now() + parseInt(duration) * 60 * 1000);
         
         // Create location message
-        const locationMessage = await Message.create({
+        createdLocationMessage = await Message.create({
           senderId: userId,
           receiverId: friendId,
           message: `📍 Sharing live location for ${duration === 15 ? '15 minutes' : duration === 60 ? '1 hour' : '8 hours'}`,
@@ -199,9 +200,9 @@ exports.startSession = async (req, res) => {
         });
         
         console.log('✅ [LOCATION SHARING] Location message created:', {
-          messageId: locationMessage._id,
-          messageType: locationMessage.messageType,
-          hasLocationData: !!locationMessage.locationData,
+          messageId: createdLocationMessage._id,
+          messageType: createdLocationMessage.messageType,
+          hasLocationData: !!createdLocationMessage.locationData,
           senderId: userId,
           receiverId: friendId
         });
@@ -211,15 +212,15 @@ exports.startSession = async (req, res) => {
         const enhancedNotificationService = require('../services/enhancedNotificationService');
         
         const messageData = {
-          _id: locationMessage._id,
+          _id: createdLocationMessage._id,
           senderId: userId, // Use userId string for socket broadcast
           receiverId: friendId,
           senderName: senderUser.name,
           senderProfileImage: senderUser.profileImage || null,
-          message: locationMessage.message,
-          messageType: locationMessage.messageType,
-          locationData: locationMessage.locationData,
-          timestamp: locationMessage.timestamp,
+          message: createdLocationMessage.message,
+          messageType: createdLocationMessage.messageType,
+          locationData: createdLocationMessage.locationData,
+          timestamp: createdLocationMessage.timestamp,
           status: 'delivered'
         };
         
@@ -243,7 +244,7 @@ exports.startSession = async (req, res) => {
           await enhancedNotificationService.sendChatMessageNotification(
             userId,
             friendId,
-            locationMessage
+            createdLocationMessage
           );
           console.log('✅ [LOCATION SHARING] Notification sent successfully');
         } catch (notifError) {
@@ -261,7 +262,8 @@ exports.startSession = async (req, res) => {
     res.json({
       success: true,
       message: `Sharing location for ${duration} minutes`,
-      settings
+      settings,
+      locationMessage: createdLocationMessage // Include the message so frontend can display it immediately
     });
     
   } catch (error) {
