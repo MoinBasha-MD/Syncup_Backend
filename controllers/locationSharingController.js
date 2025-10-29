@@ -106,7 +106,18 @@ exports.startSession = async (req, res) => {
     
     // Verify friendship
     const user = await User.findById(userId).select('friends');
-    if (!user.friends.includes(friendId)) {
+    if (!user || !user.friends || user.friends.length === 0) {
+      console.log('⚠️ [LOCATION SHARING] User has no friends:', userId);
+    }
+    
+    // Convert friendId to string for comparison
+    const friendIdStr = friendId.toString();
+    const hasFriend = user && user.friends && user.friends.some(
+      f => f.toString() === friendIdStr
+    );
+    
+    if (!hasFriend) {
+      console.log('⚠️ [LOCATION SHARING] Not friends:', { userId, friendId, userFriends: user?.friends });
       return res.status(403).json({
         success: false,
         message: 'Not friends with this user'
