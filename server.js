@@ -224,6 +224,7 @@ app.use('/api/status', statusLimiter, statusRoutes); // Status history, template
 app.use('/api/status-management', statusLimiter, statusManagementRoutes); // Current status management
 app.use('/api/status-privacy', statusLimiter, statusPrivacyRoutes); // Current status management
 app.use('/api/location', apiLimiter, locationRoutes); // Location and geocoding services
+app.use('/api/location-sharing', apiLimiter, require('./routes/locationSharingRoutes')); // Location sharing controls
 app.use('/api/bulk', apiLimiter, bulkOperationsRoutes); // Bulk operations
 app.use('/api/contacts', contactLimiter, contactRoutes); // Contact management routes
 app.use('/api/upload', apiLimiter, uploadRoutes); // File upload routes

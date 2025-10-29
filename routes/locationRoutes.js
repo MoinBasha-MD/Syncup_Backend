@@ -3,6 +3,7 @@ const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const mapboxService = require('../services/mapboxService');
 const locationService = require('../services/locationService');
+const locationController = require('../controllers/locationController');
 
 /**
  * @route   POST /api/location/geocode/reverse
@@ -209,5 +210,19 @@ router.get('/static-map', protect, async (req, res) => {
     });
   }
 });
+
+/**
+ * @route   GET /api/location/nearby-friends
+ * @desc    Get nearby friends' locations
+ * @access  Private
+ */
+router.get('/nearby-friends', protect, locationController.getNearbyFriends);
+
+/**
+ * @route   GET /api/location/friend/:friendId
+ * @desc    Get specific friend's location
+ * @access  Private
+ */
+router.get('/friend/:friendId', protect, locationController.getFriendLocation);
 
 module.exports = router;
