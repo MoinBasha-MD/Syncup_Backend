@@ -86,8 +86,15 @@ exports.updateSharingMode = async (req, res) => {
  */
 exports.startSession = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId; // Use userId field, NOT _id (MongoDB ObjectId)
+    const userObjectId = req.user._id; // MongoDB ObjectId for database queries
     const { friendId, duration } = req.body; // duration in minutes: 15, 60, 480
+    
+    console.log('🔍 [LOCATION SHARING] User IDs:', {
+      userId: userId,
+      userObjectId: userObjectId.toString(),
+      friendId: friendId
+    });
     
     if (!friendId || !duration) {
       return res.status(400).json({
@@ -105,9 +112,9 @@ exports.startSession = async (req, res) => {
     }
     
     // Verify contact/connection (using 'contacts' field, not 'friends')
-    const user = await User.findById(userId).select('contacts appConnections');
+    const user = await User.findById(userObjectId).select('contacts appConnections userId name profileImage currentLocation');
     if (!user) {
-      console.log('❌ [LOCATION SHARING] User not found:', userId);
+      console.log('❌ [LOCATION SHARING] User not found:', userObjectId);
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -160,7 +167,8 @@ exports.startSession = async (req, res) => {
     // Send location message to chat
     try {
       const Message = require('../models/Message');
-      const senderUser = await User.findById(userId).select('name currentLocation');
+      // Use the user object we already fetched earlier
+      const senderUser = user;
       
       if (senderUser && senderUser.currentLocation) {
         const expiresAt = new Date(Date.now() + parseInt(duration) * 60 * 1000);
@@ -197,8 +205,8 @@ exports.startSession = async (req, res) => {
         
         const messageData = {
           _id: locationMessage._id,
-          senderId: locationMessage.senderId,
-          receiverId: locationMessage.receiverId,
+          senderId: userId, // Use userId string for socket broadcast
+          receiverId: friendId,
           senderName: senderUser.name,
           senderProfileImage: senderUser.profileImage || null,
           message: locationMessage.message,
@@ -207,6 +215,12 @@ exports.startSession = async (req, res) => {
           timestamp: locationMessage.timestamp,
           status: 'delivered'
         };
+        
+        console.log('📤 [LOCATION SHARING] Prepared message data for broadcast:', {
+          senderUserId: userId,
+          receiverUserId: friendId,
+          messageType: messageData.messageType
+        });
         
         // Broadcast to RECEIVER using the same system as chat
         const broadcastSuccess = broadcastToUser(friendId, 'message:new', messageData);
