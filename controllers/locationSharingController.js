@@ -157,6 +157,66 @@ exports.startSession = async (req, res) => {
     
     console.log(`✅ [LOCATION SHARING] Started ${duration}min session: ${userId} → ${friendId}`);
     
+    // Send location message to chat
+    try {
+      const Message = require('../models/Message');
+      const senderUser = await User.findById(userId).select('name currentLocation');
+      
+      if (senderUser && senderUser.currentLocation) {
+        const expiresAt = new Date(Date.now() + parseInt(duration) * 60 * 1000);
+        
+        // Create location message
+        const locationMessage = await Message.create({
+          senderId: userId,
+          receiverId: friendId,
+          message: `📍 Sharing live location for ${duration === 15 ? '15 minutes' : duration === 60 ? '1 hour' : '8 hours'}`,
+          messageType: 'location',
+          locationData: {
+            latitude: senderUser.currentLocation.latitude,
+            longitude: senderUser.currentLocation.longitude,
+            isLiveLocation: true,
+            duration: parseInt(duration),
+            expiresAt: expiresAt,
+            address: null
+          },
+          timestamp: new Date(),
+          status: 'sent'
+        });
+        
+        console.log('✅ [LOCATION SHARING] Location message sent to chat:', locationMessage._id);
+        
+        // Emit socket event for real-time chat update
+        const io = req.app.get('io');
+        if (io) {
+          io.to(friendId).emit('new_message', {
+            message: locationMessage,
+            sender: {
+              userId: userId,
+              name: senderUser.name
+            }
+          });
+          
+          // Send notification
+          io.to(friendId).emit('notification', {
+            type: 'location_share',
+            title: 'Location Shared',
+            message: `${senderUser.name} is sharing their live location with you`,
+            data: {
+              senderId: userId,
+              messageId: locationMessage._id,
+              duration: parseInt(duration),
+              expiresAt: expiresAt
+            }
+          });
+          
+          console.log('✅ [LOCATION SHARING] Notification sent to:', friendId);
+        }
+      }
+    } catch (msgError) {
+      console.error('⚠️ [LOCATION SHARING] Error sending chat message:', msgError);
+      // Don't fail the whole request if message fails
+    }
+    
     res.json({
       success: true,
       message: `Sharing location for ${duration} minutes`,
