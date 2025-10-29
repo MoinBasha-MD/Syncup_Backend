@@ -127,6 +127,26 @@ const userSchema = mongoose.Schema(
         default: Date.now
       }
     },
+    // Real-time location tracking for Map Tab
+    currentLocation: {
+      latitude: {
+        type: Number,
+        min: -90,
+        max: 90
+      },
+      longitude: {
+        type: Number,
+        min: -180,
+        max: 180
+      },
+      timestamp: {
+        type: Number
+      },
+      lastUpdated: {
+        type: Date,
+        default: Date.now
+      }
+    },
     profileImage: {
       type: String,
       default: ''

@@ -53,9 +53,27 @@ const createComment = async (req, res) => {
 
     // Broadcast to WebSocket for real-time updates
     try {
-      const { broadcastToUser } = require('../socketManager');
+      const { broadcastToAll, broadcastToUser } = require('../socketManager');
       
-      // Notify post owner if it's not their own comment
+      // Broadcast comment to ALL users for real-time feed updates
+      broadcastToAll('post:comment_update', {
+        postId,
+        comment: {
+          _id: comment._id,
+          userId: comment.userId,
+          userName: comment.userName,
+          userProfileImage: comment.userProfileImage,
+          text: comment.text,
+          likesCount: comment.likesCount,
+          repliesCount: comment.repliesCount,
+          createdAt: comment.createdAt
+        },
+        commentsCount: post.commentsCount
+      });
+      
+      console.log(`📡 Comment update broadcasted to all users for post ${postId}`);
+      
+      // Also notify post owner specifically if it's not their own comment
       if (post.userId !== userId) {
         broadcastToUser(post.userId, 'post:new_comment', {
           postId,

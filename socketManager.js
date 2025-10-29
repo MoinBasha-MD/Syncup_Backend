@@ -1135,6 +1135,70 @@ const initializeSocketIO = (server) => {
       }
     });
 
+    // 📍 LOCATION TRACKING: Handle real-time location updates from Map Tab
+    socket.on('location:update', async (locationData) => {
+      try {
+        console.log(`📍 [LOCATION] Location update received from ${userName} (${userId}):`, locationData);
+        
+        const { latitude, longitude, timestamp } = locationData;
+        
+        // Validate coordinates
+        if (!latitude || !longitude || 
+            typeof latitude !== 'number' || typeof longitude !== 'number' ||
+            latitude < -90 || latitude > 90 || 
+            longitude < -180 || longitude > 180) {
+          console.error(`❌ [LOCATION] Invalid coordinates from ${userName}:`, { latitude, longitude });
+          return;
+        }
+        
+        // Update user's location in database
+        const user = await User.findById(socket.user.id);
+        if (!user) {
+          console.error(`❌ [LOCATION] User not found: ${userId}`);
+          return;
+        }
+        
+        // Store location data
+        user.currentLocation = {
+          latitude,
+          longitude,
+          timestamp: timestamp || Date.now(),
+          lastUpdated: new Date()
+        };
+        
+        await user.save();
+        console.log(`✅ [LOCATION] Location saved for ${userName}: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+        
+        // Broadcast location update to user's contacts/friends
+        // This will be used in Phase 2 to show friends on map
+        const locationUpdateData = {
+          userId: userId,
+          userName: userName,
+          profileImage: user.profileImage,
+          latitude,
+          longitude,
+          timestamp: timestamp || Date.now()
+        };
+        
+        // Get user's contacts to broadcast location
+        const contacts = userContactsMap.get(userId) || [];
+        let broadcastCount = 0;
+        
+        contacts.forEach(contactId => {
+          const contactSocket = userSockets.get(contactId);
+          if (contactSocket) {
+            contactSocket.emit('location:friend_update', locationUpdateData);
+            broadcastCount++;
+          }
+        });
+        
+        console.log(`📡 [LOCATION] Location broadcasted to ${broadcastCount} contacts`);
+        
+      } catch (error) {
+        console.error(`❌ [LOCATION] Error processing location update from ${userName}:`, error);
+      }
+    });
+
     // Handle user disconnection
     socket.on('disconnect', (reason) => {
       console.log(`🔌 User disconnected: ${userName} (${userId})`, {
