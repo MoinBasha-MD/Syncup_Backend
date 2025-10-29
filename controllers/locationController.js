@@ -3,71 +3,112 @@ const User = require('../models/userModel');
 /**
  * Get nearby friends' locations
  * Returns friends within specified radius with their current locations
+ * IMPORTANT: This supports ASYMMETRIC sharing - you can see friends who are sharing with you,
+ * even if you're not sharing with them
  */
 exports.getNearbyFriends = async (req, res) => {
   try {
     const userId = req.user._id;
     const { radius = 50 } = req.query; // Default 50km radius
+    const LocationSettings = require('../models/LocationSettings');
 
-    // Get current user with friends list
+    // Get current user
     const user = await User.findById(userId).select('friends currentLocation');
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (!user.currentLocation || !user.currentLocation.latitude || !user.currentLocation.longitude) {
-      return res.status(400).json({ message: 'User location not available' });
+    // User location is optional - they can view others without sharing their own
+    let userLat = null;
+    let userLng = null;
+    
+    if (user.currentLocation && user.currentLocation.latitude && user.currentLocation.longitude) {
+      userLat = user.currentLocation.latitude;
+      userLng = user.currentLocation.longitude;
     }
 
-    const userLat = user.currentLocation.latitude;
-    const userLng = user.currentLocation.longitude;
-
-    // Get friends with their current locations
+    // Get all friends
     const friends = await User.find({
-      _id: { $in: user.friends },
-      'currentLocation.latitude': { $exists: true },
-      'currentLocation.longitude': { $exists: true }
+      _id: { $in: user.friends }
     }).select('name profileImage currentLocation lastSeen');
 
-    // Calculate distance and filter by radius
-    const nearbyFriends = friends
-      .map(friend => {
-        const friendLat = friend.currentLocation.latitude;
-        const friendLng = friend.currentLocation.longitude;
-        
-        // Calculate distance using Haversine formula
-        const distance = calculateDistance(userLat, userLng, friendLat, friendLng);
-        
-        // Check if online (last seen within 5 minutes)
-        const isOnline = friend.lastSeen && 
-          (Date.now() - new Date(friend.lastSeen).getTime()) < 5 * 60 * 1000;
+    const nearbyFriends = [];
 
-        return {
-          userId: friend._id,
-          name: friend.name,
-          profileImage: friend.profileImage,
-          location: {
-            latitude: friendLat,
-            longitude: friendLng,
-            timestamp: friend.currentLocation.timestamp,
-            lastUpdated: friend.currentLocation.lastUpdated
-          },
-          distance: Math.round(distance * 10) / 10, // Round to 1 decimal
-          isOnline,
-          lastSeen: friend.lastSeen
-        };
-      })
-      .filter(friend => friend.distance <= parseFloat(radius))
-      .sort((a, b) => a.distance - b.distance); // Sort by distance
+    // Check each friend to see if they're sharing with current user
+    for (const friend of friends) {
+      // Check if friend has location data
+      if (!friend.currentLocation || !friend.currentLocation.latitude || !friend.currentLocation.longitude) {
+        continue;
+      }
 
-    console.log(`✅ [LOCATION] Found ${nearbyFriends.length} nearby friends for user ${userId}`);
+      // Check if friend is sharing their location with current user
+      const friendSettings = await LocationSettings.findOne({ userId: friend._id });
+      
+      // If no settings, skip (not sharing)
+      if (!friendSettings) {
+        continue;
+      }
+
+      // Check if friend is sharing with current user (asymmetric check)
+      const isSharingWithMe = friendSettings.isSharingWith(userId);
+      
+      if (!isSharingWithMe) {
+        continue; // Friend is not sharing with me
+      }
+
+      const friendLat = friend.currentLocation.latitude;
+      const friendLng = friend.currentLocation.longitude;
+      
+      // Calculate distance if user has location
+      let distance = null;
+      if (userLat && userLng) {
+        distance = calculateDistance(userLat, userLng, friendLat, friendLng);
+        distance = Math.round(distance * 10) / 10; // Round to 1 decimal
+        
+        // Filter by radius if user has location
+        if (distance > parseFloat(radius)) {
+          continue;
+        }
+      }
+      
+      // Check if online (last seen within 5 minutes)
+      const isOnline = friend.lastSeen && 
+        (Date.now() - new Date(friend.lastSeen).getTime()) < 5 * 60 * 1000;
+
+      nearbyFriends.push({
+        userId: friend._id,
+        name: friend.name,
+        profileImage: friend.profileImage,
+        location: {
+          latitude: friendLat,
+          longitude: friendLng,
+          timestamp: friend.currentLocation.timestamp,
+          lastUpdated: friend.currentLocation.lastUpdated
+        },
+        distance: distance, // null if user has no location
+        isOnline,
+        lastSeen: friend.lastSeen,
+        isSharingWithMe: true // They are sharing with me
+      });
+    }
+
+    // Sort by distance if available, otherwise by name
+    nearbyFriends.sort((a, b) => {
+      if (a.distance !== null && b.distance !== null) {
+        return a.distance - b.distance;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    console.log(`✅ [LOCATION] Found ${nearbyFriends.length} friends sharing location with user ${userId}`);
 
     res.json({
       success: true,
       count: nearbyFriends.length,
       radius: parseFloat(radius),
-      friends: nearbyFriends
+      friends: nearbyFriends,
+      userHasLocation: userLat !== null && userLng !== null
     });
 
   } catch (error) {

@@ -23,7 +23,7 @@ const messageSchema = new mongoose.Schema({
   },
   messageType: {
     type: String,
-    enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice', 'shared_post'],
+    enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice', 'shared_post', 'location'],
     default: 'text'
   },
   imageUrl: {
@@ -72,6 +72,33 @@ const messageSchema = new mongoose.Schema({
       }
     },
     default: null
+  },
+  // Location sharing metadata
+  locationData: {
+    latitude: {
+      type: Number,
+      default: null
+    },
+    longitude: {
+      type: Number,
+      default: null
+    },
+    isLiveLocation: {
+      type: Boolean,
+      default: false
+    },
+    duration: {
+      type: Number, // in minutes
+      default: null
+    },
+    expiresAt: {
+      type: Date,
+      default: null
+    },
+    address: {
+      type: String,
+      default: null
+    }
   },
   timestamp: {
     type: Date,
