@@ -151,11 +151,18 @@ exports.startSession = async (req, res) => {
     
     console.log('✅ [LOCATION SHARING] Connection verified:', { userId, friendId, isContact, isAppConnection });
     
-    let settings = await LocationSettings.findOne({ userId });
+    // Use userObjectId for database queries (LocationSettings expects ObjectId)
+    let settings = await LocationSettings.findOne({ userId: userObjectId });
     
     if (!settings) {
-      settings = await LocationSettings.create({ userId });
+      settings = await LocationSettings.create({ userId: userObjectId });
     }
+    
+    console.log('📋 [LOCATION SHARING] Location settings:', {
+      settingsId: settings._id,
+      userId: userObjectId.toString(),
+      activeSessions: settings.activeSessions.length
+    });
     
     await settings.startSession(friendId, parseInt(duration));
     
