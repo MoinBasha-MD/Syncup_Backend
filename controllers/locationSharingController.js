@@ -183,11 +183,18 @@ exports.startSession = async (req, res) => {
           status: 'sent'
         });
         
-        console.log('✅ [LOCATION SHARING] Location message sent to chat:', locationMessage._id);
+        console.log('✅ [LOCATION SHARING] Location message created:', {
+          messageId: locationMessage._id,
+          messageType: locationMessage.messageType,
+          hasLocationData: !!locationMessage.locationData,
+          senderId: userId,
+          receiverId: friendId
+        });
         
         // Emit socket event for real-time chat update
         const io = req.app.get('io');
         if (io) {
+          // Send to RECEIVER
           io.to(friendId).emit('new_message', {
             message: locationMessage,
             sender: {
@@ -195,8 +202,19 @@ exports.startSession = async (req, res) => {
               name: senderUser.name
             }
           });
+          console.log('📤 [LOCATION SHARING] Message sent to receiver:', friendId);
           
-          // Send notification
+          // Send to SENDER (so they see it in their chat too)
+          io.to(userId).emit('new_message', {
+            message: locationMessage,
+            sender: {
+              userId: userId,
+              name: senderUser.name
+            }
+          });
+          console.log('📤 [LOCATION SHARING] Message sent to sender:', userId);
+          
+          // Send notification to receiver
           io.to(friendId).emit('notification', {
             type: 'location_share',
             title: 'Location Shared',
@@ -209,7 +227,9 @@ exports.startSession = async (req, res) => {
             }
           });
           
-          console.log('✅ [LOCATION SHARING] Notification sent to:', friendId);
+          console.log('✅ [LOCATION SHARING] All socket events emitted successfully');
+        } else {
+          console.warn('⚠️ [LOCATION SHARING] Socket.io not available!');
         }
       }
     } catch (msgError) {
