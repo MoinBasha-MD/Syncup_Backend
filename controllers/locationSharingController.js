@@ -1,5 +1,6 @@
 const LocationSettings = require('../models/LocationSettings');
 const User = require('../models/userModel');
+const Message = require('../models/Message');
 
 /**
  * Get user's location sharing settings
@@ -174,7 +175,6 @@ exports.startSession = async (req, res) => {
     // Send location message to chat
     let createdLocationMessage = null;
     try {
-      const Message = require('../models/Message');
       // Use the user object we already fetched earlier
       const senderUser = user;
       
@@ -393,6 +393,76 @@ exports.checkSharingStatus = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error checking sharing status',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get live locations shared with the current user
+ */
+exports.getReceivedShares = async (req, res) => {
+  try {
+    const userId = req.user.userId; // userId string used in Message collection
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User identifier missing'
+      });
+    }
+
+    const now = new Date();
+
+    const messages = await Message.find({
+      receiverId: userId,
+      messageType: 'location',
+      'locationData.isLiveLocation': true,
+      'locationData.expiresAt': { $gt: now }
+    })
+      .sort({ timestamp: -1 })
+      .limit(50)
+      .lean();
+
+    const senderIds = [...new Set(messages.map(msg => msg.senderId).filter(Boolean))];
+
+    const senders = await User.find({ userId: { $in: senderIds } })
+      .select('userId name profileImage')
+      .lean();
+
+    const senderMap = new Map();
+    senders.forEach(sender => {
+      senderMap.set(sender.userId, {
+        name: sender.name,
+        profileImage: sender.profileImage || null
+      });
+    });
+
+    const shares = messages.map(msg => {
+      const senderInfo = senderMap.get(msg.senderId) || {};
+      return {
+        messageId: msg._id,
+        senderId: msg.senderId,
+        senderName: senderInfo.name || 'Unknown User',
+        senderProfileImage: senderInfo.profileImage || null,
+        locationData: msg.locationData,
+        message: msg.message,
+        startedAt: msg.timestamp,
+        expiresAt: msg.locationData?.expiresAt || null
+      };
+    });
+
+    res.json({
+      success: true,
+      count: shares.length,
+      shares
+    });
+
+  } catch (error) {
+    console.error('❌ [LOCATION SHARING] Error getting received shares:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting received location shares',
       error: error.message
     });
   }

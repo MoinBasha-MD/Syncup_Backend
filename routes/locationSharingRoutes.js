@@ -46,6 +46,13 @@ router.get('/active', protect, locationSharingController.getActiveSessions);
 router.get('/status/:friendId', protect, locationSharingController.checkSharingStatus);
 
 /**
+ * @route   GET /api/location-sharing/received
+ * @desc    Get live locations shared with the current user
+ * @access  Private
+ */
+router.get('/received', protect, locationSharingController.getReceivedShares);
+
+/**
  * @route   PUT /api/location-sharing/preferences
  * @desc    Update sharing preferences
  * @access  Private
