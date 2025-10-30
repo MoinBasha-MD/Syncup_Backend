@@ -2,6 +2,23 @@ const LocationSettings = require('../models/LocationSettings');
 const User = require('../models/userModel');
 const Message = require('../models/Message');
 
+const formatDurationLabel = (minutes) => {
+  if (!Number.isFinite(minutes)) return 'live location';
+
+  if (minutes < 60) {
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (remainingMinutes === 0) {
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+
+  return `${hours}h ${remainingMinutes}m`;
+};
+
 /**
  * Get user's location sharing settings
  */
@@ -89,7 +106,7 @@ exports.startSession = async (req, res) => {
   try {
     const userId = req.user.userId; // Use userId field, NOT _id (MongoDB ObjectId)
     const userObjectId = req.user._id; // MongoDB ObjectId for database queries
-    const { friendId, duration } = req.body; // duration in minutes: 15, 60, 480
+    const { friendId, duration } = req.body; // duration in minutes (15-480, 15 minute increments)
     
     console.log('🔍 [LOCATION SHARING] User IDs:', {
       userId: userId,
@@ -104,11 +121,18 @@ exports.startSession = async (req, res) => {
       });
     }
     
-    // Validate duration (15 min, 1 hour, 8 hours)
-    if (![15, 60, 480].includes(parseInt(duration))) {
+    const durationMinutes = parseInt(duration, 10);
+
+    // Validate duration (between 15 minutes and 8 hours, in 15 minute increments)
+    if (
+      Number.isNaN(durationMinutes) ||
+      durationMinutes < 15 ||
+      durationMinutes > 480 ||
+      durationMinutes % 15 !== 0
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid duration. Must be 15, 60, or 480 minutes'
+        message: 'Invalid duration. Must be between 15 minutes and 8 hours in 15 minute increments'
       });
     }
     
@@ -165,7 +189,7 @@ exports.startSession = async (req, res) => {
       activeSessions: settings.activeSessions.length
     });
     
-    await settings.startSession(friendId, parseInt(duration));
+    await settings.startSession(friendId, durationMinutes);
     
     // Populate friend details
     await settings.populate('activeSessions.friendId', 'name profileImage');
@@ -179,19 +203,20 @@ exports.startSession = async (req, res) => {
       const senderUser = user;
       
       if (senderUser && senderUser.currentLocation) {
-        const expiresAt = new Date(Date.now() + parseInt(duration) * 60 * 1000);
-        
+        const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000);
+        const durationLabel = formatDurationLabel(durationMinutes);
+
         // Create location message
         createdLocationMessage = await Message.create({
           senderId: userId,
           receiverId: friendId,
-          message: `📍 Sharing live location for ${duration === 15 ? '15 minutes' : duration === 60 ? '1 hour' : '8 hours'}`,
+          message: `📍 Sharing live location for ${durationLabel}`,
           messageType: 'location',
           locationData: {
             latitude: senderUser.currentLocation.latitude,
             longitude: senderUser.currentLocation.longitude,
             isLiveLocation: true,
-            duration: parseInt(duration),
+            duration: durationMinutes,
             expiresAt: expiresAt,
             address: null
           },
