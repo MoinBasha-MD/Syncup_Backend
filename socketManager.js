@@ -444,6 +444,143 @@ const initializeSocketIO = (server) => {
         console.error('Error updating contacts cache:', error);
       }
     });
+
+    // 🔒 PRIVACY MODE FEATURES: Ghost Mode and Timer Mode
+    
+    // Ghost Mode - Entered
+    socket.on('ghost-mode-entered', async (data) => {
+      console.log(`👻 [GHOST MODE] User ${userName} (${userId}) entered ghost mode with ${data.chatId}`);
+      
+      try {
+        const { chatId, sessionId } = data;
+        
+        // Find the other user (chatId is the other user's userId)
+        const otherUser = await User.findOne({ userId: chatId }).select('_id userId name');
+        if (!otherUser) {
+          console.log(`❌ [GHOST MODE] Other user not found: ${chatId}`);
+          return;
+        }
+        
+        console.log(`👻 [GHOST MODE] Notifying ${otherUser.name} (${otherUser.userId}) about ghost mode`);
+        
+        // Notify the other user
+        const otherUserSocket = userSockets.get(otherUser.userId);
+        if (otherUserSocket && otherUserSocket.connected) {
+          otherUserSocket.emit('ghost-mode-entered', {
+            chatId: userId, // The user who entered ghost mode
+            userId: userId,
+            sessionId: sessionId,
+            userName: userName
+          });
+          console.log(`✅ [GHOST MODE] Successfully notified ${otherUser.name}`);
+        } else {
+          console.log(`❌ [GHOST MODE] Other user ${otherUser.name} not connected`);
+        }
+      } catch (error) {
+        console.error('❌ [GHOST MODE] Error handling ghost-mode-entered:', error);
+      }
+    });
+    
+    // Ghost Mode - Exited
+    socket.on('ghost-mode-exited', async (data) => {
+      console.log(`👻 [GHOST MODE] User ${userName} (${userId}) exited ghost mode with ${data.chatId}`);
+      
+      try {
+        const { chatId, sessionId } = data;
+        
+        // Find the other user
+        const otherUser = await User.findOne({ userId: chatId }).select('_id userId name');
+        if (!otherUser) {
+          console.log(`❌ [GHOST MODE] Other user not found: ${chatId}`);
+          return;
+        }
+        
+        console.log(`👻 [GHOST MODE] Notifying ${otherUser.name} (${otherUser.userId}) about ghost mode exit`);
+        
+        // Notify the other user
+        const otherUserSocket = userSockets.get(otherUser.userId);
+        if (otherUserSocket && otherUserSocket.connected) {
+          otherUserSocket.emit('ghost-mode-exited', {
+            chatId: userId, // The user who exited ghost mode
+            userId: userId,
+            sessionId: sessionId,
+            userName: userName
+          });
+          console.log(`✅ [GHOST MODE] Successfully notified ${otherUser.name} about exit`);
+        } else {
+          console.log(`❌ [GHOST MODE] Other user ${otherUser.name} not connected`);
+        }
+      } catch (error) {
+        console.error('❌ [GHOST MODE] Error handling ghost-mode-exited:', error);
+      }
+    });
+    
+    // Timer Mode - Activated
+    socket.on('timer-mode-activated', async (data) => {
+      console.log(`⏳ [TIMER MODE] User ${userName} (${userId}) activated timer mode with ${data.chatId}`);
+      
+      try {
+        const { chatId, timerDuration } = data;
+        
+        // Find the other user
+        const otherUser = await User.findOne({ userId: chatId }).select('_id userId name');
+        if (!otherUser) {
+          console.log(`❌ [TIMER MODE] Other user not found: ${chatId}`);
+          return;
+        }
+        
+        console.log(`⏳ [TIMER MODE] Notifying ${otherUser.name} (${otherUser.userId}) about timer mode activation`);
+        
+        // Notify the other user
+        const otherUserSocket = userSockets.get(otherUser.userId);
+        if (otherUserSocket && otherUserSocket.connected) {
+          otherUserSocket.emit('timer-mode-activated', {
+            chatId: userId, // The user who activated timer mode
+            userId: userId,
+            timerDuration: timerDuration,
+            userName: userName
+          });
+          console.log(`✅ [TIMER MODE] Successfully notified ${otherUser.name}`);
+        } else {
+          console.log(`❌ [TIMER MODE] Other user ${otherUser.name} not connected`);
+        }
+      } catch (error) {
+        console.error('❌ [TIMER MODE] Error handling timer-mode-activated:', error);
+      }
+    });
+    
+    // Timer Mode - Deactivated
+    socket.on('timer-mode-deactivated', async (data) => {
+      console.log(`⏳ [TIMER MODE] User ${userName} (${userId}) deactivated timer mode with ${data.chatId}`);
+      
+      try {
+        const { chatId } = data;
+        
+        // Find the other user
+        const otherUser = await User.findOne({ userId: chatId }).select('_id userId name');
+        if (!otherUser) {
+          console.log(`❌ [TIMER MODE] Other user not found: ${chatId}`);
+          return;
+        }
+        
+        console.log(`⏳ [TIMER MODE] Notifying ${otherUser.name} (${otherUser.userId}) about timer mode deactivation`);
+        
+        // Notify the other user
+        const otherUserSocket = userSockets.get(otherUser.userId);
+        if (otherUserSocket && otherUserSocket.connected) {
+          otherUserSocket.emit('timer-mode-deactivated', {
+            chatId: userId, // The user who deactivated timer mode
+            userId: userId,
+            userName: userName
+          });
+          console.log(`✅ [TIMER MODE] Successfully notified ${otherUser.name} about deactivation`);
+        } else {
+          console.log(`❌ [TIMER MODE] Other user ${otherUser.name} not connected`);
+        }
+      } catch (error) {
+        console.error('❌ [TIMER MODE] Error handling timer-mode-deactivated:', error);
+      }
+    });
     
     // 💬 CHAT FEATURES: Typing Indicators
     socket.on('typing_start', async (data) => {

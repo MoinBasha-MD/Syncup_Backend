@@ -402,6 +402,13 @@ const storyCleanupScheduler = require('./services/storyCleanupScheduler');
 storyCleanupScheduler.start();
 console.log('✅ Story cleanup scheduler started');
 
+// Start the scheduler for automatic message cleanup (timer mode)
+const messageCleanupScheduler = require('./services/messageCleanupScheduler');
+// Make io available globally for the scheduler
+global.io = io;
+messageCleanupScheduler.start();
+console.log('✅ Message cleanup scheduler started');
+
 // Initialize Agent System
 (async () => {
   try {
@@ -458,6 +465,10 @@ process.on('SIGTERM', () => {
   if (storyCleanupScheduler) {
     storyCleanupScheduler.stop();
     console.log('✅ Story cleanup scheduler stopped');
+  }
+  if (messageCleanupScheduler) {
+    messageCleanupScheduler.stop();
+    console.log('✅ Message cleanup scheduler stopped');
   }
   // Shutdown agent system
   if (agentIntegrationService) {
