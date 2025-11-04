@@ -15,7 +15,10 @@ const {
   testNotificationFlow,
   sendVoiceMessage,
   exchangeEncryptionKeys,
-  getPublicKey
+  getPublicKey,
+  deleteGhostMessages,
+  markBurnViewed,
+  cleanupExpiredMessages
 } = require('../controllers/chatController');
 
 // All chat routes require authentication
@@ -60,5 +63,10 @@ router.post('/voice', sendVoiceMessage);
 // Encryption routes
 router.post('/encryption/exchange-keys', exchangeEncryptionKeys);
 router.get('/encryption/public-key/:userId', getPublicKey);
+
+// Privacy mode routes
+router.post('/ghost/delete', deleteGhostMessages);
+router.put('/burn/:messageId/viewed', markBurnViewed);
+router.post('/timer/cleanup', cleanupExpiredMessages);
 
 module.exports = router;

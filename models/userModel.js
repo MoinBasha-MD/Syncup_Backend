@@ -314,6 +314,16 @@ userSchema.pre('save', async function (next) {
     this.phoneNumber = normalizedPhone;
   }
   
+  // Set searchableName for case-insensitive name searches
+  if (this.isModified('name')) {
+    this.searchableName = this.name.toLowerCase().trim();
+  }
+  
+  // Normalize username to lowercase for case-insensitive searches
+  if (this.isModified('username') && this.username) {
+    this.username = this.username.toLowerCase().trim();
+  }
+  
   // Encrypt password using bcrypt
   if (!this.isModified('password')) {
     next();

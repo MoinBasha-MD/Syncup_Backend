@@ -85,8 +85,8 @@ const searchUsers = asyncHandler(async (req, res) => {
     // Get existing contacts (device contacts) - these are MongoDB ObjectIds
     const existingContactIds = currentUser.contacts.map(id => id.toString());
     
-    // Get existing app connections - ONLY include currently accepted connections
-    // Exclude declined, cancelled, or removed connections so they can be re-discovered
+    // Get existing app connections for status tracking (but DON'T exclude them from search)
+    // Users can still search and see their app connections
     const existingAppConnectionIds = currentUser.appConnections
       .filter(conn => conn.status === 'accepted')
       .map(conn => conn.userId);
@@ -97,7 +97,8 @@ const searchUsers = asyncHandler(async (req, res) => {
       pending: currentUser.appConnections.filter(c => c.status === 'pending').length,
       declined: currentUser.appConnections.filter(c => c.status === 'declined').length,
       cancelled: currentUser.appConnections.filter(c => c.status === 'cancelled').length,
-      acceptedUserIds: existingAppConnectionIds
+      acceptedUserIds: existingAppConnectionIds,
+      note: 'App connections are NOT excluded from search - users can find their friends!'
     });
     
     console.log(`🔍 [DEBUG] Current user app connections:`, {
@@ -119,15 +120,18 @@ const searchUsers = asyncHandler(async (req, res) => {
       contactObjectIds: existingContactIds,
       contactUsers: contactUsers,
       contactUserIds: contactUserIds,
-      appConnectionIds: existingAppConnectionIds
+      appConnectionIds: existingAppConnectionIds,
+      note: 'Only excluding: current user, blocked users, and device contacts'
     });
     
+    // FIXED: Only exclude device contacts, NOT app connections
+    // Users can search and see their app friends with "Connected" badge
     const excludedUserIds = [
       currentUserId,
       ...blockedByCurrentUser.map(b => b.blockedUserId),
       ...blockingCurrentUser.map(b => b.blockerId),
-      ...contactUserIds, // Exclude existing device contacts
-      ...existingAppConnectionIds // Exclude existing app connections
+      ...contactUserIds, // Exclude existing device contacts only
+      // App connections are NOT excluded - they will show with "Connected" status
     ];
     
     console.log(`🔍 [DEBUG] Current user details:`, {

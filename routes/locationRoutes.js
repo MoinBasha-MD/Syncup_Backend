@@ -213,10 +213,17 @@ router.get('/static-map', protect, async (req, res) => {
 
 /**
  * @route   GET /api/location/nearby-friends
- * @desc    Get nearby friends' locations
+ * @desc    Get nearby friends' locations (within radius)
  * @access  Private
  */
 router.get('/nearby-friends', protect, locationController.getNearbyFriends);
+
+/**
+ * @route   GET /api/location/all-friends
+ * @desc    Get ALL friends' locations with distances (no radius limit)
+ * @access  Private
+ */
+router.get('/all-friends', protect, locationController.getAllFriendsLocations);
 
 /**
  * @route   GET /api/location/friend/:friendId

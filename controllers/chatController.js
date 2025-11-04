@@ -1200,6 +1200,92 @@ const getPublicKey = async (req, res) => {
   }
 };
 
+// Delete Ghost messages
+const deleteGhostMessages = async (req, res) => {
+  try {
+    const { ghostSessionId } = req.body;
+    
+    console.log('👻 [GHOST MODE] Deleting messages for session:', ghostSessionId);
+    
+    const result = await Message.deleteGhostMessages(ghostSessionId);
+    
+    console.log('👻 [GHOST MODE] Deleted', result.deletedCount, 'messages');
+    
+    res.status(200).json({
+      success: true,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('❌ [GHOST MODE] Delete error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete ghost messages',
+      error: error.message
+    });
+  }
+};
+
+// Mark burn message as viewed
+const markBurnViewed = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const viewerId = req.user.userId;
+    
+    console.log('🔥 [BURN MODE] Marking message as viewed:', messageId);
+    
+    const message = await Message.markBurnViewed(messageId, viewerId);
+    
+    if (!message) {
+      return res.status(404).json({
+        success: false,
+        message: 'Message not found'
+      });
+    }
+    
+    // Broadcast to sender that message was viewed
+    broadcastToUser(message.senderId, 'burn-message-viewed', {
+      messageId: message._id,
+      viewedBy: viewerId,
+      viewedAt: message.burnViewedAt
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: message
+    });
+  } catch (error) {
+    console.error('❌ [BURN MODE] Mark viewed error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark burn message as viewed',
+      error: error.message
+    });
+  }
+};
+
+// Cleanup expired timer messages (called by cron job)
+const cleanupExpiredMessages = async (req, res) => {
+  try {
+    console.log('⏳ [TIMER MODE] Cleaning up expired messages...');
+    
+    const result = await Message.deleteExpiredMessages();
+    
+    console.log('⏳ [TIMER MODE] Deleted', result.deletedCount, 'expired messages');
+    
+    res.status(200).json({
+      success: true,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('❌ [TIMER MODE] Cleanup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cleanup expired messages',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   sendMessage,
   getChatHistory,
@@ -1214,5 +1300,8 @@ module.exports = {
   testNotificationFlow,
   sendVoiceMessage,
   exchangeEncryptionKeys,
-  getPublicKey
+  getPublicKey,
+  deleteGhostMessages,
+  markBurnViewed,
+  cleanupExpiredMessages
 };

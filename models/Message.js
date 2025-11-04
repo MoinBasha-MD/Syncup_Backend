@@ -115,6 +115,44 @@ const messageSchema = new mongoose.Schema({
     ref: 'Message',
     default: null
   },
+  // Privacy modes (Burn, Ghost, Timer)
+  privacyMode: {
+    type: String,
+    enum: ['normal', 'burn', 'ghost', 'timer'],
+    default: 'normal'
+  },
+  burnViewTime: {
+    type: Number, // seconds (5, 10, 30)
+    default: null
+  },
+  burnViewedAt: {
+    type: Date,
+    default: null
+  },
+  burnViewedBy: {
+    type: String,
+    default: null
+  },
+  isGhost: {
+    type: Boolean,
+    default: false
+  },
+  ghostSessionId: {
+    type: String,
+    default: null
+  },
+  expiresAt: {
+    type: Date,
+    default: null,
+    index: true // For efficient cleanup of expired messages
+  },
+  timerDuration: {
+    type: Number, // milliseconds
+    default: null
+  },
+  imageUrls: [{
+    type: String // For multiple images (WhatsApp style)
+  }],
   // Message reactions support
   reactions: [{
     emoji: {
@@ -335,6 +373,37 @@ messageSchema.statics.searchMessages = async function(userId1, userId2, searchQu
     .sort({ score: { $meta: 'textScore' }, timestamp: -1 })
     .limit(limit)
     .lean();
+};
+
+// Static method to delete Ghost messages by session ID
+messageSchema.statics.deleteGhostMessages = async function(ghostSessionId) {
+  return this.deleteMany({
+    isGhost: true,
+    ghostSessionId: ghostSessionId
+  });
+};
+
+// Static method to delete expired timer messages
+messageSchema.statics.deleteExpiredMessages = async function() {
+  const now = new Date();
+  return this.deleteMany({
+    expiresAt: { $lte: now },
+    privacyMode: 'timer'
+  });
+};
+
+// Static method to mark burn message as viewed
+messageSchema.statics.markBurnViewed = async function(messageId, viewerId) {
+  return this.findByIdAndUpdate(
+    messageId,
+    {
+      $set: {
+        burnViewedAt: new Date(),
+        burnViewedBy: viewerId
+      }
+    },
+    { new: true }
+  );
 };
 
 // Optimized conversation loading with pagination and threading support

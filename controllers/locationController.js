@@ -146,6 +146,130 @@ function toRad(degrees) {
 }
 
 /**
+ * Get ALL friends' locations with distances (not limited by radius)
+ * Returns all friends who are sharing their location, sorted by distance
+ */
+exports.getAllFriendsLocations = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const LocationSettings = require('../models/LocationSettings');
+
+    // Get current user
+    const user = await User.findById(userId).select('friends currentLocation');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // User location is optional
+    let userLat = null;
+    let userLng = null;
+    
+    if (user.currentLocation && user.currentLocation.latitude && user.currentLocation.longitude) {
+      userLat = user.currentLocation.latitude;
+      userLng = user.currentLocation.longitude;
+    }
+
+    // Get all friends
+    const friends = await User.find({
+      _id: { $in: user.friends }
+    }).select('name profileImage currentLocation lastSeen');
+
+    const allFriendsWithLocations = [];
+
+    // Check each friend to see if they're sharing with current user
+    for (const friend of friends) {
+      // Check if friend has location data
+      if (!friend.currentLocation || !friend.currentLocation.latitude || !friend.currentLocation.longitude) {
+        continue;
+      }
+
+      // Check if friend is sharing their location with current user
+      const friendSettings = await LocationSettings.findOne({ userId: friend._id });
+      
+      if (!friendSettings) {
+        continue;
+      }
+
+      const isSharingWithMe = friendSettings.isSharingWith(userId);
+      
+      if (!isSharingWithMe) {
+        continue;
+      }
+
+      const friendLat = friend.currentLocation.latitude;
+      const friendLng = friend.currentLocation.longitude;
+      
+      // Calculate distance if user has location
+      let distance = null;
+      let distanceFormatted = 'Unknown';
+      
+      if (userLat && userLng) {
+        distance = calculateDistance(userLat, userLng, friendLat, friendLng);
+        distance = Math.round(distance * 10) / 10; // Round to 1 decimal
+        
+        // Format distance
+        if (distance < 1) {
+          distanceFormatted = `${Math.round(distance * 1000)}m`;
+        } else if (distance < 10) {
+          distanceFormatted = `${distance.toFixed(1)}km`;
+        } else {
+          distanceFormatted = `${Math.round(distance)}km`;
+        }
+      }
+      
+      // Check if online
+      const isOnline = friend.lastSeen && 
+        (Date.now() - new Date(friend.lastSeen).getTime()) < 5 * 60 * 1000;
+
+      allFriendsWithLocations.push({
+        userId: friend._id,
+        name: friend.name,
+        profileImage: friend.profileImage,
+        location: {
+          latitude: friendLat,
+          longitude: friendLng,
+          timestamp: friend.currentLocation.timestamp,
+          lastUpdated: friend.currentLocation.lastUpdated
+        },
+        distance: distance,
+        distanceFormatted: distanceFormatted,
+        isOnline,
+        lastSeen: friend.lastSeen,
+        isSharingWithMe: true
+      });
+    }
+
+    // Sort by distance (closest first), then by name
+    allFriendsWithLocations.sort((a, b) => {
+      if (a.distance !== null && b.distance !== null) {
+        return a.distance - b.distance;
+      }
+      if (a.distance === null && b.distance !== null) return 1;
+      if (a.distance !== null && b.distance === null) return -1;
+      return a.name.localeCompare(b.name);
+    });
+
+    console.log(`✅ [LOCATION] Found ${allFriendsWithLocations.length} friends sharing location (all distances)`);
+
+    res.json({
+      success: true,
+      count: allFriendsWithLocations.length,
+      friends: allFriendsWithLocations,
+      userHasLocation: userLat !== null && userLng !== null
+    });
+
+  } catch (error) {
+    console.error('❌ [LOCATION] Error getting all friends locations:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error getting all friends locations',
+      error: error.message 
+    });
+  }
+};
+
+/**
  * Get specific friend's location
  */
 exports.getFriendLocation = async (req, res) => {
