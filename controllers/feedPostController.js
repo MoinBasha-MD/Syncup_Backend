@@ -1,10 +1,11 @@
 const FeedPost = require('../models/FeedPost');
 const User = require('../models/userModel');
+const Page = require('../models/Page');
 
 // Create a new feed post
 const createFeedPost = async (req, res) => {
   try {
-    const { caption, type, mediaUrls, location, privacy } = req.body;
+    const { caption, type, mediaUrls, location, privacy, pageId } = req.body;
     const userId = req.user.userId;
 
     // Validate required fields
@@ -22,6 +23,30 @@ const createFeedPost = async (req, res) => {
         success: false,
         message: 'User not found'
       });
+    }
+
+    // Phase 2: Check if posting as page
+    let isPagePost = false;
+    let page = null;
+    if (pageId) {
+      page = await Page.findById(pageId);
+      if (!page) {
+        return res.status(404).json({
+          success: false,
+          message: 'Page not found'
+        });
+      }
+
+      // Check if user can post to this page
+      if (!page.canPost(req.user._id)) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have permission to post to this page'
+        });
+      }
+
+      isPagePost = true;
+      console.log(`📄 [PAGE POST] User ${userId} posting as page ${page.name}`);
     }
 
     // Create media items
@@ -42,12 +67,21 @@ const createFeedPost = async (req, res) => {
       caption: caption || '',
       media,
       location: location ? { name: location } : undefined,
-      privacy: privacy || 'public'
+      privacy: privacy || 'public',
+      // Phase 2: Page post fields
+      pageId: pageId || null,
+      isPagePost: isPagePost
     });
 
     await newPost.save();
 
-    console.log(`✅ Feed post created by ${user.name}:`, newPost._id);
+    // Phase 2: Update page post count if page post
+    if (isPagePost && page) {
+      await Page.findByIdAndUpdate(pageId, { $inc: { postCount: 1 } });
+      console.log(`✅ Page post created for ${page.name}:`, newPost._id);
+    } else {
+      console.log(`✅ Feed post created by ${user.name}:`, newPost._id);
+    }
 
     // Broadcast to WebSocket (optional - for real-time updates)
     try {
@@ -123,13 +157,19 @@ const getFeedPosts = async (req, res) => {
     // Combine both contact types (device contacts + app connections)
     const allConnectionUserIds = [...new Set([...contactUserIds, ...appConnectionUserIds])];
     
+    // Phase 2: Get user's followed pages
+    const PageFollower = require('../models/PageFollower');
+    const followedPages = await PageFollower.find({ userId: req.user._id }).select('pageId');
+    const followedPageIds = followedPages.map(f => f.pageId);
+    
     console.log(`📱 Getting feed for user ${userId}:`);
     console.log(`  📞 Device contacts: ${contactUserIds.length}`);
     console.log(`  🌐 App connections: ${appConnectionUserIds.length}`);
+    console.log(`  📄 Followed pages: ${followedPageIds.length}`);
     console.log(`  ✅ Total connections: ${allConnectionUserIds.length}`);
 
-    // Pass all connection IDs to getFeedPosts for Instagram-style filtering
-    const posts = await FeedPost.getFeedPosts(userId, page, limit, allConnectionUserIds);
+    // Pass all connection IDs + followed pages to getFeedPosts for Instagram-style filtering
+    const posts = await FeedPost.getFeedPosts(userId, page, limit, allConnectionUserIds, followedPageIds);
 
     console.log(`✅ Returning ${posts.length} posts (own + contacts + app connections + public)`);
 
@@ -815,12 +855,45 @@ const getPostViewStats = async (req, res) => {
   }
 };
 
+// Get posts for a specific page (Phase 2)
+const getPagePosts = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    console.log(`📄 Getting posts for page: ${pageId}`);
+
+    const posts = await FeedPost.getPagePosts(pageId, page, limit);
+
+    console.log(`✅ Returning ${posts.length} page posts`);
+
+    res.status(200).json({
+      success: true,
+      data: posts,
+      pagination: {
+        page,
+        limit,
+        total: posts.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get page posts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get page posts',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createPost: createFeedPost,
   getFeedPosts,
-  getPostById: getPost,
+  getPostById,
   updatePost,
-  deletePost,
+  deletePost: deleteFeedPost,
   repostPost,
   toggleLike,
   toggleBookmark,
@@ -828,5 +901,6 @@ module.exports = {
   getUserPosts,
   getLikedPosts,
   getCommentedPosts,
-  getPostViewStats
+  getPostViewStats,
+  getPagePosts  // Phase 2
 };

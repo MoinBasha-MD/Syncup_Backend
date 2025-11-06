@@ -70,6 +70,105 @@ router.post('/', protect, async (req, res) => {
   }
 });
 
+// @route   POST /api/pages/check-username
+// @desc    Check if username is available
+// @access  Public
+router.post('/check-username', async (req, res) => {
+  try {
+    const { username } = req.body;
+
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username is required'
+      });
+    }
+
+    const isAvailable = await Page.isUsernameAvailable(username);
+
+    res.json({
+      success: true,
+      available: isAvailable,
+      username: username.toLowerCase()
+    });
+  } catch (error) {
+    console.error('❌ [PAGES] Error checking username:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check username'
+    });
+  }
+});
+
+// @route   POST /api/pages/suggest-usernames
+// @desc    Generate username suggestions based on name
+// @access  Public
+router.post('/suggest-usernames', async (req, res) => {
+  try {
+    const { name } = req.body;
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name is required'
+      });
+    }
+
+    // Generate username suggestions
+    const suggestions = [];
+    const baseName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    // Strategy 1: Just the name
+    suggestions.push(baseName);
+    
+    // Strategy 2: Name with random numbers
+    suggestions.push(`${baseName}${Math.floor(Math.random() * 1000)}`);
+    suggestions.push(`${baseName}${Math.floor(Math.random() * 10000)}`);
+    
+    // Strategy 3: Name with year
+    const currentYear = new Date().getFullYear();
+    suggestions.push(`${baseName}${currentYear}`);
+    
+    // Strategy 4: Name with underscore and numbers
+    suggestions.push(`${baseName}_${Math.floor(Math.random() * 100)}`);
+    
+    // Strategy 5: Name with "official", "real", "the"
+    suggestions.push(`official${baseName}`);
+    suggestions.push(`the${baseName}`);
+    suggestions.push(`real${baseName}`);
+    
+    // Check availability for each suggestion
+    const availableSuggestions = [];
+    for (const suggestion of suggestions) {
+      const isAvailable = await Page.isUsernameAvailable(suggestion);
+      if (isAvailable) {
+        availableSuggestions.push(suggestion);
+        if (availableSuggestions.length >= 3) break; // Return top 3
+      }
+    }
+
+    // If we don't have 3 suggestions, generate more with random numbers
+    while (availableSuggestions.length < 3) {
+      const randomSuggestion = `${baseName}${Math.floor(Math.random() * 100000)}`;
+      const isAvailable = await Page.isUsernameAvailable(randomSuggestion);
+      if (isAvailable && !availableSuggestions.includes(randomSuggestion)) {
+        availableSuggestions.push(randomSuggestion);
+      }
+    }
+
+    res.json({
+      success: true,
+      suggestions: availableSuggestions.slice(0, 3)
+    });
+  } catch (error) {
+    console.error('❌ [PAGES] Error generating username suggestions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate username suggestions'
+    });
+  }
+});
+
 // @route   GET /api/pages/:id
 // @desc    Get page by ID
 // @access  Public
@@ -397,36 +496,6 @@ router.get('/:id/is-following', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to check follow status'
-    });
-  }
-});
-
-// @route   POST /api/pages/check-username
-// @desc    Check if username is available
-// @access  Public
-router.post('/check-username', async (req, res) => {
-  try {
-    const { username } = req.body;
-
-    if (!username) {
-      return res.status(400).json({
-        success: false,
-        message: 'Username is required'
-      });
-    }
-
-    const isAvailable = await Page.isUsernameAvailable(username);
-
-    res.json({
-      success: true,
-      available: isAvailable,
-      username: username.toLowerCase()
-    });
-  } catch (error) {
-    console.error('❌ [PAGES] Error checking username:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to check username'
     });
   }
 });

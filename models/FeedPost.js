@@ -44,6 +44,18 @@ const feedPostSchema = new mongoose.Schema({
   userProfileImage: {
     type: String
   },
+  // Page post support (Phase 2)
+  pageId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Page',
+    default: null,
+    index: true
+  },
+  isPagePost: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
   type: {
     type: String,
     enum: ['photo', 'video', 'carousel'],
@@ -123,6 +135,8 @@ feedPostSchema.index({ userId: 1, createdAt: -1 });
 feedPostSchema.index({ createdAt: -1 });
 feedPostSchema.index({ privacy: 1, createdAt: -1 });
 feedPostSchema.index({ hashtags: 1 });
+feedPostSchema.index({ pageId: 1, createdAt: -1 }); // For page posts
+feedPostSchema.index({ isPagePost: 1, createdAt: -1 }); // For filtering
 
 // Extract hashtags from caption
 feedPostSchema.pre('save', function(next) {
@@ -206,28 +220,36 @@ feedPostSchema.methods.incrementViews = function() {
 };
 
 // Static method to get feed posts for user (Instagram-style)
-feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 20, contactIds = []) {
+feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 20, contactIds = [], followedPageIds = []) {
   const skip = (page - 1) * limit;
   
   // Instagram-style feed logic:
   // 1. Posts from people you follow (contacts) - all privacy levels
   // 2. Your own posts - all privacy levels
-  // 3. Public posts from everyone (suggested content)
+  // 3. Posts from pages you follow (NEW - Phase 2)
+  // 4. Public posts from everyone (suggested content)
   
   const query = {
     isActive: true,
     $or: [
       // Own posts (all privacy levels)
-      { userId: userId },
+      { userId: userId, isPagePost: false },
       
       // Contacts' posts with 'public' or 'friends' privacy
       { 
         userId: { $in: contactIds },
-        privacy: { $in: ['public', 'friends'] }
+        privacy: { $in: ['public', 'friends'] },
+        isPagePost: false
+      },
+      
+      // Posts from followed pages (NEW - Phase 2)
+      {
+        pageId: { $in: followedPageIds },
+        isPagePost: true
       },
       
       // Public posts from everyone (suggested content)
-      { privacy: 'public' }
+      { privacy: 'public', isPagePost: false }
     ]
   };
   
@@ -271,11 +293,28 @@ feedPostSchema.statics.getUserPosts = function(userId, page = 1, limit = 20) {
   
   return this.find({
     userId: userId,
+    isActive: true,
+    isPagePost: false  // Only personal posts
+  })
+  .sort({ createdAt: -1 })
+  .skip(skip)
+  .limit(limit)
+  .lean();
+};
+
+// Static method to get page's posts (Phase 2)
+feedPostSchema.statics.getPagePosts = function(pageId, page = 1, limit = 20) {
+  const skip = (page - 1) * limit;
+  
+  return this.find({
+    pageId: pageId,
+    isPagePost: true,
     isActive: true
   })
   .sort({ createdAt: -1 })
   .skip(skip)
   .limit(limit)
+  .populate('pageId', 'name username profileImage isVerified')
   .lean();
 };
 
