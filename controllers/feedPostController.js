@@ -891,9 +891,9 @@ const getPagePosts = async (req, res) => {
 module.exports = {
   createPost: createFeedPost,
   getFeedPosts,
-  getPostById,
+  getPostById: getPost,
   updatePost,
-  deletePost: deleteFeedPost,
+  deletePost: deletePost,
   repostPost,
   toggleLike,
   toggleBookmark,
