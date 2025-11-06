@@ -232,14 +232,14 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
   const query = {
     isActive: true,
     $or: [
-      // Own posts (all privacy levels)
-      { userId: userId, isPagePost: false },
+      // Own posts (all privacy levels) - not page posts
+      { userId: userId, $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }] },
       
-      // Contacts' posts with 'public' or 'friends' privacy
+      // Contacts' posts with 'public' or 'friends' privacy - not page posts
       { 
         userId: { $in: contactIds },
         privacy: { $in: ['public', 'friends'] },
-        isPagePost: false
+        $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }]
       },
       
       // Posts from followed pages (NEW - Phase 2)
@@ -248,8 +248,11 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
         isPagePost: true
       },
       
-      // Public posts from everyone (suggested content)
-      { privacy: 'public', isPagePost: false }
+      // Public posts from everyone (suggested content) - not page posts
+      { 
+        privacy: 'public',
+        $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }]
+      }
     ]
   };
   
@@ -294,7 +297,10 @@ feedPostSchema.statics.getUserPosts = function(userId, page = 1, limit = 20) {
   return this.find({
     userId: userId,
     isActive: true,
-    isPagePost: false  // Only personal posts
+    $or: [
+      { isPagePost: false },
+      { isPagePost: { $exists: false } }
+    ]
   })
   .sort({ createdAt: -1 })
   .skip(skip)
