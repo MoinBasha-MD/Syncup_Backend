@@ -56,6 +56,7 @@ const locationRoutes = require('./routes/locationRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const agentDashboardRoutes = require('./routes/agentDashboardRoutes');
 const advancedDashboardRoutes = require('./routes/advancedDashboardRoutes');
+const pageRoutes = require('./routes/pageRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
@@ -244,6 +245,7 @@ app.use('/api/connections', apiLimiter, connectionRoutes); // Connection request
 app.use('/api/blocks', apiLimiter, blockRoutes); // User blocking management routes
 app.use('/api/calls', apiLimiter, callRoutes); // Call history and management routes
 app.use('/api/agents', apiLimiter, agentRoutes); // Agentic framework management routes
+app.use('/api/pages', apiLimiter, pageRoutes); // Pages management routes (Phase 1)
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Serve static files from the uploads directory
