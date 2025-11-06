@@ -500,4 +500,96 @@ router.get('/:id/is-following', protect, async (req, res) => {
   }
 });
 
+// @route   GET /api/pages/following
+// @desc    Get pages user is following
+// @access  Private
+router.get('/following', protect, async (req, res) => {
+  try {
+    console.log('📄 [PAGES] Fetching following pages for user:', req.user._id);
+    
+    const followedPages = await PageFollower.find({ 
+      userId: req.user._id 
+    })
+    .populate({
+      path: 'pageId',
+      populate: { path: 'owner', select: 'name username profileImage' }
+    })
+    .sort('-createdAt');
+    
+    // Filter out null pages (in case page was deleted)
+    const pages = followedPages
+      .map(f => f.pageId)
+      .filter(p => p != null);
+    
+    console.log(`✅ [PAGES] Found ${pages.length} following pages for user`);
+    
+    res.json({
+      success: true,
+      pages,
+      count: pages.length
+    });
+  } catch (error) {
+    console.error('❌ [PAGES] Error fetching following pages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch following pages'
+    });
+  }
+});
+
+// @route   GET /api/pages/suggested
+// @desc    Get suggested pages for user
+// @access  Private
+router.get('/suggested', protect, async (req, res) => {
+  try {
+    console.log('📄 [PAGES] Fetching suggested pages for user:', req.user._id);
+
+    // Build list of possible identifiers for the current user
+    const rawUserIds = [req.user?._id, req.user?.id, req.user?.userId];
+    const userObjectIds = rawUserIds
+      .filter(Boolean)
+      .map((value) => {
+        if (mongoose.Types.ObjectId.isValid(value)) {
+          return mongoose.Types.ObjectId(value);
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    let followedPageIds = [];
+
+    if (userObjectIds.length > 0) {
+      // Get pages user is already following
+      followedPageIds = await PageFollower.find({ 
+        userId: { $in: userObjectIds }
+      }).distinct('pageId');
+    }
+
+    console.log(`📄 [PAGES] User is following ${followedPageIds.length} pages`);
+    
+    // Get popular public pages user doesn't follow
+    const suggestedPages = await Page.find({
+      _id: { $nin: followedPageIds },
+      isPublic: true
+    })
+    .sort('-followerCount') // Sort by most popular
+    .limit(10)
+    .populate('owner', 'name username profileImage');
+    
+    console.log(`✅ [PAGES] Found ${suggestedPages.length} suggested pages`);
+    
+    res.json({
+      success: true,
+      pages: suggestedPages,
+      count: suggestedPages.length
+    });
+  } catch (error) {
+    console.error('❌ [PAGES] Error getting suggested pages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get suggested pages'
+    });
+  }
+});
+
 module.exports = router;
