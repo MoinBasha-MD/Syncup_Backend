@@ -162,14 +162,28 @@ const getFeedPosts = async (req, res) => {
     const followedPages = await PageFollower.find({ userId: req.user._id }).select('pageId');
     const followedPageIds = followedPages.map(f => f.pageId);
     
+    // IMPORTANT: Also include pages that the user owns/manages
+    const ownedPages = await Page.find({ 
+      $or: [
+        { owner: req.user._id },
+        { 'admins.userId': req.user._id }
+      ]
+    }).select('_id');
+    const ownedPageIds = ownedPages.map(p => p._id);
+    
+    // Combine followed pages + owned pages
+    const allPageIds = [...new Set([...followedPageIds.map(id => id.toString()), ...ownedPageIds.map(id => id.toString())])];
+    
     console.log(`📱 Getting feed for user ${userId}:`);
     console.log(`  📞 Device contacts: ${contactUserIds.length}`);
     console.log(`  🌐 App connections: ${appConnectionUserIds.length}`);
     console.log(`  📄 Followed pages: ${followedPageIds.length}`);
+    console.log(`  👤 Owned/managed pages: ${ownedPageIds.length}`);
+    console.log(`  📄 Total pages in feed: ${allPageIds.length}`);
     console.log(`  ✅ Total connections: ${allConnectionUserIds.length}`);
 
-    // Pass all connection IDs + followed pages to getFeedPosts for Instagram-style filtering
-    const posts = await FeedPost.getFeedPosts(userId, page, limit, allConnectionUserIds, followedPageIds);
+    // Pass all connection IDs + all page IDs (followed + owned) to getFeedPosts
+    const posts = await FeedPost.getFeedPosts(userId, page, limit, allConnectionUserIds, allPageIds);
 
     console.log(`✅ Returning ${posts.length} posts (own + contacts + app connections + public)`);
 
@@ -231,9 +245,9 @@ const deletePost = async (req, res) => {
     const userId = req.user.userId;
     const { postId } = req.params;
 
+    // Find post (don't filter by userId yet - need to check page permissions)
     const post = await FeedPost.findOne({
       _id: postId,
-      userId: userId,
       isActive: true
     });
 
@@ -241,6 +255,32 @@ const deletePost = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Post not found or already deleted'
+      });
+    }
+
+    // Check permissions
+    let hasPermission = false;
+    
+    // If it's a regular user post, check if user owns it
+    if (!post.isPagePost) {
+      hasPermission = post.userId === userId;
+    } else {
+      // If it's a page post, check page permissions
+      const page = await Page.findById(post.pageId);
+      if (page) {
+        // Owner and admin can delete any post, editor/contributor can delete own posts
+        if (page.isOwner(req.user._id) || page.hasRole(req.user._id, 'admin')) {
+          hasPermission = true;
+        } else if (page.canPost(req.user._id) && post.userId === userId) {
+          hasPermission = true; // Editor/contributor can delete own posts
+        }
+      }
+    }
+
+    if (!hasPermission) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to delete this post'
       });
     }
 
@@ -348,16 +388,42 @@ const updatePost = async (req, res) => {
     const { postId } = req.params;
     const { caption, location, privacy } = req.body;
 
+    // Find post (don't filter by userId yet - need to check page permissions)
     const post = await FeedPost.findOne({
       _id: postId,
-      userId: userId,
       isActive: true
     });
 
     if (!post) {
       return res.status(404).json({
         success: false,
-        message: 'Post not found or you do not have permission to edit'
+        message: 'Post not found'
+      });
+    }
+
+    // Check permissions
+    let hasPermission = false;
+    
+    // If it's a regular user post, check if user owns it
+    if (!post.isPagePost) {
+      hasPermission = post.userId === userId;
+    } else {
+      // If it's a page post, check page permissions
+      const page = await Page.findById(post.pageId);
+      if (page) {
+        // Owner and admin can edit any post, editor/contributor can edit own posts
+        if (page.isOwner(req.user._id) || page.hasRole(req.user._id, 'admin')) {
+          hasPermission = true;
+        } else if (page.canPost(req.user._id) && post.userId === userId) {
+          hasPermission = true; // Editor/contributor can edit own posts
+        }
+      }
+    }
+
+    if (!hasPermission) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to edit this post'
       });
     }
 

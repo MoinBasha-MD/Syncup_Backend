@@ -260,15 +260,20 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
+    .populate('pageId', 'name username profileImage isVerified')
     .lean();
   
-  // Prioritize: Own posts & contacts' posts first, then public posts
+  // Prioritize: Own posts & contacts' posts & followed page posts first, then public posts
   const ownAndContactPosts = posts.filter(post => 
-    post.userId === userId || contactIds.includes(post.userId)
+    post.userId === userId || 
+    contactIds.includes(post.userId) ||
+    (post.isPagePost && followedPageIds.includes(post.pageId?._id?.toString() || post.pageId?.toString()))
   );
   
   const publicPosts = posts.filter(post => 
-    post.userId !== userId && !contactIds.includes(post.userId)
+    post.userId !== userId && 
+    !contactIds.includes(post.userId) &&
+    !(post.isPagePost && followedPageIds.includes(post.pageId?._id?.toString() || post.pageId?.toString()))
   );
   
   // Mix them: 70% own/contacts, 30% public (Instagram-style algorithm)

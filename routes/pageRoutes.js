@@ -550,7 +550,7 @@ router.get('/suggested', protect, async (req, res) => {
       .filter(Boolean)
       .map((value) => {
         if (mongoose.Types.ObjectId.isValid(value)) {
-          return mongoose.Types.ObjectId(value);
+          return new mongoose.Types.ObjectId(value);
         }
         return null;
       })
