@@ -328,6 +328,18 @@ const toggleLike = async (req, res) => {
 
     console.log(`${isLiked ? '❤️' : '💔'} Post ${postId} ${isLiked ? 'liked' : 'unliked'} by ${userId}`);
 
+    // Update page statistics if it's a page post
+    if (post.isPagePost && post.pageId) {
+      try {
+        await Page.findByIdAndUpdate(post.pageId, {
+          $inc: { totalLikes: isLiked ? 1 : -1 }
+        });
+        console.log(`📊 Page ${post.pageId} totalLikes ${isLiked ? 'incremented' : 'decremented'}`);
+      } catch (pageError) {
+        console.error('❌ Error updating page likes:', pageError);
+      }
+    }
+
     // BROADCAST LIKE UPDATE TO ALL USERS IN REAL-TIME
     try {
       const { broadcastToAll } = require('../socketManager');

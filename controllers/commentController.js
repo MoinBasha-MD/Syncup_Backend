@@ -49,6 +49,19 @@ const createComment = async (req, res) => {
     post.commentsCount += 1;
     await post.save();
 
+    // Update page statistics if it's a page post
+    if (post.isPagePost && post.pageId) {
+      try {
+        const Page = require('../models/Page');
+        await Page.findByIdAndUpdate(post.pageId, {
+          $inc: { totalComments: 1 }
+        });
+        console.log(`📊 Page ${post.pageId} totalComments incremented`);
+      } catch (pageError) {
+        console.error('❌ Error updating page comments:', pageError);
+      }
+    }
+
     console.log(`💬 Comment created on post ${postId} by ${user.name}`);
 
     // Broadcast to WebSocket for real-time updates
@@ -214,6 +227,19 @@ const deleteComment = async (req, res) => {
     if (post) {
       post.commentsCount = Math.max(0, post.commentsCount - 1);
       await post.save();
+
+      // Update page statistics if it's a page post
+      if (post.isPagePost && post.pageId) {
+        try {
+          const Page = require('../models/Page');
+          await Page.findByIdAndUpdate(post.pageId, {
+            $inc: { totalComments: -1 }
+          });
+          console.log(`📊 Page ${post.pageId} totalComments decremented`);
+        } catch (pageError) {
+          console.error('❌ Error updating page comments:', pageError);
+        }
+      }
     }
 
     console.log(`🗑️ Comment deleted: ${commentId}`);
