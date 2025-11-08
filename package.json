@@ -21,7 +21,12 @@
     "check:phase1": "node scripts/phase1-completeness-check.js",
     "create-ai-instances": "node scripts/create-ai-instances-for-existing-users.js",
     "debug-ai": "node scripts/debug-ai-instances.js",
-    "test-network": "node scripts/test-network-connectivity.js"
+    "test-network": "node scripts/test-network-connectivity.js",
+    "master": "node agents/masterAgent.js",
+    "agent:log-monitor": "node agents/logMonitorAgent.js",
+    "agent:health-check": "node agents/healthCheckAgent.js",
+    "agent:memory-monitor": "node agents/memoryMonitorAgent.js",
+    "agent:performance": "node agents/performanceAnalyzerAgent.js"
   },
   "keywords": [],
   "author": "",

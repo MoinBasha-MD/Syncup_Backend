@@ -1,5 +1,6 @@
 const winston = require('winston');
 const path = require('path');
+const logEncryption = require('./logEncryption');
 
 // Create logs directory if it doesn't exist
 const fs = require('fs');
@@ -145,6 +146,17 @@ const logToMultiple = (level, message, meta = {}, loggers = []) => {
   });
 };
 
+// Helper function to create safe logs with encrypted sensitive data
+const createSafeLog = (message, data = {}, mode = 'mask') => {
+  return logEncryption.createSafeLog(message, data, mode);
+};
+
+// Helper to log with automatic PII protection
+const logSafe = (logger, level, message, data = {}, mode = 'mask') => {
+  const safeLog = createSafeLog(message, data, mode);
+  logger[level](safeLog.message, safeLog.data);
+};
+
 // Export all loggers
 module.exports = {
   serverLogger,
@@ -153,6 +165,9 @@ module.exports = {
   dbLogger,
   errorLogger,
   logToMultiple,
+  createSafeLog,
+  logSafe,
+  logEncryption,
   
   // Convenience methods
   logServer: (level, message, meta = {}) => serverLogger[level](message, meta),
@@ -160,6 +175,12 @@ module.exports = {
   logConnection: (level, message, meta = {}) => connectionLogger[level](message, meta),
   logDB: (level, message, meta = {}) => dbLogger[level](message, meta),
   logError: (message, meta = {}) => errorLogger.error(message, meta),
+  
+  // Safe logging methods with PII protection
+  logServerSafe: (level, message, data = {}, mode = 'mask') => logSafe(serverLogger, level, message, data, mode),
+  logAISafe: (level, message, data = {}, mode = 'mask') => logSafe(aiLogger, level, message, data, mode),
+  logConnectionSafe: (level, message, data = {}, mode = 'mask') => logSafe(connectionLogger, level, message, data, mode),
+  logDBSafe: (level, message, data = {}, mode = 'mask') => logSafe(dbLogger, level, message, data, mode),
   
   // Log startup message
   logStartup: () => {
