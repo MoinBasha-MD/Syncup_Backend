@@ -18,7 +18,8 @@ const {
   verifyEncryptionPin,
   updateEncryptionSettings,
   getEncryptionSettings,
-  verifyUserPassword
+  verifyUserPassword,
+  getUserByUsername
 } = require('../controllers/userController');
 const {
   getConnectionStats,
@@ -34,6 +35,10 @@ router.route('/connection-stats')
 // Phone lookup route
 router.route('/phone/:phoneNumber')
   .get(protect, getUserByPhone);
+
+// Username lookup route (for QR code scanning) - Public access
+router.route('/profile/:username')
+  .get(getUserByUsername);
 
 // Protected routes
 router.route('/profile')

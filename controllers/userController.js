@@ -1077,6 +1077,52 @@ const verifyUserPassword = async (req, res) => {
   }
 };
 
+// @desc    Get user profile by username (for QR code scanning)
+// @route   GET /api/users/profile/:username
+// @access  Public
+const getUserByUsername = async (req, res) => {
+  try {
+    const { username } = req.params;
+    
+    console.log(`🔍 [BACKEND] Looking up user by username: ${username}`);
+    
+    // Find user by username (case-insensitive)
+    const user = await User.findOne({ 
+      username: { $regex: new RegExp(`^${username}$`, 'i') }
+    }).select('_id userId name username profileImage bio status customStatus');
+    
+    if (!user) {
+      console.log(`❌ [BACKEND] User not found with username: ${username}`);
+      return res.status(404).json({
+        success: false,
+        message: `No user exists with username "${username}"`
+      });
+    }
+    
+    console.log(`✅ [BACKEND] User found: ${user.name} (@${user.username})`);
+    
+    res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name,
+        username: user.username,
+        profileImage: user.profileImage,
+        bio: user.bio,
+        status: user.status,
+        customStatus: user.customStatus
+      }
+    });
+  } catch (error) {
+    console.error('❌ [BACKEND] Error fetching user by username:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching user profile'
+    });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -1095,5 +1141,6 @@ module.exports = {
   verifyEncryptionPin,
   updateEncryptionSettings,
   getEncryptionSettings,
-  verifyUserPassword
+  verifyUserPassword,
+  getUserByUsername
 };

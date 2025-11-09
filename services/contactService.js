@@ -283,8 +283,8 @@ class ContactService {
         
         // Only reset if the status has actually expired (with a small buffer)
         if (now.getTime() > expirationTime.getTime() + 1000) { // 1 second buffer
-          console.log('Status has expired, resetting to available');
-          user.status = 'available';
+          console.log('Status has expired, resetting to Available');
+          user.status = 'Available';  // ✅ FIXED: Capitalized to match app convention
           user.customStatus = '';
           user.statusUntil = null;
           await user.save();
@@ -308,7 +308,7 @@ class ContactService {
         if (!canSeeStatus) {
           console.log(`🔒 [Privacy] Hiding status for phone lookup due to privacy settings`);
           statusInfo = {
-            status: 'available',
+            status: 'Available',  // ✅ FIXED: Capitalized to match app convention
             customStatus: '',
             statusUntil: null
           };

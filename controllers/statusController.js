@@ -536,12 +536,12 @@ const getUserStatusByPhone = async (req, res) => {
     console.log(`Current time: ${currentTime.toISOString()}`);
     
     if (user.statusUntil && currentTime > new Date(user.statusUntil)) {
-      console.log(`Status expired at ${user.statusUntil}, resetting to available`);
-      user.status = 'available';
+      console.log(`Status expired at ${user.statusUntil}, resetting to Available`);
+      user.status = 'Available';  // ✅ FIXED: Capitalized to match app convention
       user.customStatus = '';
       user.statusUntil = null;
       await user.save();
-      console.log('Status reset to available');
+      console.log('Status reset to Available');
     } else if (user.statusUntil) {
       console.log(`Status until: ${user.statusUntil}`);
     } else {

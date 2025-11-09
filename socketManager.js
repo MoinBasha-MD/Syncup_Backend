@@ -1657,6 +1657,15 @@ const broadcastStatusUpdate = async (user, statusData) => {
             status: statusData.status,
             customStatus: statusData.customStatus,
             statusUntil: statusData.statusUntil,
+            // Hierarchical status support for Bug #11
+            mainStatus: statusData.mainStatus || statusData.status,
+            mainDuration: statusData.mainDuration,
+            mainDurationLabel: statusData.mainDurationLabel,
+            mainEndTime: statusData.mainEndTime,
+            subStatus: statusData.subStatus,
+            subDuration: statusData.subDuration,
+            subDurationLabel: statusData.subDurationLabel,
+            subEndTime: statusData.subEndTime,
             timestamp: new Date().toISOString()
           };
           
