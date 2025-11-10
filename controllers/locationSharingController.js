@@ -176,6 +176,23 @@ exports.startSession = async (req, res) => {
     
     console.log('✅ [LOCATION SHARING] Connection verified:', { userId, friendId, isContact, isAppConnection });
     
+    // Convert friendId (UUID) to MongoDB ObjectId
+    // friendId is a UUID string, we need to find the friend's MongoDB _id
+    const friendUser = await User.findOne({ userId: friendId }).select('_id userId');
+    if (!friendUser) {
+      console.log('❌ [LOCATION SHARING] Friend user not found:', friendId);
+      return res.status(404).json({
+        success: false,
+        message: 'Friend user not found'
+      });
+    }
+    
+    const friendObjectId = friendUser._id;
+    console.log('🔄 [LOCATION SHARING] Converted UUID to ObjectId:', {
+      friendUUID: friendId,
+      friendObjectId: friendObjectId.toString()
+    });
+    
     // Use userObjectId for database queries (LocationSettings expects ObjectId)
     let settings = await LocationSettings.findOne({ userId: userObjectId });
     
@@ -189,7 +206,7 @@ exports.startSession = async (req, res) => {
       activeSessions: settings.activeSessions.length
     });
     
-    await settings.startSession(friendId, durationMinutes);
+    await settings.startSession(friendObjectId, durationMinutes);
     
     // Populate friend details
     await settings.populate('activeSessions.friendId', 'name profileImage');
@@ -307,12 +324,21 @@ exports.startSession = async (req, res) => {
 exports.stopSession = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { friendId } = req.body;
+    const { friendId } = req.body; // friendId is UUID
     
     if (!friendId) {
       return res.status(400).json({
         success: false,
         message: 'Friend ID is required'
+      });
+    }
+    
+    // Convert friendId (UUID) to MongoDB ObjectId
+    const friendUser = await User.findOne({ userId: friendId }).select('_id');
+    if (!friendUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Friend user not found'
       });
     }
     
@@ -325,7 +351,7 @@ exports.stopSession = async (req, res) => {
       });
     }
     
-    await settings.stopSession(friendId);
+    await settings.stopSession(friendUser._id);
     
     console.log(`✅ [LOCATION SHARING] Stopped session: ${userId} → ${friendId}`);
     
@@ -389,7 +415,16 @@ exports.getActiveSessions = async (req, res) => {
 exports.checkSharingStatus = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { friendId } = req.params;
+    const { friendId } = req.params; // friendId is UUID
+    
+    // Convert friendId (UUID) to MongoDB ObjectId
+    const friendUser = await User.findOne({ userId: friendId }).select('_id');
+    if (!friendUser) {
+      return res.json({
+        success: true,
+        isSharing: false
+      });
+    }
     
     const settings = await LocationSettings.findOne({ userId });
     
@@ -400,11 +435,11 @@ exports.checkSharingStatus = async (req, res) => {
       });
     }
     
-    const isSharing = settings.isSharingWith(friendId);
+    const isSharing = settings.isSharingWith(friendUser._id);
     
     // Get session details if sharing
     const session = settings.activeSessions.find(
-      s => s.friendId.toString() === friendId && s.isActive
+      s => s.friendId.toString() === friendUser._id.toString() && s.isActive
     );
     
     res.json({

@@ -8,6 +8,13 @@ const locationSettingsSchema = new mongoose.Schema({
     unique: true
   },
   
+  // Real-time location sharing enabled
+  isRealTime: {
+    type: Boolean,
+    required: true,
+    default: false
+  },
+  
   // Sharing mode
   sharingMode: {
     type: String,
