@@ -1553,15 +1553,25 @@ const broadcastStatusUpdate = async (user, statusData) => {
     // Always also check database to ensure we don't miss anyone
     // (in case cache is incomplete or stale)
     try {
-      console.log(`🔍 Querying database for users who have ${userIdString} in their contacts or appConnections...`);
+      console.log(`🔍 Querying database for users who have ${userIdString} in their contacts, appConnections, or Friends...`);
       
-      // Query for both contacts and appConnections
+      // Query for contacts, appConnections, AND Friends (NEW)
       const dbUsers = await User.find({
         $or: [
           { contacts: user._id },
           { 'appConnections.userId': user.userId }
         ]
       }, '_id name phoneNumber contacts appConnections');
+      
+      // ALSO check Friends collection (NEW SYSTEM)
+      const Friend = require('./models/Friend');
+      const friendUsers = await Friend.find({
+        friendUserId: user.userId,
+        status: 'accepted',
+        isDeleted: false
+      }).distinct('userId');
+      
+      console.log(`👥 Found ${friendUsers.length} users from Friends collection`);
       
       console.log(`🔍 Database query: User.find({ $or: [{ contacts: ${user._id} }, { 'appConnections.userId': '${user.userId}' }] })`);
       console.log(`🔍 Raw database results:`, dbUsers.map(u => ({
@@ -1578,13 +1588,20 @@ const broadcastStatusUpdate = async (user, statusData) => {
       
       console.log(`📋 Found ${dbUserIds.length} users from database:`, dbUserIds);
       
+      // Convert friendUsers (userId strings) to MongoDB ObjectIds for consistency
+      const User = require('./models/userModel');
+      const friendUserDocs = await User.find({ userId: { $in: friendUsers } }).select('_id');
+      const friendUserObjectIds = friendUserDocs.map(u => u._id.toString());
+      
+      console.log(`👥 Converted ${friendUsers.length} friend userIds to ${friendUserObjectIds.length} ObjectIds`);
+      
       // Also check if there are any users in the database at all
       const totalUsers = await User.countDocuments({});
       const usersWithContacts = await User.countDocuments({ contacts: { $exists: true, $ne: [] } });
       console.log(`📊 Database stats: Total users: ${totalUsers}, Users with contacts: ${usersWithContacts}`);
       
-      // Merge cache results with database results (remove duplicates)
-      const allUsersToNotify = [...new Set([...usersToNotify, ...dbUserIds])];
+      // Merge ALL sources: cache + contacts + appConnections + Friends (remove duplicates)
+      const allUsersToNotify = [...new Set([...usersToNotify, ...dbUserIds, ...friendUserObjectIds])];
       usersToNotify = allUsersToNotify;
       
       console.log(`📋 Total unique users to notify: ${usersToNotify.length}`);
