@@ -2,6 +2,7 @@ const socketIO = require('socket.io');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const User = require('./models/userModel');
+const Friend = require('./models/Friend');
 const StatusPrivacy = require('./models/statusPrivacyModel');
 const Call = require('./models/callModel');
 const AIMessageService = require('./services/aiMessageService');
@@ -1564,7 +1565,7 @@ const broadcastStatusUpdate = async (user, statusData) => {
       }, '_id name phoneNumber contacts appConnections');
       
       // ALSO check Friends collection (NEW SYSTEM)
-      const Friend = require('./models/Friend');
+      // Friend is already imported at the top of the file
       const friendUsers = await Friend.find({
         friendUserId: user.userId,
         status: 'accepted',
@@ -1589,7 +1590,7 @@ const broadcastStatusUpdate = async (user, statusData) => {
       console.log(`📋 Found ${dbUserIds.length} users from database:`, dbUserIds);
       
       // Convert friendUsers (userId strings) to MongoDB ObjectIds for consistency
-      const User = require('./models/userModel');
+      // User is already imported at the top of the file
       const friendUserDocs = await User.find({ userId: { $in: friendUsers } }).select('_id');
       const friendUserObjectIds = friendUserDocs.map(u => u._id.toString());
       
