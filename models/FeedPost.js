@@ -220,14 +220,21 @@ feedPostSchema.methods.incrementViews = function() {
 };
 
 // Static method to get feed posts for user (Instagram-style)
+// IMPORTANT: This returns ONLY friends' posts + own posts (For You feed)
+// For Explore feed, use getExplorePosts() method
 feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 20, contactIds = [], followedPageIds = []) {
   const skip = (page - 1) * limit;
   
-  // Instagram-style feed logic:
-  // 1. Posts from people you follow (contacts) - all privacy levels
-  // 2. Your own posts - all privacy levels
-  // 3. Posts from pages you follow (NEW - Phase 2)
-  // 4. Public posts from everyone (suggested content)
+  console.log('📱 [FEED POST MODEL] getFeedPosts called');
+  console.log('📱 [FEED POST MODEL] userId:', userId);
+  console.log('📱 [FEED POST MODEL] contactIds count:', contactIds.length);
+  console.log('📱 [FEED POST MODEL] followedPageIds count:', followedPageIds.length);
+  
+  // FOR YOU FEED LOGIC (Friends + Own Posts ONLY):
+  // 1. Your own posts - all privacy levels
+  // 2. Posts from contacts/friends with 'public' or 'friends' privacy
+  // 3. Posts from pages you follow
+  // NO PUBLIC POSTS FROM NON-FRIENDS!
   
   const query = {
     isActive: true,
@@ -242,16 +249,10 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
         $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }]
       },
       
-      // Posts from followed pages (NEW - Phase 2)
+      // Posts from followed pages (Phase 2)
       {
         pageId: { $in: followedPageIds },
         isPagePost: true
-      },
-      
-      // Public posts from everyone (suggested content) - not page posts
-      { 
-        privacy: 'public',
-        $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }]
       }
     ]
   };
@@ -263,36 +264,55 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
     .populate('pageId', 'name username profileImage isVerified')
     .lean();
   
-  // Prioritize: Own posts & contacts' posts & followed page posts first, then public posts
-  const ownAndContactPosts = posts.filter(post => 
-    post.userId === userId || 
-    contactIds.includes(post.userId) ||
-    (post.isPagePost && followedPageIds.includes(post.pageId?._id?.toString() || post.pageId?.toString()))
-  );
+  console.log('📱 [FEED POST MODEL] Found', posts.length, 'posts for For You feed');
+  console.log('📱 [FEED POST MODEL] Breakdown:', {
+    ownPosts: posts.filter(p => p.userId === userId).length,
+    contactPosts: posts.filter(p => contactIds.includes(p.userId)).length,
+    pagePosts: posts.filter(p => p.isPagePost).length
+  });
   
-  const publicPosts = posts.filter(post => 
-    post.userId !== userId && 
-    !contactIds.includes(post.userId) &&
-    !(post.isPagePost && followedPageIds.includes(post.pageId?._id?.toString() || post.pageId?.toString()))
-  );
+  return posts;
+};
+
+// Static method to get explore posts (public posts from non-friends)
+feedPostSchema.statics.getExplorePosts = async function(userId, page = 1, limit = 20, contactIds = [], followedPageIds = []) {
+  const skip = (page - 1) * limit;
   
-  // Mix them: 70% own/contacts, 30% public (Instagram-style algorithm)
-  const mixedPosts = [];
-  let ownContactIndex = 0;
-  let publicIndex = 0;
+  console.log('🔍 [FEED POST MODEL] getExplorePosts called');
+  console.log('🔍 [FEED POST MODEL] userId:', userId);
+  console.log('🔍 [FEED POST MODEL] Excluding contactIds count:', contactIds.length);
   
-  for (let i = 0; i < posts.length; i++) {
-    // Every 3-4 posts, show a public post (if available)
-    if (i % 4 === 3 && publicIndex < publicPosts.length) {
-      mixedPosts.push(publicPosts[publicIndex++]);
-    } else if (ownContactIndex < ownAndContactPosts.length) {
-      mixedPosts.push(ownAndContactPosts[ownContactIndex++]);
-    } else if (publicIndex < publicPosts.length) {
-      mixedPosts.push(publicPosts[publicIndex++]);
-    }
-  }
+  // EXPLORE FEED LOGIC (Public posts from non-friends):
+  // 1. Public posts from users NOT in contacts
+  // 2. Public posts from pages NOT followed
+  // 3. Exclude own posts
   
-  return mixedPosts;
+  const query = {
+    isActive: true,
+    privacy: 'public',
+    userId: { $ne: userId, $nin: contactIds }, // Exclude self and contacts
+    $or: [
+      // Public posts from non-contacts (not page posts)
+      { $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }] },
+      
+      // Public page posts from pages NOT followed
+      {
+        isPagePost: true,
+        pageId: { $nin: followedPageIds }
+      }
+    ]
+  };
+  
+  const posts = await this.find(query)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate('pageId', 'name username profileImage isVerified')
+    .lean();
+  
+  console.log('🔍 [FEED POST MODEL] Found', posts.length, 'posts for Explore feed');
+  
+  return posts;
 };
 
 // Static method to get user's posts

@@ -12,6 +12,7 @@ const {
 const {
   createPost: createFeedPost,
   getFeedPosts,
+  getExplorePosts,
   getPostById,
   updatePost,
   deletePost: deleteFeedPost,
@@ -70,9 +71,14 @@ router.post('/cleanup', protect, cleanupExpiredPosts);
 router.post('/create', protect, createFeedPost);
 
 // @route   GET /api/posts/feed
-// @desc    Get feed posts
+// @desc    Get feed posts (For You - friends only)
 // @access  Private
 router.get('/feed', protect, getFeedPosts);
+
+// @route   GET /api/posts/explore
+// @desc    Get explore posts (public posts from non-friends)
+// @access  Private
+router.get('/explore', protect, getExplorePosts);
 
 // @route   GET /api/posts/saved
 // @desc    Get user's saved/bookmarked posts

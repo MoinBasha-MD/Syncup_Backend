@@ -185,7 +185,7 @@ const getFeedPosts = async (req, res) => {
     // Pass all connection IDs + all page IDs (followed + owned) to getFeedPosts
     const posts = await FeedPost.getFeedPosts(userId, page, limit, allConnectionUserIds, allPageIds);
 
-    console.log(`✅ Returning ${posts.length} posts (own + contacts + app connections + public)`);
+    console.log(`✅ Returning ${posts.length} FOR YOU posts (own + contacts + app connections)`);
 
     res.status(200).json({
       success: true,
@@ -966,9 +966,81 @@ const getPagePosts = async (req, res) => {
   }
 };
 
+// Get explore posts (public posts from non-friends)
+const getExplorePosts = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    // Get user's contacts AND app connections to exclude from explore
+    const currentUser = await User.findOne({ userId }).select('contacts appConnections');
+    const contactObjectIds = currentUser?.contacts || [];
+    const appConnections = currentUser?.appConnections || [];
+    
+    // Convert contact ObjectIds to userIds
+    const contactUsers = await User.find({ 
+      _id: { $in: contactObjectIds } 
+    }).select('userId');
+    
+    const contactUserIds = contactUsers.map(user => user.userId);
+    
+    // Extract userIds from app connections
+    const appConnectionUserIds = appConnections.map(conn => conn.userId).filter(Boolean);
+    
+    // Combine both contact types (device contacts + app connections)
+    const allConnectionUserIds = [...new Set([...contactUserIds, ...appConnectionUserIds])];
+    
+    // Get user's followed pages to exclude from explore
+    const PageFollower = require('../models/PageFollower');
+    const followedPages = await PageFollower.find({ userId: req.user._id }).select('pageId');
+    const followedPageIds = followedPages.map(f => f.pageId);
+    
+    // Also include pages that the user owns/manages
+    const ownedPages = await Page.find({ 
+      $or: [
+        { owner: req.user._id },
+        { 'admins.userId': req.user._id }
+      ]
+    }).select('_id');
+    const ownedPageIds = ownedPages.map(p => p._id);
+    
+    // Combine followed pages + owned pages
+    const allPageIds = [...new Set([...followedPageIds.map(id => id.toString()), ...ownedPageIds.map(id => id.toString())])];
+    
+    console.log(`🔍 Getting EXPLORE feed for user ${userId}:`);
+    console.log(`  📞 Excluding contacts: ${allConnectionUserIds.length}`);
+    console.log(`  📄 Excluding followed/owned pages: ${allPageIds.length}`);
+
+    // Get explore posts (public posts from non-friends)
+    const posts = await FeedPost.getExplorePosts(userId, page, limit, allConnectionUserIds, allPageIds);
+
+    console.log(`✅ Returning ${posts.length} EXPLORE posts (public from non-friends)`);
+
+    res.status(200).json({
+      success: true,
+      data: posts,
+      pagination: {
+        page,
+        limit,
+        total: posts.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get explore posts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get explore posts',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createPost: createFeedPost,
   getFeedPosts,
+  getExplorePosts,  // NEW: Explore feed endpoint
   getPostById: getPost,
   updatePost,
   deletePost: deletePost,
