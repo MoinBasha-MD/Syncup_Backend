@@ -1712,15 +1712,25 @@ const broadcastStatusUpdate = async (user, statusData) => {
     for (const recipientId of authorizedUsers) {
       try {
         // Convert MongoDB ObjectId to userId for socket lookup
-        const recipient = await User.findById(recipientId).select('userId name');
-        const recipientUserId = recipient?.userId;
+        const recipient = await User.findById(recipientId).select('userId name phoneNumber');
+        
+        if (!recipient) {
+          console.log(`❌ Recipient not found in database: ${recipientId}`);
+          continue;
+        }
+        
+        const recipientUserId = recipient.userId;
         
         if (!recipientUserId) {
-          console.log(`❌ Could not find userId for recipient ${recipientId}`);
+          console.log(`❌ Could not find userId for recipient ${recipientId} (${recipient.name})`);
+          console.log(`❌ Recipient data:`, { _id: recipient._id, name: recipient.name, phoneNumber: recipient.phoneNumber });
           continue;
         }
         
         console.log(`🔍 Looking up socket for recipient: ObjectId=${recipientId}, userId=${recipientUserId}, name=${recipient.name}`);
+        console.log(`🔍 Current userSockets keys:`, Array.from(userSockets.keys()));
+        console.log(`🔍 Searching for userId in userSockets:`, recipientUserId);
+        
         const socket = userSockets.get(recipientUserId); // Use userId for socket lookup
         
         if (socket && socket.connected) {
