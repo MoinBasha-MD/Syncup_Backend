@@ -21,7 +21,14 @@ const sendMessage = async (req, res) => {
       encrypted = false,
       sharedPost,      // ✅ For shared posts
       imageUrl,        // ✅ For images
-      fileMetadata     // ✅ For files
+      fileMetadata,    // ✅ For files
+      // Privacy mode options
+      privacyMode,     // 'normal' | 'burn' | 'ghost' | 'timer'
+      timerDuration,   // milliseconds
+      expiresAt,       // Date
+      burnViewTime,    // seconds
+      isGhost,         // boolean
+      ghostSessionId   // string
     } = req.body;
     const senderId = req.user.userId;
     const senderObjectId = req.user.id; // MongoDB _id of sender
@@ -120,7 +127,7 @@ const sendMessage = async (req, res) => {
     // This will help us see if the right user is connected
 
     // Create new message
-    const newMessage = new Message({
+    const messageData = {
       senderId,
       receiverId,
       message,
@@ -130,7 +137,39 @@ const sendMessage = async (req, res) => {
       sharedPost,      // ✅ Include shared post data
       imageUrl,        // ✅ Include image URL
       fileMetadata     // ✅ Include file metadata
-    });
+    };
+
+    // Add privacy mode options if provided
+    if (privacyMode) {
+      console.log('🔒 [BACKEND] Adding privacy mode to message:', privacyMode);
+      messageData.privacyMode = privacyMode;
+    }
+
+    if (timerDuration) {
+      console.log('⏳ [BACKEND] Adding timer duration:', timerDuration, 'ms');
+      messageData.timerDuration = timerDuration;
+      
+      // Calculate expiration time if not provided
+      if (!expiresAt) {
+        messageData.expiresAt = new Date(Date.now() + timerDuration);
+      } else {
+        messageData.expiresAt = new Date(expiresAt);
+      }
+      console.log('⏳ [BACKEND] Message will expire at:', messageData.expiresAt);
+    }
+
+    if (burnViewTime) {
+      console.log('🔥 [BACKEND] Adding burn view time:', burnViewTime, 'seconds');
+      messageData.burnViewTime = burnViewTime;
+    }
+
+    if (isGhost) {
+      console.log('👻 [BACKEND] Adding ghost mode with session:', ghostSessionId);
+      messageData.isGhost = true;
+      messageData.ghostSessionId = ghostSessionId;
+    }
+
+    const newMessage = new Message(messageData);
 
     // Save message to database
     const savedMessage = await newMessage.save();
