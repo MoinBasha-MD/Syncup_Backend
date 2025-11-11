@@ -222,11 +222,16 @@ const initializeSocketIO = (server) => {
     
     // Store user socket connection using userId (NOT MongoDB _id)
     userSockets.set(userId, socket);
-    console.log(`🔗 User connected with userId: ${userId} (ObjectId: ${userObjectId})`);
-    
-    console.log(`🔗 User connected: ${userName} (userId: ${userId})`);
-    console.log(`📊 Total active connections: ${connectionStats.activeConnections}`);
-    console.log('🗂️ Current connected users:', Array.from(userSockets.keys()));
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`🔗 [USER CONNECTED] User registered in userSockets Map`);
+    console.log(`🔗 [USER CONNECTED] Name: ${userName}`);
+    console.log(`🔗 [USER CONNECTED] UserId: ${userId}`);
+    console.log(`🔗 [USER CONNECTED] MongoDB ObjectId: ${userObjectId}`);
+    console.log(`🔗 [USER CONNECTED] Socket ID: ${socket.id}`);
+    console.log(`📊 [USER CONNECTED] Total active connections: ${connectionStats.activeConnections}`);
+    console.log(`🗂️ [USER CONNECTED] All connected userIds:`, Array.from(userSockets.keys()));
+    console.log(`🗂️ [USER CONNECTED] userSockets Map size: ${userSockets.size}`);
+    console.log(`${'='.repeat(80)}\n`);
     
     socketLogger.info(`User connected: ${userName} (${userId})`, {
       socketId: socket.id,
@@ -463,6 +468,8 @@ const initializeSocketIO = (server) => {
         }
         
         console.log(`👻 [GHOST MODE ENTER] Looking up other user with userId: ${chatId}`);
+        console.log(`👻 [GHOST MODE ENTER] Current userSockets Map size: ${userSockets.size}`);
+        console.log(`👻 [GHOST MODE ENTER] All connected userIds:`, Array.from(userSockets.keys()));
         
         // Find the other user (chatId is the other user's userId)
         const otherUser = await User.findOne({ userId: chatId }).select('_id userId name');
@@ -474,6 +481,7 @@ const initializeSocketIO = (server) => {
         
         console.log(`👻 [GHOST MODE ENTER] Found other user: ${otherUser.name} (userId: ${otherUser.userId})`);
         console.log(`👻 [GHOST MODE ENTER] Checking socket connection for ${otherUser.userId}...`);
+        console.log(`👻 [GHOST MODE ENTER] Does userSockets have this userId?`, userSockets.has(otherUser.userId));
         
         // Notify the other user
         const otherUserSocket = userSockets.get(otherUser.userId);
@@ -571,6 +579,8 @@ const initializeSocketIO = (server) => {
         
         console.log(`⏳ [TIMER MODE ACTIVATE] Timer duration: ${timerDuration} seconds`);
         console.log(`⏳ [TIMER MODE ACTIVATE] Looking up other user with userId: ${chatId}`);
+        console.log(`⏳ [TIMER MODE ACTIVATE] Current userSockets Map size: ${userSockets.size}`);
+        console.log(`⏳ [TIMER MODE ACTIVATE] All connected userIds:`, Array.from(userSockets.keys()));
         
         // Find the other user
         const otherUser = await User.findOne({ userId: chatId }).select('_id userId name');
@@ -582,6 +592,7 @@ const initializeSocketIO = (server) => {
         
         console.log(`⏳ [TIMER MODE ACTIVATE] Found other user: ${otherUser.name} (userId: ${otherUser.userId})`);
         console.log(`⏳ [TIMER MODE ACTIVATE] Checking socket connection for ${otherUser.userId}...`);
+        console.log(`⏳ [TIMER MODE ACTIVATE] Does userSockets have this userId?`, userSockets.has(otherUser.userId));
         
         // Notify the other user
         const otherUserSocket = userSockets.get(otherUser.userId);
@@ -1457,11 +1468,13 @@ const initializeSocketIO = (server) => {
 
     // Handle user disconnection
     socket.on('disconnect', (reason) => {
-      console.log(`🔌 User disconnected: ${userName} (${userId})`, {
-        reason,
-        socketId: socket.id,
-        duration: Date.now() - socket.handshake.time
-      });
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`🔌 [USER DISCONNECTED] User disconnecting from socket`);
+      console.log(`🔌 [USER DISCONNECTED] Name: ${userName}`);
+      console.log(`🔌 [USER DISCONNECTED] UserId: ${userId}`);
+      console.log(`🔌 [USER DISCONNECTED] Socket ID: ${socket.id}`);
+      console.log(`🔌 [USER DISCONNECTED] Reason: ${reason}`);
+      console.log(`🔌 [USER DISCONNECTED] Connection duration: ${Date.now() - socket.handshake.time}ms`);
       
       // 🤖 AI-to-AI Communication: Set AI offline
       try {
@@ -1471,18 +1484,23 @@ const initializeSocketIO = (server) => {
       }
       
       // Remove user from connected users map
+      console.log(`🗑️ [USER DISCONNECTED] Removing userId from userSockets Map: ${userId}`);
+      const wasInMap = userSockets.has(userId);
       userSockets.delete(userId);
       userContactsMap.delete(userId);
+      console.log(`🗑️ [USER DISCONNECTED] Was in Map: ${wasInMap}, Successfully removed: ${!userSockets.has(userId)}`);
       
       // Update connection statistics
       connectionStats.activeConnections = Math.max(0, connectionStats.activeConnections - 1);
       connectionStats.totalDisconnections++;
       
-      console.log(`📊 Updated connection stats:`, {
+      console.log(`📊 [USER DISCONNECTED] Updated connection stats:`, {
         activeConnections: connectionStats.activeConnections,
         totalDisconnections: connectionStats.totalDisconnections
       });
-      console.log('🗂️ Remaining connected users:', Array.from(userSockets.keys()));
+      console.log(`🗂️ [USER DISCONNECTED] Remaining connected userIds:`, Array.from(userSockets.keys()));
+      console.log(`🗂️ [USER DISCONNECTED] userSockets Map size: ${userSockets.size}`);
+      console.log(`${'='.repeat(80)}\n`);
       
       socketLogger.info(`User disconnected: ${userName} (${userId})`, {
         reason,
