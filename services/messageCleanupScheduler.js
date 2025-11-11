@@ -86,16 +86,20 @@ const messageCleanupScheduler = {
             timestamp: new Date().toISOString()
           };
           
-          // Emit to sender
+          console.log(`📡 [MESSAGE CLEANUP] Notifying users about expired message:`);
+          console.log(`   - Sender: ${message.senderId}`);
+          console.log(`   - Receiver: ${message.receiverId}`);
+          console.log(`   - Message ID: ${message._id}`);
+          
+          // Emit to ALL connected sockets (broadcast)
           io.emit(`message-expired:${message.senderId}`, notificationData);
-          
-          // Emit to receiver
           io.emit(`message-expired:${message.receiverId}`, notificationData);
-          
-          // Also emit general event for any connected clients
           io.emit('message:expired', notificationData);
           
-          console.log(`📡 [MESSAGE CLEANUP] Notified users about expired message`);
+          console.log(`✅ [MESSAGE CLEANUP] Broadcast events emitted:`)
+          console.log(`   - message-expired:${message.senderId}`);
+          console.log(`   - message-expired:${message.receiverId}`);
+          console.log(`   - message:expired`);
           
         } catch (deleteError) {
           console.error(`❌ [MESSAGE CLEANUP] Error deleting message ${message._id}:`, deleteError);
