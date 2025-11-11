@@ -1221,7 +1221,18 @@ const initializeSocketIO = (server) => {
           locationSharingScope,
           privacySettings,
           userGroups,
-          connectionTypes
+          connectionTypes,
+          // ✅ FIX: Extract hierarchical status fields
+          mainStatus,
+          mainDuration,
+          mainDurationLabel,
+          mainStartTime,
+          mainEndTime,
+          subStatus,
+          subDuration,
+          subDurationLabel,
+          subStartTime,
+          subEndTime
         } = statusUpdateData;
         
         // Get the user from database
@@ -1244,12 +1255,45 @@ const initializeSocketIO = (server) => {
           return;
         }
         
+        // ✅ FIX: Save hierarchical status to database
+        user.status = status;
+        user.customStatus = customStatus || '';
+        user.statusUntil = statusUntil;
+        user.mainStatus = mainStatus || status;
+        user.mainDuration = mainDuration || 0;
+        user.mainDurationLabel = mainDurationLabel || '';
+        user.mainStartTime = mainStartTime || null;
+        user.mainEndTime = mainEndTime || null;
+        user.subStatus = subStatus || null;
+        user.subDuration = subDuration || 0;
+        user.subDurationLabel = subDurationLabel || '';
+        user.subStartTime = subStartTime || null;
+        user.subEndTime = subEndTime || null;
+        
+        if (location) {
+          user.statusLocation = location;
+        }
+        
+        await user.save();
+        console.log(`✅ [STATUS] Saved hierarchical status to database for ${userName}`);
+        
         // Prepare the status data for broadcasting
         const broadcastStatusData = {
           status: status,
           customStatus: customStatus || '',
           statusUntil: statusUntil,
-          statusLocation: location
+          statusLocation: location,
+          // ✅ FIX: Include hierarchical status in broadcast
+          mainStatus: mainStatus || status,
+          mainDuration: mainDuration,
+          mainDurationLabel: mainDurationLabel,
+          mainStartTime: mainStartTime,
+          mainEndTime: mainEndTime,
+          subStatus: subStatus,
+          subDuration: subDuration,
+          subDurationLabel: subDurationLabel,
+          subStartTime: subStartTime,
+          subEndTime: subEndTime
         };
         
         // NO LOCATION RESTRICTIONS - If location exists, broadcast to EVERYONE
@@ -1564,15 +1608,30 @@ const broadcastStatusUpdate = async (user, statusData) => {
         ]
       }, '_id name phoneNumber contacts appConnections');
       
-      // ALSO check Friends collection (NEW SYSTEM)
+      // ALSO check Friends collection (NEW SYSTEM) - BIDIRECTIONAL
       // Friend is already imported at the top of the file
-      const friendUsers = await Friend.find({
+      
+      // Find users who have THIS user as their friend (friendUserId = user.userId)
+      const friendUsers1 = await Friend.find({
         friendUserId: user.userId,
         status: 'accepted',
         isDeleted: false
       }).distinct('userId');
       
-      console.log(`👥 Found ${friendUsers.length} users from Friends collection`);
+      // ALSO find users who THIS user has as friends (userId = user.userId)
+      // Because friendships should be bidirectional
+      const friendUsers2 = await Friend.find({
+        userId: user.userId,
+        status: 'accepted',
+        isDeleted: false
+      }).distinct('friendUserId');
+      
+      // Merge both directions
+      const friendUsers = [...new Set([...friendUsers1, ...friendUsers2])];
+      
+      console.log(`👥 Found ${friendUsers1.length} users who have ${user.name} as friend`);
+      console.log(`👥 Found ${friendUsers2.length} users who ${user.name} has as friends`);
+      console.log(`👥 Total unique friends: ${friendUsers.length}`);
       
       console.log(`🔍 Database query: User.find({ $or: [{ contacts: ${user._id} }, { 'appConnections.userId': '${user.userId}' }] })`);
       console.log(`🔍 Raw database results:`, dbUsers.map(u => ({
