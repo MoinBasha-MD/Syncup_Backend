@@ -139,23 +139,18 @@ const getFeedPosts = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    // Get user's contacts AND app connections for Instagram-style feed filtering
-    const currentUser = await User.findOne({ userId }).select('contacts appConnections');
-    const contactObjectIds = currentUser?.contacts || [];
-    const appConnections = currentUser?.appConnections || [];
+    // Use Friend model to get accepted friends (device contacts + app connections)
+    const Friend = require('../models/Friend');
+    const friends = await Friend.getFriends(userId, {
+      status: 'accepted',
+      includeDeviceContacts: true,
+      includeAppConnections: true
+    });
     
-    // Convert contact ObjectIds to userIds
-    const contactUsers = await User.find({ 
-      _id: { $in: contactObjectIds } 
-    }).select('userId');
-    
-    const contactUserIds = contactUsers.map(user => user.userId);
-    
-    // Extract userIds from app connections
-    const appConnectionUserIds = appConnections.map(conn => conn.userId).filter(Boolean);
-    
-    // Combine both contact types (device contacts + app connections)
-    const allConnectionUserIds = [...new Set([...contactUserIds, ...appConnectionUserIds])];
+    // Extract friend user IDs
+    const friendUserIds = friends
+      .filter(friend => friend && friend.friendUserId)
+      .map(friend => friend.friendUserId);
     
     // Phase 2: Get user's followed pages
     const PageFollower = require('../models/PageFollower');
@@ -175,17 +170,15 @@ const getFeedPosts = async (req, res) => {
     const allPageIds = [...new Set([...followedPageIds.map(id => id.toString()), ...ownedPageIds.map(id => id.toString())])];
     
     console.log(`📱 Getting feed for user ${userId}:`);
-    console.log(`  📞 Device contacts: ${contactUserIds.length}`);
-    console.log(`  🌐 App connections: ${appConnectionUserIds.length}`);
+    console.log(`  👥 Friends (from Friend model): ${friendUserIds.length}`);
     console.log(`  📄 Followed pages: ${followedPageIds.length}`);
     console.log(`  👤 Owned/managed pages: ${ownedPageIds.length}`);
     console.log(`  📄 Total pages in feed: ${allPageIds.length}`);
-    console.log(`  ✅ Total connections: ${allConnectionUserIds.length}`);
 
-    // Pass all connection IDs + all page IDs (followed + owned) to getFeedPosts
-    const posts = await FeedPost.getFeedPosts(userId, page, limit, allConnectionUserIds, allPageIds);
+    // Pass friend IDs + all page IDs (followed + owned) to getFeedPosts
+    const posts = await FeedPost.getFeedPosts(userId, page, limit, friendUserIds, allPageIds);
 
-    console.log(`✅ Returning ${posts.length} FOR YOU posts (own + contacts + app connections)`);
+    console.log(`✅ Returning ${posts.length} FOR YOU posts (own + friends + pages)`);
 
     res.status(200).json({
       success: true,
@@ -973,23 +966,18 @@ const getExplorePosts = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    // Get user's contacts AND app connections to exclude from explore
-    const currentUser = await User.findOne({ userId }).select('contacts appConnections');
-    const contactObjectIds = currentUser?.contacts || [];
-    const appConnections = currentUser?.appConnections || [];
+    // Use Friend model to get accepted friends to exclude from explore
+    const Friend = require('../models/Friend');
+    const friends = await Friend.getFriends(userId, {
+      status: 'accepted',
+      includeDeviceContacts: true,
+      includeAppConnections: true
+    });
     
-    // Convert contact ObjectIds to userIds
-    const contactUsers = await User.find({ 
-      _id: { $in: contactObjectIds } 
-    }).select('userId');
-    
-    const contactUserIds = contactUsers.map(user => user.userId);
-    
-    // Extract userIds from app connections
-    const appConnectionUserIds = appConnections.map(conn => conn.userId).filter(Boolean);
-    
-    // Combine both contact types (device contacts + app connections)
-    const allConnectionUserIds = [...new Set([...contactUserIds, ...appConnectionUserIds])];
+    // Extract friend user IDs to exclude
+    const friendUserIds = friends
+      .filter(friend => friend && friend.friendUserId)
+      .map(friend => friend.friendUserId);
     
     // Get user's followed pages to exclude from explore
     const PageFollower = require('../models/PageFollower');
@@ -1009,11 +997,11 @@ const getExplorePosts = async (req, res) => {
     const allPageIds = [...new Set([...followedPageIds.map(id => id.toString()), ...ownedPageIds.map(id => id.toString())])];
     
     console.log(`🔍 Getting EXPLORE feed for user ${userId}:`);
-    console.log(`  📞 Excluding contacts: ${allConnectionUserIds.length}`);
+    console.log(`  👥 Excluding friends (from Friend model): ${friendUserIds.length}`);
     console.log(`  📄 Excluding followed/owned pages: ${allPageIds.length}`);
 
     // Get explore posts (public posts from non-friends)
-    const posts = await FeedPost.getExplorePosts(userId, page, limit, allConnectionUserIds, allPageIds);
+    const posts = await FeedPost.getExplorePosts(userId, page, limit, friendUserIds, allPageIds);
 
     console.log(`✅ Returning ${posts.length} EXPLORE posts (public from non-friends)`);
 

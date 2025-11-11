@@ -580,29 +580,33 @@ class StoryService {
           .filter(contact => contact && (contact.userId || contact.id))
           .map(contact => contact.userId || contact.id);
         
-        console.log('📋 Using provided contacts array:', contactIds);
+        console.log('📋 Using provided contacts array:', contactIds.length, 'contacts');
         return contactIds;
       }
       
-      // Fallback: try to use contact service if no array provided
+      // Fallback: Use Friend model to get accepted friends
       try {
-        const contactService = require('./contactService');
-        const contacts = await contactService.getContacts(currentUserId);
+        const Friend = require('../models/Friend');
+        const friends = await Friend.getFriends(currentUserId, {
+          status: 'accepted',
+          includeDeviceContacts: true,
+          includeAppConnections: true
+        });
         
-        if (contacts && contacts.length > 0) {
-          const contactIds = contacts
-            .filter(contact => contact && contact.userId)
-            .map(contact => contact.userId);
+        if (friends && friends.length > 0) {
+          const friendIds = friends
+            .filter(friend => friend && friend.friendUserId)
+            .map(friend => friend.friendUserId);
           
-          console.log('📋 Found contacts from service:', contactIds);
-          return contactIds;
+          console.log('📋 Found friends from Friend model:', friendIds.length, 'friends');
+          return friendIds;
         }
-      } catch (contactServiceError) {
-        console.log('⚠️ Contact service not available');
+      } catch (friendModelError) {
+        console.error('❌ Error getting friends from Friend model:', friendModelError);
       }
       
       // No contacts found - return empty array
-      console.log('📋 No contacts found - returning empty array');
+      console.log('📋 No contacts/friends found - returning empty array');
       return [];
     } catch (error) {
       console.error('❌ Error getting user contacts:', error);
