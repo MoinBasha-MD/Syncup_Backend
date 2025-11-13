@@ -645,7 +645,55 @@ const initializeSocketIO = (server) => {
         console.log(`⏳ [TIMER MODE DEACTIVATE] Found other user: ${otherUser.name} (userId: ${otherUser.userId})`);
         console.log(`⏳ [TIMER MODE DEACTIVATE] Checking socket connection for ${otherUser.userId}...`);
         
-        // Notify the other user
+        // ✅ CRITICAL FIX: Delete all timer mode messages between these users
+        console.log(`🗑️ [TIMER MODE DEACTIVATE] Deleting timer mode messages...`);
+        const Message = require('./models/Message');
+        
+        const timerMessages = await Message.find({
+          $or: [
+            { senderId: userId, receiverId: chatId, privacyMode: 'timer' },
+            { senderId: chatId, receiverId: userId, privacyMode: 'timer' }
+          ]
+        }).select('_id senderId receiverId message');
+        
+        const messageIds = timerMessages.map(m => m._id.toString());
+        
+        console.log(`🗑️ [TIMER MODE DEACTIVATE] Found ${messageIds.length} timer messages to delete`);
+        
+        if (messageIds.length > 0) {
+          // Delete from database
+          const deleteResult = await Message.deleteMany({
+            _id: { $in: messageIds }
+          });
+          
+          console.log(`✅ [TIMER MODE DEACTIVATE] Deleted ${deleteResult.deletedCount} timer mode messages from database`);
+          
+          // Notify both users to remove messages from UI
+          const notificationData = {
+            messageIds: messageIds,
+            reason: 'timer_mode_deactivated',
+            timestamp: new Date().toISOString()
+          };
+          
+          console.log(`📡 [TIMER MODE DEACTIVATE] Notifying users to remove messages from UI`);
+          
+          // Emit to current user (who deactivated)
+          if (socket && socket.connected) {
+            socket.emit('timer-messages-deleted', notificationData);
+            console.log(`✅ [TIMER MODE DEACTIVATE] Notified current user (${userId})`);
+          }
+          
+          // Emit to other user
+          const otherUserSocket = userSockets.get(otherUser.userId);
+          if (otherUserSocket && otherUserSocket.connected) {
+            otherUserSocket.emit('timer-messages-deleted', notificationData);
+            console.log(`✅ [TIMER MODE DEACTIVATE] Notified other user (${otherUser.userId})`);
+          }
+        } else {
+          console.log(`ℹ️ [TIMER MODE DEACTIVATE] No timer messages found to delete`);
+        }
+        
+        // Notify the other user about deactivation
         const otherUserSocket = userSockets.get(otherUser.userId);
         if (otherUserSocket && otherUserSocket.connected) {
           const payload = {
