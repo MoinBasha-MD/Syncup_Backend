@@ -2,6 +2,17 @@ const User = require('../models/userModel');
 const StatusPrivacy = require('../models/statusPrivacyModel');
 const { getAsync, setAsync } = require('../config/redis');
 
+// ✅ NEW: Function to check if user is online
+function isUserOnline(userId) {
+  try {
+    const socketManager = require('../socketManager');
+    const userSockets = socketManager.getUserSockets();
+    return userSockets && userSockets.has(userId);
+  } catch (error) {
+    return false; // If socketManager not initialized, assume offline
+  }
+}
+
 /**
  * Contact service - handles business logic for contact operations
  */
@@ -54,6 +65,10 @@ class ContactService {
           };
         }
 
+        // ✅ NEW: Check if contact is online
+        const contactIsOnline = isUserOnline(contact.userId);
+        console.log(`🟢 [ONLINE STATUS] Contact ${contact.name} (${contact.userId}) is ${contactIsOnline ? 'ONLINE' : 'OFFLINE'}`);
+        
         filteredContacts.push({
           _id: contact._id,
           userId: contact.userId,
@@ -61,6 +76,8 @@ class ContactService {
           email: contact.email,
           phoneNumber: contact.phoneNumber,
           profileImage: contact.profileImage,
+          isOnline: contactIsOnline, // ✅ NEW: Add online status
+          lastSeen: contact.lastSeen || new Date(), // ✅ NEW: Add last seen
           currentStatus: statusInfo
         });
       }

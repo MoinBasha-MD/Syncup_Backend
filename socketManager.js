@@ -303,8 +303,22 @@ const initializeSocketIO = (server) => {
       console.error('Error caching user contacts:', error);
     }
     
+    // ✅ NEW: Broadcast that this user is now ONLINE to all their contacts
+    try {
+      const user = await User.findById(socket.user.id);
+      if (user) {
+        console.log(`📡 [ONLINE STATUS] Broadcasting that ${userName} is now ONLINE`);
+        broadcastStatusUpdate(user, {
+          isOnline: true,
+          lastSeen: new Date()
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error broadcasting online status:', error);
+    }
+    
     // Handle disconnection with detailed logging
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', async (reason) => {
       connectionStats.activeConnections--;
       connectionStats.totalDisconnections++;
       
@@ -323,6 +337,22 @@ const initializeSocketIO = (server) => {
         duration: Date.now() - socket.handshake.time,
         totalActive: connectionStats.activeConnections
       });
+      
+      // ✅ NEW: Broadcast that this user is now OFFLINE to all their contacts
+      (async () => {
+        try {
+          const user = await User.findById(socket.user.id);
+          if (user) {
+            console.log(`📡 [OFFLINE STATUS] Broadcasting that ${userName} is now OFFLINE`);
+            broadcastStatusUpdate(user, {
+              isOnline: false,
+              lastSeen: new Date()
+            });
+          }
+        } catch (error) {
+          console.error('❌ Error broadcasting offline status:', error);
+        }
+      })();
       
       userSockets.delete(userId);
       userContactsMap.delete(userId);
