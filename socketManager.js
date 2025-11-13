@@ -716,6 +716,116 @@ const initializeSocketIO = (server) => {
       }
     });
     
+    // ⏳ Continuous Timer Mode - Activated
+    socket.on('continuous-timer-activated', async (data) => {
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`🔄 [CONTINUOUS TIMER ACTIVATE] Received request from ${userName} (${userId})`);
+      console.log(`🔄 [CONTINUOUS TIMER ACTIVATE] Request data:`, JSON.stringify(data, null, 2));
+      
+      try {
+        const { chatId, timerDuration } = data;
+        
+        if (!chatId) {
+          console.error(`❌ [CONTINUOUS TIMER ACTIVATE] Missing chatId in request data`);
+          return;
+        }
+        
+        if (!timerDuration) {
+          console.error(`❌ [CONTINUOUS TIMER ACTIVATE] Missing timerDuration in request data`);
+          return;
+        }
+        
+        console.log(`🔄 [CONTINUOUS TIMER ACTIVATE] Timer duration: ${timerDuration}ms (${timerDuration / (1000 * 60 * 60)} hours)`);
+        
+        // Find the other user
+        const otherUser = await User.findOne({ userId: chatId }).select('_id userId name');
+        if (!otherUser) {
+          console.error(`❌ [CONTINUOUS TIMER ACTIVATE] Other user not found in database: ${chatId}`);
+          return;
+        }
+        
+        console.log(`🔄 [CONTINUOUS TIMER ACTIVATE] Found other user: ${otherUser.name} (userId: ${otherUser.userId})`);
+        
+        // Activate continuous timer for both users
+        const ContinuousTimerState = require('./models/ContinuousTimerState');
+        await ContinuousTimerState.activateForChat(userId, chatId, timerDuration);
+        
+        console.log(`✅ [CONTINUOUS TIMER ACTIVATE] Continuous timer activated successfully`);
+        
+        // Notify the other user
+        const otherUserSocket = userSockets.get(otherUser.userId);
+        if (otherUserSocket && otherUserSocket.connected) {
+          const payload = {
+            chatId: userId, // The user who activated continuous timer
+            userId: userId,
+            userName: userName,
+            timerDuration: timerDuration
+          };
+          console.log(`🔄 [CONTINUOUS TIMER ACTIVATE] Emitting to ${otherUser.name} with payload:`, JSON.stringify(payload, null, 2));
+          otherUserSocket.emit('continuous-timer-activated', payload);
+          console.log(`✅ [CONTINUOUS TIMER ACTIVATE] Successfully notified ${otherUser.name}`);
+        } else {
+          console.error(`❌ [CONTINUOUS TIMER ACTIVATE] Other user ${otherUser.name} not connected or socket not found`);
+        }
+        console.log(`${'='.repeat(80)}\n`);
+      } catch (error) {
+        console.error('❌ [CONTINUOUS TIMER ACTIVATE] Error handling continuous-timer-activated:', error);
+        console.error('❌ [CONTINUOUS TIMER ACTIVATE] Error stack:', error.stack);
+        console.log(`${'='.repeat(80)}\n`);
+      }
+    });
+    
+    // ⏳ Continuous Timer Mode - Deactivated
+    socket.on('continuous-timer-deactivated', async (data) => {
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`🔄 [CONTINUOUS TIMER DEACTIVATE] Received request from ${userName} (${userId})`);
+      console.log(`🔄 [CONTINUOUS TIMER DEACTIVATE] Request data:`, JSON.stringify(data, null, 2));
+      
+      try {
+        const { chatId } = data;
+        
+        if (!chatId) {
+          console.error(`❌ [CONTINUOUS TIMER DEACTIVATE] Missing chatId in request data`);
+          return;
+        }
+        
+        // Find the other user
+        const otherUser = await User.findOne({ userId: chatId }).select('_id userId name');
+        if (!otherUser) {
+          console.error(`❌ [CONTINUOUS TIMER DEACTIVATE] Other user not found in database: ${chatId}`);
+          return;
+        }
+        
+        console.log(`🔄 [CONTINUOUS TIMER DEACTIVATE] Found other user: ${otherUser.name} (userId: ${otherUser.userId})`);
+        
+        // Deactivate continuous timer for both users
+        const ContinuousTimerState = require('./models/ContinuousTimerState');
+        await ContinuousTimerState.deactivateForChat(userId, chatId);
+        
+        console.log(`✅ [CONTINUOUS TIMER DEACTIVATE] Continuous timer deactivated successfully`);
+        
+        // Notify the other user
+        const otherUserSocket = userSockets.get(otherUser.userId);
+        if (otherUserSocket && otherUserSocket.connected) {
+          const payload = {
+            chatId: userId, // The user who deactivated continuous timer
+            userId: userId,
+            userName: userName
+          };
+          console.log(`🔄 [CONTINUOUS TIMER DEACTIVATE] Emitting to ${otherUser.name} with payload:`, JSON.stringify(payload, null, 2));
+          otherUserSocket.emit('continuous-timer-deactivated', payload);
+          console.log(`✅ [CONTINUOUS TIMER DEACTIVATE] Successfully notified ${otherUser.name}`);
+        } else {
+          console.error(`❌ [CONTINUOUS TIMER DEACTIVATE] Other user ${otherUser.name} not connected or socket not found`);
+        }
+        console.log(`${'='.repeat(80)}\n`);
+      } catch (error) {
+        console.error('❌ [CONTINUOUS TIMER DEACTIVATE] Error handling continuous-timer-deactivated:', error);
+        console.error('❌ [CONTINUOUS TIMER DEACTIVATE] Error stack:', error.stack);
+        console.log(`${'='.repeat(80)}\n`);
+      }
+    });
+    
     // 💬 CHAT FEATURES: Typing Indicators
     socket.on('typing_start', async (data) => {
       console.log(`✍️ User ${socket.user.name} started typing to ${data.receiverId}`);

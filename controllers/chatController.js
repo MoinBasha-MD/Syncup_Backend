@@ -139,23 +139,44 @@ const sendMessage = async (req, res) => {
       fileMetadata     // ✅ Include file metadata
     };
 
-    // Add privacy mode options if provided
-    if (privacyMode) {
-      console.log('🔒 [BACKEND] Adding privacy mode to message:', privacyMode);
-      messageData.privacyMode = privacyMode;
-    }
+    // ✅ CRITICAL: Check if continuous timer mode is active for this chat
+    const ContinuousTimerState = require('../models/ContinuousTimerState');
+    const continuousTimer = await ContinuousTimerState.findOne({
+      userId: senderId,
+      chatId: receiverId,
+      isActive: true
+    });
 
-    if (timerDuration) {
-      console.log('⏳ [BACKEND] Adding timer duration:', timerDuration, 'ms');
-      messageData.timerDuration = timerDuration;
+    if (continuousTimer) {
+      console.log('🔄 [CONTINUOUS TIMER] Active for this chat');
+      console.log('🔄 [CONTINUOUS TIMER] Duration:', continuousTimer.timerDuration, 'ms');
       
-      // Calculate expiration time if not provided
-      if (!expiresAt) {
-        messageData.expiresAt = new Date(Date.now() + timerDuration);
-      } else {
-        messageData.expiresAt = new Date(expiresAt);
+      // Apply continuous timer to this message
+      messageData.privacyMode = 'timer';
+      messageData.timerDuration = continuousTimer.timerDuration;
+      messageData.expiresAt = new Date(Date.now() + continuousTimer.timerDuration);
+      
+      console.log('✅ [CONTINUOUS TIMER] Applied to message');
+      console.log('⏳ [CONTINUOUS TIMER] Message will expire at:', messageData.expiresAt);
+    } else {
+      // Add privacy mode options if provided (manual timer mode)
+      if (privacyMode) {
+        console.log('🔒 [BACKEND] Adding privacy mode to message:', privacyMode);
+        messageData.privacyMode = privacyMode;
       }
-      console.log('⏳ [BACKEND] Message will expire at:', messageData.expiresAt);
+
+      if (timerDuration) {
+        console.log('⏳ [BACKEND] Adding timer duration:', timerDuration, 'ms');
+        messageData.timerDuration = timerDuration;
+        
+        // Calculate expiration time if not provided
+        if (!expiresAt) {
+          messageData.expiresAt = new Date(Date.now() + timerDuration);
+        } else {
+          messageData.expiresAt = new Date(expiresAt);
+        }
+        console.log('⏳ [BACKEND] Message will expire at:', messageData.expiresAt);
+      }
     }
 
     if (burnViewTime) {
