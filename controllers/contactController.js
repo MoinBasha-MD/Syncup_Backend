@@ -170,6 +170,7 @@ const getContactStatus = asyncHandler(async (req, res) => {
 // @desc    Sync device contacts with registered users
 // @route   POST /api/contacts/sync
 // @access  Private
+// NOTE: This endpoint now uses the new Friend system
 const syncContacts = asyncHandler(async (req, res) => {
   try {
     const { phoneNumbers } = req.body;
@@ -179,188 +180,71 @@ const syncContacts = asyncHandler(async (req, res) => {
       throw new Error('Phone numbers array is required');
     }
 
-    console.log('\n📞 [PHONE SYNC] Received phone numbers for sync:', phoneNumbers);
+    console.log('\n📞 [CONTACT SYNC - LEGACY ENDPOINT] Redirecting to Friend system');
+    console.log('📞 [PHONE SYNC] Received phone numbers for sync:', phoneNumbers);
     console.log(`📞 [PHONE SYNC] Total phone numbers received: ${phoneNumbers.length}`);
     
-    // Normalize phone numbers to ensure consistent format
-    const normalizedPhoneNumbers = phoneNumbers.map(phone => {
-      if (!phone) return null; // Skip empty or null phone numbers
-      
-      // Convert to string if not already
-      let phoneStr = String(phone);
-      
-      // First handle international format with country code
-      if (phoneStr.includes('+')) {
-        // Handle +91 (India) and other country codes
-        phoneStr = phoneStr.replace(/^\+\d{1,3}/, '');
-      }
-      
-      // Remove all non-numeric characters
-      let normalized = phoneStr.replace(/\D/g, '');
-      
-      // For numbers with leading 0, remove it
-      if (normalized.length > 10 && normalized.startsWith('0')) {
-        normalized = normalized.substring(1);
-      }
-      
-      // If we still have more than 10 digits, take the last 10
-      if (normalized.length > 10) {
-        normalized = normalized.slice(-10);
-      }
-      
-      // Ensure we have a valid 10-digit number
-      if (normalized.length !== 10) {
-        console.log(`Warning: Phone number ${phoneStr} normalized to ${normalized} is not 10 digits`);
-      }
-      
-      console.log(`📞 [NORMALIZE] ${phoneStr} → ${normalized}`);
-      return normalized;
-    }).filter(phone => phone); // Remove any null/empty values
+    // Use the new Friend service for contact sync
+    const friendService = require('../services/friendService');
+    const Friend = require('../models/Friend');
     
-    console.log('\n📞 [PHONE SYNC] Normalized phone numbers:', normalizedPhoneNumbers);
-    console.log(`📞 [PHONE SYNC] Searching for ${normalizedPhoneNumbers.length} phone numbers in database...`);
+    // Get userId from req.user
+    const userId = req.user.userId;
     
-    // Find users with matching phone numbers
-    const registeredUsers = await User.find(
-      { phoneNumber: { $in: normalizedPhoneNumbers } },
-      '_id name phoneNumber email profileImage currentStatus'
-    );
+    if (!userId) {
+      res.status(400);
+      throw new Error('User ID is required');
+    }
     
-    console.log(`\n✅ [PHONE SYNC] Found ${registeredUsers.length} registered users:`);
+    // Call the new friend service sync method
+    const syncResult = await friendService.syncDeviceContacts(userId, phoneNumbers);
     
-    // Log each found user for debugging
-    if (registeredUsers.length > 0) {
-      registeredUsers.forEach(user => {
-        console.log(`   ✅ Matched: ${user.name}, Phone: ${user.phoneNumber}, ID: ${user._id}`);
-      });
-    } else {
-      console.log('\n❌ [PHONE SYNC] No matching users found in database!');
-      console.log('📊 [PHONE SYNC] Checking database phone number format...');
-      
-      // Check a sample of users in the database to verify phone number format
-      const sampleUsers = await User.find({}, 'name phoneNumber').limit(10);
-      console.log('\n📊 [DEBUG] Sample users in database:');
-      sampleUsers.forEach(u => {
-        console.log(`   - ${u.name}: ${u.phoneNumber} (${u.phoneNumber?.length} digits)`);
-      });
-      
-      // Check if any normalized numbers are close matches (debugging)
-      const allUsers = await User.find({}, 'name phoneNumber');
-      const allPhones = allUsers.map(u => ({ name: u.name, phone: u.phoneNumber }));
-      console.log(`\n📊 [DEBUG] Database has ${allUsers.length} total users`);
-      
-      // Look for exact and partial matches
-      console.log('\n🔍 [DEBUG] Checking for matches:');
-      normalizedPhoneNumbers.forEach(normalizedPhone => {
-        console.log(`\n   Searching for: ${normalizedPhone}`);
-        
-        // Check exact match
-        const exactMatch = allPhones.find(u => u.phone === normalizedPhone);
-        if (exactMatch) {
-          console.log(`   ✅ EXACT MATCH: ${exactMatch.name} (${exactMatch.phone})`);
-        } else {
-          console.log(`   ❌ No exact match found`);
-          
-          // Check partial matches (last 8 digits)
-          const partialMatches = allPhones.filter(u => {
-            if (!u.phone || u.phone.length < 8) return false;
-            return normalizedPhone.slice(-8) === u.phone.slice(-8);
-          });
-          
-          if (partialMatches.length > 0) {
-            console.log(`   ⚠️  Partial matches (last 8 digits):`);
-            partialMatches.forEach(m => {
-              console.log(`      - ${m.name}: ${m.phone}`);
-            });
-          }
-        }
-      });
-    }
-
-    // Get current user
-    const user = await User.findById(req.user.id);
-
-    if (!user) {
-      res.status(404);
-      throw new Error('User not found');
-    }
-
-    // Add registered users to contacts if not already added
-    let newContactsAdded = 0;
-    for (const registeredUser of registeredUsers) {
-      // Don't add self as contact
-      if (registeredUser._id.toString() === user._id.toString()) {
-        console.log('Skipping self as contact');
-        continue;
-      }
-
-      // Check if already a contact - convert both to strings for proper comparison
-      const userIdStr = registeredUser._id.toString();
-      const isAlreadyContact = user.contacts.some(contactId => 
-        contactId.toString() === userIdStr
-      );
-      
-      if (!isAlreadyContact) {
-        console.log(`Adding ${registeredUser.name} (${registeredUser.phoneNumber}) to contacts`);
-        user.contacts.push(registeredUser._id);
-        newContactsAdded++;
-      } else {
-        console.log(`${registeredUser.name} is already a contact`);
-      }
-    }
-
-    // Save user with updated contacts
-    if (newContactsAdded > 0) {
-      await user.save();
-    }
-
-    // Return both the success message and the updated contacts list
-    const updatedContacts = await User.find(
-      { _id: { $in: user.contacts } },
-      '_id userId name phoneNumber email profileImage currentStatus isPublic'
-    );
-  
-    console.log(`\n📊 [SYNC RESULT] Contact sync completed:`);
-    console.log(`   Total contacts in database: ${user.contacts.length}`);
-    console.log(`   Registered users found: ${registeredUsers.length}`);
-    console.log(`   Contacts being returned: ${updatedContacts.length}`);
+    // Get all friends (device contacts) to return in the old format
+    const friends = await Friend.getFriends(userId, {
+      status: 'accepted',
+      includeDeviceContacts: true,
+      includeAppConnections: true
+    });
     
-    // Check for missing contacts
-    if (user.contacts.length > updatedContacts.length) {
-      console.log(`\n⚠️ [MISSING CONTACTS] ${user.contacts.length - updatedContacts.length} contact(s) in database but not returned!`);
-      const returnedIds = updatedContacts.map(c => c._id.toString());
-      const missingIds = user.contacts.filter(id => !returnedIds.includes(id.toString()));
-      console.log(`   Missing contact IDs: ${missingIds.join(', ')}`);
-      
-      // Try to find these missing contacts
-      for (const missingId of missingIds) {
-        const missingContact = await User.findById(missingId);
-        if (missingContact) {
-          console.log(`   ❌ Missing contact found in DB: ${missingContact.name} (${missingContact.phoneNumber})`);
-          console.log(`      userId: ${missingContact.userId}`);
-          console.log(`      isPublic: ${missingContact.isPublic}`);
-        } else {
-          console.log(`   ❌ Missing contact ID ${missingId} - USER DELETED FROM DATABASE`);
-        }
-      }
-    }
+    // Format friends to match old contacts response
+    const formattedContacts = friends.map(friend => ({
+      _id: friend.friendUserId,
+      userId: friend.friendUserId,
+      name: friend.cachedData.name,
+      phoneNumber: friend.phoneNumber || '',
+      email: '',
+      profileImage: friend.cachedData.profileImage || '',
+      currentStatus: friend.cachedData.isOnline ? 'online' : 'offline',
+      isPublic: true
+    }));
+    
+    console.log(`\n📊 [SYNC RESULT] Contact sync completed using Friend system:`);
+    console.log(`   New friends added: ${syncResult.newFriends.length}`);
+    console.log(`   Total friends: ${syncResult.totalFriends}`);
+    console.log(`   Contacts being returned: ${formattedContacts.length}`);
     
     console.log(`\n📋 [CONTACTS RETURNED]:`);
-    updatedContacts.forEach(c => {
-      console.log(`   ✅ ${c.name} (${c.phoneNumber}) - userId: ${c.userId}, isPublic: ${c.isPublic}`);
+    formattedContacts.forEach(c => {
+      console.log(`   ✅ ${c.name} (${c.phoneNumber}) - userId: ${c.userId}`);
     });
   
     res.status(200).json({
       success: true,
-      message: `${newContactsAdded} new contacts added`,
-      registeredUsers,
-      contacts: updatedContacts,
+      message: `${syncResult.newFriends.length} new contacts added`,
+      registeredUsers: syncResult.newFriends.map(f => ({
+        _id: f.friendUserId,
+        name: f.name,
+        phoneNumber: f.phoneNumber,
+        profileImage: f.profileImage,
+        currentStatus: 'offline'
+      })),
+      contacts: formattedContacts,
       debug: {
         originalPhoneNumbers: phoneNumbers,
-        normalizedPhoneNumbers: normalizedPhoneNumbers,
-        totalRegisteredUsers: registeredUsers.length,
-        totalContacts: updatedContacts.length,
-        userContactsIds: user.contacts.map(id => id.toString())
+        totalRegisteredUsers: syncResult.newFriends.length,
+        totalContacts: formattedContacts.length,
+        totalFriends: syncResult.totalFriends,
+        usingFriendSystem: true
       }
     });
   } catch (error) {
