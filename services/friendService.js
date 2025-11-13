@@ -17,10 +17,16 @@ class FriendService {
   async getFriends(userId, options = {}) {
     try {
       console.log(`👥 [FRIEND SERVICE] Getting friends for user: ${userId}`);
+      console.log(`👥 [FRIEND SERVICE] Options:`, JSON.stringify(options, null, 2));
       
       const friends = await Friend.getFriends(userId, options);
       
       console.log(`✅ [FRIEND SERVICE] Found ${friends.length} friends`);
+      
+      // Log each friend for debugging
+      friends.forEach((friend, index) => {
+        console.log(`  Friend ${index + 1}: friendUserId=${friend.friendUserId}, name=${friend.cachedData?.name || 'NO NAME'}, status=${friend.status}, source=${friend.source}, isDeviceContact=${friend.isDeviceContact}`);
+      });
       
       // Return formatted friend list with cached data
       return friends.map(friend => ({
@@ -216,8 +222,26 @@ class FriendService {
         throw new Error('Friend request is not pending');
       }
       
+      // Get accepter's data to update cache in original request
+      const accepter = await User.findOne({ userId: friendRequest.friendUserId })
+        .select('name profileImage username');
+      
+      if (!accepter) {
+        throw new Error('Accepter user not found');
+      }
+      
+      // Update cached data in the original request with fresh accepter info
+      friendRequest.cachedData = {
+        name: accepter.name,
+        profileImage: accepter.profileImage || '',
+        username: accepter.username || '',
+        lastCacheUpdate: new Date()
+      };
+      
       // Accept the request
       await friendRequest.accept();
+      
+      console.log(`✅ [FRIEND SERVICE] Original request updated: userId=${friendRequest.userId}, friendUserId=${friendRequest.friendUserId}, status=${friendRequest.status}`);
       
       // Create reciprocal friendship (both users are now friends)
       const reciprocalFriendship = await Friend.findOne({
@@ -230,6 +254,10 @@ class FriendService {
         // Get requester data for cache
         const requester = await User.findOne({ userId: friendRequest.userId })
           .select('name profileImage username');
+        
+        if (!requester) {
+          throw new Error('Requester user not found');
+        }
         
         const newReciprocal = new Friend({
           userId: friendRequest.friendUserId,
@@ -247,10 +275,12 @@ class FriendService {
         });
         
         await newReciprocal.save();
+        console.log(`✅ [FRIEND SERVICE] Created reciprocal friendship for user: ${friendRequest.friendUserId}`);
       } else {
         reciprocalFriendship.status = 'accepted';
         reciprocalFriendship.acceptedAt = new Date();
         await reciprocalFriendship.save();
+        console.log(`✅ [FRIEND SERVICE] Updated existing reciprocal friendship`);
       }
       
       console.log(`✅ [FRIEND SERVICE] Friend request accepted successfully`);
