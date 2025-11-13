@@ -1,7 +1,7 @@
 const Message = require('../models/Message');
 const User = require('../models/userModel');
 const Block = require('../models/blockModel');
-const ContinuousTimerState = require('../models/ContinuousTimerState');
+// const ContinuousTimerState = require('../models/ContinuousTimerState'); // ⚠️ DISABLED: File not on server
 const { broadcastToUser } = require('../socketManager');
 const enhancedNotificationService = require('../services/enhancedNotificationService');
 
@@ -140,43 +140,30 @@ const sendMessage = async (req, res) => {
       fileMetadata     // ✅ Include file metadata
     };
 
-    // ✅ CRITICAL: Check if continuous timer mode is active for this chat
-    const continuousTimer = await ContinuousTimerState.findOne({
-      userId: senderId,
-      chatId: receiverId,
-      isActive: true
-    });
+    // ⚠️ DISABLED: Continuous timer check (model file not on server)
+    // const continuousTimer = await ContinuousTimerState.findOne({
+    //   userId: senderId,
+    //   chatId: receiverId,
+    //   isActive: true
+    // });
 
-    if (continuousTimer) {
-      console.log('🔄 [CONTINUOUS TIMER] Active for this chat');
-      console.log('🔄 [CONTINUOUS TIMER] Duration:', continuousTimer.timerDuration, 'ms');
-      
-      // Apply continuous timer to this message
-      messageData.privacyMode = 'timer';
-      messageData.timerDuration = continuousTimer.timerDuration;
-      messageData.expiresAt = new Date(Date.now() + continuousTimer.timerDuration);
-      
-      console.log('✅ [CONTINUOUS TIMER] Applied to message');
-      console.log('⏳ [CONTINUOUS TIMER] Message will expire at:', messageData.expiresAt);
-    } else {
-      // Add privacy mode options if provided (manual timer mode)
-      if (privacyMode) {
-        console.log('🔒 [BACKEND] Adding privacy mode to message:', privacyMode);
-        messageData.privacyMode = privacyMode;
-      }
+    // Add privacy mode options if provided (manual timer mode)
+    if (privacyMode) {
+      console.log('🔒 [BACKEND] Adding privacy mode to message:', privacyMode);
+      messageData.privacyMode = privacyMode;
+    }
 
-      if (timerDuration) {
-        console.log('⏳ [BACKEND] Adding timer duration:', timerDuration, 'ms');
-        messageData.timerDuration = timerDuration;
-        
-        // Calculate expiration time if not provided
-        if (!expiresAt) {
-          messageData.expiresAt = new Date(Date.now() + timerDuration);
-        } else {
-          messageData.expiresAt = new Date(expiresAt);
-        }
-        console.log('⏳ [BACKEND] Message will expire at:', messageData.expiresAt);
+    if (timerDuration) {
+      console.log('⏳ [BACKEND] Adding timer duration:', timerDuration, 'ms');
+      messageData.timerDuration = timerDuration;
+      
+      // Calculate expiration time if not provided
+      if (!expiresAt) {
+        messageData.expiresAt = new Date(Date.now() + timerDuration);
+      } else {
+        messageData.expiresAt = new Date(expiresAt);
       }
+      console.log('⏳ [BACKEND] Message will expire at:', messageData.expiresAt);
     }
 
     if (burnViewTime) {
