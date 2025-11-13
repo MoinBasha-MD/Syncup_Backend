@@ -1,6 +1,7 @@
 const Message = require('../models/Message');
 const User = require('../models/userModel');
 const Block = require('../models/blockModel');
+const ContinuousTimerState = require('../models/ContinuousTimerState');
 const { broadcastToUser } = require('../socketManager');
 const enhancedNotificationService = require('../services/enhancedNotificationService');
 
@@ -140,7 +141,6 @@ const sendMessage = async (req, res) => {
     };
 
     // ✅ CRITICAL: Check if continuous timer mode is active for this chat
-    const ContinuousTimerState = require('../models/ContinuousTimerState');
     const continuousTimer = await ContinuousTimerState.findOne({
       userId: senderId,
       chatId: receiverId,
