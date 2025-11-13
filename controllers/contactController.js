@@ -206,17 +206,29 @@ const syncContacts = asyncHandler(async (req, res) => {
       includeAppConnections: true
     });
     
+    console.log(`\n📊 [FRIEND QUERY] Retrieved ${friends.length} friends from Friend.getFriends()`);
+    
+    // Log first friend for debugging
+    if (friends.length > 0) {
+      console.log('📊 [FIRST FRIEND]:', JSON.stringify(friends[0], null, 2));
+    }
+    
     // Format friends to match old contacts response
-    const formattedContacts = friends.map(friend => ({
-      _id: friend.friendUserId,
-      userId: friend.friendUserId,
-      name: friend.cachedData.name,
-      phoneNumber: friend.phoneNumber || '',
-      email: '',
-      profileImage: friend.cachedData.profileImage || '',
-      currentStatus: friend.cachedData.isOnline ? 'online' : 'offline',
-      isPublic: true
-    }));
+    const formattedContacts = friends.map(friend => {
+      // Handle missing cachedData gracefully
+      const cachedData = friend.cachedData || {};
+      
+      return {
+        _id: friend.friendUserId,
+        userId: friend.friendUserId,
+        name: cachedData.name || 'Unknown',
+        phoneNumber: friend.phoneNumber || '',
+        email: '',
+        profileImage: cachedData.profileImage || '',
+        currentStatus: cachedData.isOnline ? 'online' : 'offline',
+        isPublic: true
+      };
+    });
     
     console.log(`\n📊 [SYNC RESULT] Contact sync completed using Friend system:`);
     console.log(`   New friends added: ${syncResult.newFriends.length}`);
