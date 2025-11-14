@@ -87,8 +87,10 @@ class EnhancedNotificationService {
           messageId: message._id,
           chatId: senderId,
           senderName: sender.name,
+          senderProfileImage: sender.profileImage, // Add profile image
           timestamp: new Date().toISOString()
         },
+        senderProfileImage: sender.profileImage, // Add at root level too
         timestamp: new Date().toISOString()
       });
 

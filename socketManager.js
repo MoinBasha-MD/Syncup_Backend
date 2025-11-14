@@ -303,43 +303,8 @@ const initializeSocketIO = (server) => {
       console.error('Error caching user contacts:', error);
     }
     
-    // ✅ NEW: Broadcast that this user is now ONLINE to all their contacts
-    console.log('🔍 [ONLINE STATUS] ===== ATTEMPTING TO BROADCAST ONLINE STATUS =====');
-    console.log('🔍 [ONLINE STATUS] userName:', userName);
-    console.log('🔍 [ONLINE STATUS] userId:', userId);
-    console.log('🔍 [ONLINE STATUS] socket.user.id:', socket.user.id);
-    
-    try {
-      console.log('🔍 [ONLINE STATUS] Fetching user from database...');
-      const user = await User.findById(socket.user.id);
-      console.log('🔍 [ONLINE STATUS] User found:', !!user);
-      
-      if (user) {
-        console.log(`📡 [ONLINE STATUS] Broadcasting that ${userName} is now ONLINE`);
-        console.log('📡 [ONLINE STATUS] User details:', {
-          id: user._id,
-          name: user.name,
-          userId: user.userId
-        });
-        
-        await broadcastStatusUpdate(user, {
-          isOnline: true,
-          lastSeen: new Date()
-        });
-        
-        console.log('✅ [ONLINE STATUS] Broadcast completed successfully');
-      } else {
-        console.error('❌ [ONLINE STATUS] User not found in database!');
-      }
-    } catch (error) {
-      console.error('❌ [ONLINE STATUS] Error broadcasting online status:', error);
-      console.error('❌ [ONLINE STATUS] Error stack:', error.stack);
-    }
-    
-    console.log('🔍 [ONLINE STATUS] ===== ONLINE STATUS BROADCAST ATTEMPT COMPLETE =====');
-    
     // Handle disconnection with detailed logging
-    socket.on('disconnect', async (reason) => {
+    socket.on('disconnect', (reason) => {
       connectionStats.activeConnections--;
       connectionStats.totalDisconnections++;
       
@@ -358,22 +323,6 @@ const initializeSocketIO = (server) => {
         duration: Date.now() - socket.handshake.time,
         totalActive: connectionStats.activeConnections
       });
-      
-      // ✅ NEW: Broadcast that this user is now OFFLINE to all their contacts
-      (async () => {
-        try {
-          const user = await User.findById(socket.user.id);
-          if (user) {
-            console.log(`📡 [OFFLINE STATUS] Broadcasting that ${userName} is now OFFLINE`);
-            broadcastStatusUpdate(user, {
-              isOnline: false,
-              lastSeen: new Date()
-            });
-          }
-        } catch (error) {
-          console.error('❌ Error broadcasting offline status:', error);
-        }
-      })();
       
       userSockets.delete(userId);
       userContactsMap.delete(userId);
