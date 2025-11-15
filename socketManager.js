@@ -417,15 +417,23 @@ const initializeSocketIO = (server) => {
     // ✅ WhatsApp-style Heartbeat Mechanism
     // Client pings every 30 seconds to indicate they're active
     socket.on('user:heartbeat', async () => {
+      console.log(`💓 [HEARTBEAT] *** RECEIVED *** from ${userName} (${userId})`);
       try {
         // Update lastSeen timestamp
-        await User.findByIdAndUpdate(userObjectId, {
+        const result = await User.findByIdAndUpdate(userObjectId, {
           lastSeen: new Date(),
           isOnline: true
         });
         
+        if (result) {
+          console.log(`✅ [HEARTBEAT] Database updated for ${userName}`);
+        } else {
+          console.error(`❌ [HEARTBEAT] User not found in database: ${userObjectId}`);
+        }
+        
         // Acknowledge heartbeat
         socket.emit('heartbeat:ack', { timestamp: new Date() });
+        console.log(`✅ [HEARTBEAT] ACK sent to ${userName}`);
         
         // Optional: Log every 10th heartbeat to avoid spam
         if (!socket.heartbeatCount) socket.heartbeatCount = 0;
@@ -435,6 +443,8 @@ const initializeSocketIO = (server) => {
         }
       } catch (error) {
         console.error('❌ [HEARTBEAT] Error updating lastSeen:', error);
+        console.error('❌ [HEARTBEAT] Error details:', error.message);
+        console.error('❌ [HEARTBEAT] Stack:', error.stack);
       }
     });
     
