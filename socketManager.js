@@ -414,6 +414,30 @@ const initializeSocketIO = (server) => {
       });
     });
     
+    // ✅ WhatsApp-style Heartbeat Mechanism
+    // Client pings every 30 seconds to indicate they're active
+    socket.on('user:heartbeat', async () => {
+      try {
+        // Update lastSeen timestamp
+        await User.findByIdAndUpdate(userObjectId, {
+          lastSeen: new Date(),
+          isOnline: true
+        });
+        
+        // Acknowledge heartbeat
+        socket.emit('heartbeat:ack', { timestamp: new Date() });
+        
+        // Optional: Log every 10th heartbeat to avoid spam
+        if (!socket.heartbeatCount) socket.heartbeatCount = 0;
+        socket.heartbeatCount++;
+        if (socket.heartbeatCount % 10 === 0) {
+          console.log(`💓 [HEARTBEAT] User ${userName} active (${socket.heartbeatCount} heartbeats)`);
+        }
+      } catch (error) {
+        console.error('❌ [HEARTBEAT] Error updating lastSeen:', error);
+      }
+    });
+    
     // Handle user registration event from frontend
     socket.on('user:register', async (data) => {
       try {
@@ -2061,6 +2085,9 @@ const broadcastStatusUpdate = async (user, statusData) => {
             status: statusData.status,
             customStatus: statusData.customStatus,
             statusUntil: statusData.statusUntil,
+            // ✅ CRITICAL: Always include online status in broadcasts
+            isOnline: user.isOnline || false,
+            lastSeen: user.lastSeen || new Date(),
             // Hierarchical status support for Bug #11
             mainStatus: statusData.mainStatus || statusData.status,
             mainDuration: statusData.mainDuration,
