@@ -240,6 +240,18 @@ const initializeSocketIO = (server) => {
       totalActive: connectionStats.activeConnections
     });
     
+    // ✅ Set user as online in database
+    try {
+      await User.findByIdAndUpdate(userObjectId, {
+        isOnline: true,
+        lastSeen: new Date(),
+        socketId: socket.id
+      });
+      console.log(`✅ [ONLINE STATUS] User ${userName} set to ONLINE`);
+    } catch (error) {
+      console.error('❌ [ONLINE STATUS] Error setting user online:', error);
+    }
+    
     // 🤖 AI-to-AI Communication: Set AI online
     try {
       await AIMessageService.setAIOnline(userId, socket.id);
@@ -281,11 +293,31 @@ const initializeSocketIO = (server) => {
         userContactsMap.set(userId, new Set()); // Set empty set to avoid undefined
       }
       
+      // ✅ Broadcast online status to user's contacts
+      if (user && user.contacts && user.contacts.length > 0) {
+        console.log(`📢 [ONLINE STATUS] Broadcasting ONLINE status to ${user.contacts.length} contacts`);
+        
+        for (const contactId of user.contacts) {
+          const contactUserId = await User.findById(contactId).select('userId');
+          if (contactUserId && contactUserId.userId) {
+            const contactSocket = userSockets.get(contactUserId.userId);
+            if (contactSocket && contactSocket.connected) {
+              contactSocket.emit('contact_online_status', {
+                userId: userId,
+                isOnline: true,
+                lastSeen: new Date()
+              });
+              console.log(`✅ [ONLINE STATUS] Notified contact ${contactUserId.userId} that ${userName} is ONLINE`);
+            }
+          }
+        }
+      }
+      
       // Send initial status of all contacts to the user
       if (user && user.contacts && user.contacts.length > 0) {
         const contacts = await User.find(
           { _id: { $in: user.contacts } },
-          'userId name status customStatus statusUntil'
+          'userId name status customStatus statusUntil isOnline lastSeen'
         );
         
         if (contacts.length > 0) {
@@ -295,7 +327,9 @@ const initializeSocketIO = (server) => {
             name: contact.name,
             status: contact.status,
             customStatus: contact.customStatus,
-            statusUntil: contact.statusUntil
+            statusUntil: contact.statusUntil,
+            isOnline: contact.isOnline,
+            lastSeen: contact.lastSeen
           })));
         }
       }
@@ -304,9 +338,42 @@ const initializeSocketIO = (server) => {
     }
     
     // Handle disconnection with detailed logging
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', async (reason) => {
       connectionStats.activeConnections--;
       connectionStats.totalDisconnections++;
+      
+      // ✅ Set user as offline in database
+      try {
+        await User.findByIdAndUpdate(userObjectId, {
+          isOnline: false,
+          lastSeen: new Date(),
+          socketId: null
+        });
+        console.log(`✅ [ONLINE STATUS] User ${userName} set to OFFLINE`);
+        
+        // ✅ Broadcast offline status to user's contacts
+        const user = await User.findById(userObjectId).select('contacts');
+        if (user && user.contacts && user.contacts.length > 0) {
+          console.log(`📢 [ONLINE STATUS] Broadcasting OFFLINE status to ${user.contacts.length} contacts`);
+          
+          for (const contactId of user.contacts) {
+            const contactUserId = await User.findById(contactId).select('userId');
+            if (contactUserId && contactUserId.userId) {
+              const contactSocket = userSockets.get(contactUserId.userId);
+              if (contactSocket && contactSocket.connected) {
+                contactSocket.emit('contact_online_status', {
+                  userId: userId,
+                  isOnline: false,
+                  lastSeen: new Date()
+                });
+                console.log(`✅ [ONLINE STATUS] Notified contact ${contactUserId.userId} that ${userName} is OFFLINE`);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ [ONLINE STATUS] Error setting user offline:', error);
+      }
       
       // 🤖 AI-to-AI Communication: Set AI offline
       try {

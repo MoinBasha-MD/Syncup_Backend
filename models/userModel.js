@@ -151,6 +151,20 @@ const userSchema = mongoose.Schema(
       type: String,
       default: ''
     },
+    // Online/Offline Status Tracking
+    isOnline: {
+      type: Boolean,
+      default: false,
+      index: true  // Index for efficient queries
+    },
+    lastSeen: {
+      type: Date,
+      default: null
+    },
+    socketId: {
+      type: String,
+      default: null
+    },
     dateOfBirth: {
       type: Date,
       default: null
