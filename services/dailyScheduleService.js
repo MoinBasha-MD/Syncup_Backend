@@ -86,23 +86,36 @@ class DailyScheduleService {
       const current = slots[i];
       const next = slots[i + 1];
       
-      // Check if current slot overlaps with next
-      if (current.endMinutes > next.startMinutes) {
-        errors.push(
-          `Time slot ${i + 1} (${current.activity}) overlaps with slot ${i + 2} (${next.activity}). ` +
-          `Slot ${i + 1} ends at ${this.minutesToTime(current.endMinutes).time} ${this.minutesToTime(current.endMinutes).period}, ` +
-          `but slot ${i + 2} starts at ${next.startTime} ${next.startPeriod}`
-        );
+      // Normalize current end time for comparison
+      let currentEnd = current.endMinutes;
+      
+      // If current slot crosses midnight, normalize it
+      if (currentEnd > 24 * 60) {
+        currentEnd = currentEnd % (24 * 60);
       }
       
-      // Check for gaps
-      if (current.endMinutes < next.startMinutes) {
-        const gapMinutes = next.startMinutes - current.endMinutes;
-        const gapHours = Math.floor(gapMinutes / 60);
-        const gapMins = gapMinutes % 60;
-        warnings.push(
-          `Gap of ${gapHours}h ${gapMins}m between slot ${i + 1} and ${i + 2}`
-        );
+      // Check if current slot overlaps with next
+      // Only check overlap if both are in the same day cycle
+      if (current.endMinutes <= 24 * 60 && next.startMinutes < 24 * 60) {
+        if (currentEnd > next.startMinutes) {
+          errors.push(
+            `Time slot ${i + 1} (${current.activity}) overlaps with slot ${i + 2} (${next.activity}). ` +
+            `Slot ${i + 1} ends at ${this.minutesToTime(current.endMinutes).time} ${this.minutesToTime(current.endMinutes).period}, ` +
+            `but slot ${i + 2} starts at ${next.startTime} ${next.startPeriod}`
+          );
+        }
+      }
+      
+      // Check for gaps (only for same-day slots)
+      if (current.endMinutes <= 24 * 60 && next.startMinutes < 24 * 60) {
+        if (currentEnd < next.startMinutes) {
+          const gapMinutes = next.startMinutes - currentEnd;
+          const gapHours = Math.floor(gapMinutes / 60);
+          const gapMins = gapMinutes % 60;
+          warnings.push(
+            `Gap of ${gapHours}h ${gapMins}m between slot ${i + 1} and ${i + 2}`
+          );
+        }
       }
     }
     
