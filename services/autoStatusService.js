@@ -45,6 +45,18 @@ class AutoStatusService {
         console.log(`   🔍 Checking schedule: "${schedule.status}"`);
         console.log(`      Days: ${daysOfWeek.join(', ')}`);
         
+        // Check if schedule has "start from tomorrow" flag
+        if (schedule.metadata?.startFromTomorrow) {
+          const createdDate = new Date(schedule.createdAt);
+          const createdDay = createdDate.toDateString();
+          const todayDay = now.toDateString();
+          
+          if (createdDay === todayDay) {
+            console.log(`      ⏸️ Schedule set to start from tomorrow - skipping today`);
+            continue;
+          }
+        }
+        
         // Check if today is in the schedule
         if (!daysOfWeek.includes(currentDay)) {
           console.log(`      ❌ Today (${currentDay}) not in schedule days`);

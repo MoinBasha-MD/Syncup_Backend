@@ -145,7 +145,7 @@ class DailyScheduleService {
    * @returns {Promise<object>} - Created schedules and validation results
    */
   async saveDailySchedule(userId, scheduleData) {
-    const { timeSlots, applyToDays, weekdaysEnabled, weekendsEnabled } = scheduleData;
+    const { timeSlots, applyToDays, weekdaysEnabled, weekendsEnabled, startFromTomorrow } = scheduleData;
     
     // Validate time slots
     const validation = this.validateTimeSlots(timeSlots);
@@ -237,7 +237,10 @@ class DailyScheduleService {
         priority: index + 1,
         active: true,
         wasAutoApplied: false,
-        appliedBy: 'user'
+        appliedBy: 'user',
+        metadata: {
+          startFromTomorrow: startFromTomorrow || false
+        }
       };
     });
     
