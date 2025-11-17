@@ -282,18 +282,35 @@ class DailyScheduleService {
       const startDate = new Date(schedule.startTime);
       const endDate = new Date(schedule.endTime);
       
-      const startHours = startDate.getHours();
+      let startHours = startDate.getHours();
       const startMinutes = startDate.getMinutes();
-      const endHours = endDate.getHours();
+      let endHours = endDate.getHours();
       const endMinutes = endDate.getMinutes();
+      
+      // Convert to 12-hour format
+      const startPeriod = startHours >= 12 ? 'PM' : 'AM';
+      const endPeriod = endHours >= 12 ? 'PM' : 'AM';
+      
+      // Convert hours to 12-hour format
+      if (startHours === 0) {
+        startHours = 12; // Midnight
+      } else if (startHours > 12) {
+        startHours = startHours - 12;
+      }
+      
+      if (endHours === 0) {
+        endHours = 12; // Midnight
+      } else if (endHours > 12) {
+        endHours = endHours - 12;
+      }
       
       return {
         activity: schedule.status,
         customStatus: schedule.customStatus,
         startTime: `${startHours.toString().padStart(2, '0')}:${startMinutes.toString().padStart(2, '0')}`,
-        startPeriod: startHours >= 12 ? 'PM' : 'AM',
+        startPeriod,
         endTime: `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`,
-        endPeriod: endHours >= 12 ? 'PM' : 'AM',
+        endPeriod,
         scheduleId: schedule._id
       };
     });
