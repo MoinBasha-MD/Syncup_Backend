@@ -415,6 +415,11 @@ global.io = io;
 messageCleanupScheduler.start();
 console.log('✅ Message cleanup scheduler started');
 
+// Start the auto-status service for daily schedules
+const autoStatusService = require('./services/autoStatusService');
+autoStatusService.start();
+console.log('✅ Auto-status service started (daily schedule)');
+
 // Initialize Agent System
 (async () => {
   try {
@@ -475,6 +480,10 @@ process.on('SIGTERM', () => {
   if (messageCleanupScheduler) {
     messageCleanupScheduler.stop();
     console.log('✅ Message cleanup scheduler stopped');
+  }
+  if (autoStatusService) {
+    autoStatusService.stop();
+    console.log('✅ Auto-status service stopped');
   }
   // Shutdown agent system
   if (agentIntegrationService) {
