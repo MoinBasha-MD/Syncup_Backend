@@ -2,3 +2,4 @@ node_modules/
 logs/
 scripts/
 components.zip
+*.md

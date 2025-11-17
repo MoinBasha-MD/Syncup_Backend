@@ -52,6 +52,15 @@ const userSchema = mongoose.Schema(
       type: Date,
       default: null
     },
+    // ✅ NEW: Track previous status for display when user has no current status
+    previousStatus: {
+      type: String,
+      default: ''
+    },
+    previousStatusEndTime: {
+      type: Date,
+      default: null
+    },
     
     // NEW: Hierarchical Status System
     mainStatus: {
@@ -172,6 +181,16 @@ const userSchema = mongoose.Schema(
     gender: {
       type: String,
       enum: ['male', 'female', 'other', 'prefer_not_to_say'],
+      default: null
+    },
+    // ✅ NEW: User Role for context-aware status suggestions
+    userRole: {
+      type: String,
+      enum: ['employee', 'student', 'blogger', 'freelancer', 'healthcare', 'business_owner', 'homemaker', 'creative', 'driver', 'chef', 'other'],
+      default: null
+    },
+    roleCustomName: {
+      type: String,
       default: null
     },
     contacts: [{

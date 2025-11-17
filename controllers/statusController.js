@@ -50,6 +50,20 @@ const updateUserStatus = async (req, res) => {
     const previousCustomStatus = user.customStatus || '';
     const statusChangeTime = new Date();
     
+    // ✅ NEW: Save current status as previous status when changing to a new status
+    // Only save if current status is not "Available" or empty
+    if (user.status && user.status.toLowerCase() !== 'available' && user.status !== '') {
+      user.previousStatus = user.customStatus || user.status;
+      user.previousStatusEndTime = user.statusUntil || new Date();
+      console.log(`💾 [PREVIOUS STATUS] Saved: "${user.previousStatus}" ended at ${user.previousStatusEndTime}`);
+    }
+    
+    // ✅ NEW: Clear previous status when setting a new non-Available status
+    if (status && status.toLowerCase() !== 'available') {
+      // Previous status will be saved above, now we're starting a new status
+      console.log(`🔄 [STATUS CHANGE] Changing from "${user.status}" to "${status}"`);
+    }
+    
     // NEW: Update hierarchical status if provided
     if (mainStatus) {
       user.mainStatus = mainStatus;
