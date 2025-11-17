@@ -33,16 +33,25 @@ class AutoStatusService {
       const currentDay = now.getDay(); // 0-6 (Sun-Sat)
       const currentMinutes = now.getHours() * 60 + now.getMinutes();
       
-      console.log(`🔍 [AUTO-STATUS] Checking ${userId} - Day: ${currentDay}, Time: ${now.getHours()}:${now.getMinutes()}`);
+      console.log(`🔍 [AUTO-STATUS] Checking ${userId}`);
+      console.log(`   📅 Current Day: ${currentDay} (0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)`);
+      console.log(`   🕐 Current Time: ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} (${currentMinutes} minutes)`);
+      console.log(`   📊 Found ${schedules.length} schedule(s)`);
       
       // Find matching schedule
       for (const schedule of schedules) {
         const daysOfWeek = schedule.recurrenceConfig?.daysOfWeek || [];
         
+        console.log(`   🔍 Checking schedule: "${schedule.status}"`);
+        console.log(`      Days: ${daysOfWeek.join(', ')}`);
+        
         // Check if today is in the schedule
         if (!daysOfWeek.includes(currentDay)) {
+          console.log(`      ❌ Today (${currentDay}) not in schedule days`);
           continue;
         }
+        
+        console.log(`      ✅ Today IS in schedule days`);
         
         // Get schedule time range
         const startDate = new Date(schedule.startTime);
@@ -51,15 +60,22 @@ class AutoStatusService {
         let startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
         let endMinutes = endDate.getHours() * 60 + endDate.getMinutes();
         
+        console.log(`      ⏰ Schedule Time: ${startDate.getHours()}:${startDate.getMinutes().toString().padStart(2, '0')} to ${endDate.getHours()}:${endDate.getMinutes().toString().padStart(2, '0')}`);
+        console.log(`      ⏰ Minutes: ${startMinutes} to ${endMinutes}`);
+        
         // Handle cross-midnight
         let isInRange = false;
         if (endMinutes < startMinutes) {
           // Cross-midnight case (e.g., 11 PM to 5 AM)
           isInRange = currentMinutes >= startMinutes || currentMinutes < endMinutes;
+          console.log(`      🌙 Cross-midnight schedule`);
         } else {
           // Same-day case (e.g., 9 AM to 6 PM)
           isInRange = currentMinutes >= startMinutes && currentMinutes < endMinutes;
+          console.log(`      ☀️ Same-day schedule`);
         }
+        
+        console.log(`      ${isInRange ? '✅' : '❌'} Current time ${isInRange ? 'IS' : 'is NOT'} in range`);
         
         if (isInRange) {
           // Get user
@@ -70,8 +86,12 @@ class AutoStatusService {
           }
           
           // Check if status needs updating
+          console.log(`      👤 Current user status: "${user.status}"`);
+          console.log(`      🎯 Target status: "${schedule.status}"`);
+          
           if (user.status !== schedule.status) {
             const oldStatus = user.status;
+            console.log(`      🔄 Status needs updating!`);
             
             // Update user status
             user.status = schedule.status;
