@@ -420,6 +420,11 @@ const autoStatusService = require('./services/autoStatusService');
 autoStatusService.start();
 console.log('✅ Auto-status service started (daily schedule)');
 
+// Start the status expiration service for clearing expired sub-statuses
+const statusExpirationService = require('./services/statusExpirationService');
+statusExpirationService.start();
+console.log('✅ Status expiration service started (clears expired sub-statuses)');
+
 // Initialize Agent System
 (async () => {
   try {
@@ -484,6 +489,10 @@ process.on('SIGTERM', () => {
   if (autoStatusService) {
     autoStatusService.stop();
     console.log('✅ Auto-status service stopped');
+  }
+  if (statusExpirationService) {
+    statusExpirationService.stop();
+    console.log('✅ Status expiration service stopped');
   }
   // Shutdown agent system
   if (agentIntegrationService) {
