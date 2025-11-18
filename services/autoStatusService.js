@@ -115,22 +115,29 @@ class AutoStatusService {
             console.log(`      🔄 Main status needs updating!`);
             
             // Update user MAIN status (keep sub-status intact!)
-            // Calculate end time from schedule
+            // Calculate end time from schedule and convert to IST for display
             const endDate = new Date(schedule.endTime);
-            const endHour = endDate.getUTCHours();
-            const endMinute = endDate.getUTCMinutes();
+            
+            // Convert UTC to IST (+5:30)
+            const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
+            const endDateIST = new Date(endDate.getTime() + istOffset);
+            
+            const endHour = endDateIST.getUTCHours(); // Now this is IST time
+            const endMinute = endDateIST.getUTCMinutes();
             
             // Format end time in 12-hour format
             let endHour12 = endHour % 12 || 12;
             let endPeriod = endHour >= 12 ? 'PM' : 'AM';
             let endTimeStr = `${endHour12}:${endMinute.toString().padStart(2, '0')} ${endPeriod}`;
             
+            console.log(`      ⏰ End time: ${endTimeStr} IST (UTC: ${schedule.endTime})`);
+            
             user.status = schedule.status; // Backward compatibility
             user.customStatus = schedule.customStatus || '';
             user.statusUntil = schedule.endTime; // BACKWARD COMPATIBILITY: Set statusUntil for old code
             user.mainStatus = schedule.status; // NEW: Set main status
             user.mainDuration = 0; // Daily schedule has no specific duration
-            user.mainDurationLabel = `Until ${endTimeStr}`; // Show end time
+            user.mainDurationLabel = `Until ${endTimeStr}`; // Show end time in IST
             user.mainStartTime = now;
             user.mainEndTime = schedule.endTime; // Set the schedule end time
             user.statusUpdatedAt = now;
@@ -140,6 +147,13 @@ class AutoStatusService {
             
             console.log(`✅ [AUTO-STATUS] Updated ${userId}: "${oldStatus}" → "${schedule.status}"`);
             console.log(`      ℹ️ Sub-status preserved: "${user.subStatus || 'None'}"`);
+            console.log(`      📊 Status data saved to DB:`, {
+              status: user.status,
+              mainStatus: user.mainStatus,
+              mainDurationLabel: user.mainDurationLabel,
+              statusUntil: user.statusUntil,
+              mainEndTime: user.mainEndTime
+            });
             
             // Broadcast to friends via socket using the proper broadcast method
             try {
@@ -161,11 +175,14 @@ class AutoStatusService {
                 wasAutoApplied: true
               };
               
+              console.log(`📡 [AUTO-STATUS] Broadcasting status update:`, JSON.stringify(statusData, null, 2));
+              
               // Use the enhanced socketManager to broadcast to friends
               socketManager.broadcastStatusUpdate(user, statusData);
-              console.log(`📡 [AUTO-STATUS] Broadcasted status update for ${userId} to friends`);
+              console.log(`✅ [AUTO-STATUS] Broadcast completed for ${userId}`);
             } catch (socketError) {
-              console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError.message);
+              console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError);
+              console.error(`❌ [AUTO-STATUS] Error stack:`, socketError.stack);
             }
             
             return {
