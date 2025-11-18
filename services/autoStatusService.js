@@ -28,14 +28,18 @@ class AutoStatusService {
         return null;
       }
       
-      // Get current time and day
+      // Get current time and day in IST (UTC+5:30)
       const now = new Date();
-      const currentDay = now.getDay(); // 0-6 (Sun-Sat)
-      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      // Convert to IST
+      const istOffset = 5.5 * 60; // IST is UTC+5:30
+      const istTime = new Date(now.getTime() + istOffset * 60 * 1000);
+      const currentDay = istTime.getUTCDay(); // 0-6 (Sun-Sat)
+      const currentMinutes = istTime.getUTCHours() * 60 + istTime.getUTCMinutes();
       
       console.log(`🔍 [AUTO-STATUS] Checking ${userId}`);
       console.log(`   📅 Current Day: ${currentDay} (0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)`);
-      console.log(`   🕐 Current Time: ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} (${currentMinutes} minutes)`);
+      console.log(`   🕐 Current Time IST: ${istTime.getUTCHours()}:${istTime.getUTCMinutes().toString().padStart(2, '0')} (${currentMinutes} minutes)`);
+      console.log(`   🕐 Current Time UTC: ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`);
       console.log(`   📊 Found ${schedules.length} schedule(s)`);
       
       // Find matching schedule
@@ -66,13 +70,17 @@ class AutoStatusService {
         console.log(`      ✅ Today IS in schedule days`);
         
         // Get schedule time range
+        // IMPORTANT: Extract hours/minutes in LOCAL time (where user is)
+        // The stored Date objects are in UTC, but we only care about the time portion
         const startDate = new Date(schedule.startTime);
         const endDate = new Date(schedule.endTime);
         
-        let startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
-        let endMinutes = endDate.getHours() * 60 + endDate.getMinutes();
+        // Use getUTCHours to get the actual stored hour value
+        // This gives us the time as it was entered by the user
+        let startMinutes = startDate.getUTCHours() * 60 + startDate.getUTCMinutes();
+        let endMinutes = endDate.getUTCHours() * 60 + endDate.getUTCMinutes();
         
-        console.log(`      ⏰ Schedule Time: ${startDate.getHours()}:${startDate.getMinutes().toString().padStart(2, '0')} to ${endDate.getHours()}:${endDate.getMinutes().toString().padStart(2, '0')}`);
+        console.log(`      ⏰ Schedule Time (stored): ${startDate.getUTCHours()}:${startDate.getUTCMinutes().toString().padStart(2, '0')} to ${endDate.getUTCHours()}:${endDate.getUTCMinutes().toString().padStart(2, '0')}`);
         console.log(`      ⏰ Minutes: ${startMinutes} to ${endMinutes}`);
         
         // Handle cross-midnight
