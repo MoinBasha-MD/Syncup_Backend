@@ -108,11 +108,19 @@ class AutoStatusService {
           // Check if status needs updating
           console.log(`      👤 Current main status: "${user.mainStatus || user.status}"`);
           console.log(`      👤 Current sub status: "${user.subStatus || 'None'}"`);
+          console.log(`      👤 Current statusUntil: ${user.statusUntil}`);
+          console.log(`      👤 Current mainDurationLabel: "${user.mainDurationLabel || 'None'}"`);
           console.log(`      🎯 Target main status: "${schedule.status}"`);
           
-          if ((user.mainStatus || user.status) !== schedule.status) {
+          // Update if: (1) Status is different, OR (2) Status is same but statusUntil is missing/wrong
+          const needsUpdate = (user.mainStatus || user.status) !== schedule.status || 
+                             !user.statusUntil || 
+                             user.statusUntil.toString() !== schedule.endTime.toString();
+          
+          if (needsUpdate) {
             const oldStatus = user.mainStatus || user.status;
             console.log(`      🔄 Main status needs updating!`);
+            console.log(`      📋 Reason: ${(user.mainStatus || user.status) !== schedule.status ? 'Status changed' : 'Fixing missing statusUntil/duration'}`);
             
             // Update user MAIN status (keep sub-status intact!)
             // Calculate end time from schedule and convert to IST for display
