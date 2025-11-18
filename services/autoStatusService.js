@@ -115,13 +115,24 @@ class AutoStatusService {
             console.log(`      🔄 Main status needs updating!`);
             
             // Update user MAIN status (keep sub-status intact!)
+            // Calculate end time from schedule
+            const endDate = new Date(schedule.endTime);
+            const endHour = endDate.getUTCHours();
+            const endMinute = endDate.getUTCMinutes();
+            
+            // Format end time in 12-hour format
+            let endHour12 = endHour % 12 || 12;
+            let endPeriod = endHour >= 12 ? 'PM' : 'AM';
+            let endTimeStr = `${endHour12}:${endMinute.toString().padStart(2, '0')} ${endPeriod}`;
+            
             user.status = schedule.status; // Backward compatibility
             user.customStatus = schedule.customStatus || '';
+            user.statusUntil = schedule.endTime; // BACKWARD COMPATIBILITY: Set statusUntil for old code
             user.mainStatus = schedule.status; // NEW: Set main status
-            user.mainDuration = 0; // Daily schedule has no duration
-            user.mainDurationLabel = 'All day';
+            user.mainDuration = 0; // Daily schedule has no specific duration
+            user.mainDurationLabel = `Until ${endTimeStr}`; // Show end time
             user.mainStartTime = now;
-            user.mainEndTime = null; // No end time for daily schedule
+            user.mainEndTime = schedule.endTime; // Set the schedule end time
             user.statusUpdatedAt = now;
             user.wasAutoApplied = true;
             // NOTE: subStatus is NOT cleared - user can still have activities!
@@ -137,6 +148,7 @@ class AutoStatusService {
                 userId: user.userId,
                 status: user.status,
                 customStatus: user.customStatus,
+                statusUntil: user.statusUntil, // BACKWARD COMPATIBILITY
                 mainStatus: user.mainStatus,
                 mainDuration: user.mainDuration,
                 mainDurationLabel: user.mainDurationLabel,
