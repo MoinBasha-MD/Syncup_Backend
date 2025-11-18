@@ -52,11 +52,6 @@ const userSchema = mongoose.Schema(
       type: Date,
       default: null
     },
-    // ✅ Track if status was auto-applied by daily schedule
-    wasAutoApplied: {
-      type: Boolean,
-      default: false
-    },
     // ✅ NEW: Track previous status for display when user has no current status
     previousStatus: {
       type: String,

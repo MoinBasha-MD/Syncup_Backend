@@ -28,18 +28,14 @@ class AutoStatusService {
         return null;
       }
       
-      // Get current time and day in IST (UTC+5:30)
+      // Get current time and day
       const now = new Date();
-      // Convert to IST
-      const istOffset = 5.5 * 60; // IST is UTC+5:30
-      const istTime = new Date(now.getTime() + istOffset * 60 * 1000);
-      const currentDay = istTime.getUTCDay(); // 0-6 (Sun-Sat)
-      const currentMinutes = istTime.getUTCHours() * 60 + istTime.getUTCMinutes();
+      const currentDay = now.getDay(); // 0-6 (Sun-Sat)
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
       
       console.log(`🔍 [AUTO-STATUS] Checking ${userId}`);
       console.log(`   📅 Current Day: ${currentDay} (0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)`);
-      console.log(`   🕐 Current Time IST: ${istTime.getUTCHours()}:${istTime.getUTCMinutes().toString().padStart(2, '0')} (${currentMinutes} minutes)`);
-      console.log(`   🕐 Current Time UTC: ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`);
+      console.log(`   🕐 Current Time: ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} (${currentMinutes} minutes)`);
       console.log(`   📊 Found ${schedules.length} schedule(s)`);
       
       // Find matching schedule
@@ -70,17 +66,13 @@ class AutoStatusService {
         console.log(`      ✅ Today IS in schedule days`);
         
         // Get schedule time range
-        // IMPORTANT: Extract hours/minutes in LOCAL time (where user is)
-        // The stored Date objects are in UTC, but we only care about the time portion
         const startDate = new Date(schedule.startTime);
         const endDate = new Date(schedule.endTime);
         
-        // Use getUTCHours to get the actual stored hour value
-        // This gives us the time as it was entered by the user
-        let startMinutes = startDate.getUTCHours() * 60 + startDate.getUTCMinutes();
-        let endMinutes = endDate.getUTCHours() * 60 + endDate.getUTCMinutes();
+        let startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+        let endMinutes = endDate.getHours() * 60 + endDate.getMinutes();
         
-        console.log(`      ⏰ Schedule Time (stored): ${startDate.getUTCHours()}:${startDate.getUTCMinutes().toString().padStart(2, '0')} to ${endDate.getUTCHours()}:${endDate.getUTCMinutes().toString().padStart(2, '0')}`);
+        console.log(`      ⏰ Schedule Time: ${startDate.getHours()}:${startDate.getMinutes().toString().padStart(2, '0')} to ${endDate.getHours()}:${endDate.getMinutes().toString().padStart(2, '0')}`);
         console.log(`      ⏰ Minutes: ${startMinutes} to ${endMinutes}`);
         
         // Handle cross-midnight
@@ -106,91 +98,48 @@ class AutoStatusService {
           }
           
           // Check if status needs updating
-          console.log(`      👤 Current main status: "${user.mainStatus || user.status}"`);
-          console.log(`      👤 Current sub status: "${user.subStatus || 'None'}"`);
-          console.log(`      👤 Current statusUntil: ${user.statusUntil}`);
-          console.log(`      👤 Current mainDurationLabel: "${user.mainDurationLabel || 'None'}"`);
-          console.log(`      🎯 Target main status: "${schedule.status}"`);
+          console.log(`      👤 Current user status: "${user.status}"`);
+          console.log(`      🎯 Target status: "${schedule.status}"`);
           
-          // Update if: (1) Status is different, OR (2) Status is same but statusUntil is missing/wrong
-          const needsUpdate = (user.mainStatus || user.status) !== schedule.status || 
-                             !user.statusUntil || 
-                             user.statusUntil.toString() !== schedule.endTime.toString();
-          
-          if (needsUpdate) {
-            const oldStatus = user.mainStatus || user.status;
-            console.log(`      🔄 Main status needs updating!`);
-            console.log(`      📋 Reason: ${(user.mainStatus || user.status) !== schedule.status ? 'Status changed' : 'Fixing missing statusUntil/duration'}`);
+          if (user.status !== schedule.status) {
+            const oldStatus = user.status;
+            console.log(`      🔄 Status needs updating!`);
             
-            // Update user MAIN status (keep sub-status intact!)
-            // Calculate end time from schedule and convert to IST for display
-            const endDate = new Date(schedule.endTime);
-            
-            // Convert UTC to IST (+5:30)
-            const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
-            const endDateIST = new Date(endDate.getTime() + istOffset);
-            
-            const endHour = endDateIST.getUTCHours(); // Now this is IST time
-            const endMinute = endDateIST.getUTCMinutes();
-            
-            // Format end time in 12-hour format
-            let endHour12 = endHour % 12 || 12;
-            let endPeriod = endHour >= 12 ? 'PM' : 'AM';
-            let endTimeStr = `${endHour12}:${endMinute.toString().padStart(2, '0')} ${endPeriod}`;
-            
-            console.log(`      ⏰ End time: ${endTimeStr} IST (UTC: ${schedule.endTime})`);
-            
-            user.status = schedule.status; // Backward compatibility
+            // Update user status
+            user.status = schedule.status;
             user.customStatus = schedule.customStatus || '';
-            user.statusUntil = schedule.endTime; // BACKWARD COMPATIBILITY: Set statusUntil for old code
-            user.mainStatus = schedule.status; // NEW: Set main status
-            user.mainDuration = 0; // Daily schedule has no specific duration
-            user.mainDurationLabel = `Until ${endTimeStr}`; // Show end time in IST
-            user.mainStartTime = now;
-            user.mainEndTime = schedule.endTime; // Set the schedule end time
             user.statusUpdatedAt = now;
             user.wasAutoApplied = true;
-            // NOTE: subStatus is NOT cleared - user can still have activities!
             await user.save();
             
             console.log(`✅ [AUTO-STATUS] Updated ${userId}: "${oldStatus}" → "${schedule.status}"`);
-            console.log(`      ℹ️ Sub-status preserved: "${user.subStatus || 'None'}"`);
-            console.log(`      📊 Status data saved to DB:`, {
-              status: user.status,
-              mainStatus: user.mainStatus,
-              mainDurationLabel: user.mainDurationLabel,
-              statusUntil: user.statusUntil,
-              mainEndTime: user.mainEndTime
-            });
             
-            // Broadcast to friends via socket using the proper broadcast method
+            // Broadcast to friends via socket
             try {
-              const socketManager = require('../socketManager');
-              const statusData = {
-                userId: user.userId,
-                status: user.status,
-                customStatus: user.customStatus,
-                statusUntil: user.statusUntil, // BACKWARD COMPATIBILITY
-                mainStatus: user.mainStatus,
-                mainDuration: user.mainDuration,
-                mainDurationLabel: user.mainDurationLabel,
-                mainStartTime: user.mainStartTime,
-                mainEndTime: user.mainEndTime,
-                subStatus: user.subStatus,
-                subDuration: user.subDuration,
-                subDurationLabel: user.subDurationLabel,
-                timestamp: now,
-                wasAutoApplied: true
-              };
-              
-              console.log(`📡 [AUTO-STATUS] Broadcasting status update:`, JSON.stringify(statusData, null, 2));
-              
-              // Use the enhanced socketManager to broadcast to friends
-              socketManager.broadcastStatusUpdate(user, statusData);
-              console.log(`✅ [AUTO-STATUS] Broadcast completed for ${userId}`);
+              const io = require('../socketManager').getIO();
+              if (io) {
+                // Broadcast to all connected clients
+                io.emit('status_update', {
+                  userId: user.userId,
+                  status: user.status,
+                  customStatus: user.customStatus,
+                  timestamp: now,
+                  wasAutoApplied: true
+                });
+                
+                // Also emit specific event for this user's contacts
+                io.emit('contact_status_update', {
+                  userId: user.userId,
+                  status: user.status,
+                  customStatus: user.customStatus,
+                  timestamp: now,
+                  wasAutoApplied: true
+                });
+                
+                console.log(`📡 [AUTO-STATUS] Broadcasted status update for ${userId}`);
+              }
             } catch (socketError) {
-              console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError);
-              console.error(`❌ [AUTO-STATUS] Error stack:`, socketError.stack);
+              console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError.message);
             }
             
             return {
@@ -210,70 +159,6 @@ class AutoStatusService {
       }
       
       console.log(`ℹ️ [AUTO-STATUS] No matching schedule for ${userId} at current time`);
-      
-      // No schedule matches - check if user has an auto-applied status that needs to be cleared
-      const user = await User.findOne({ userId });
-      
-      // Check if user has a status that looks like it's from a schedule
-      const scheduleStatuses = schedules.map(s => s.status);
-      const hasScheduleStatus = scheduleStatuses.includes(user?.mainStatus || user?.status);
-      
-      console.log(`      📊 User main status: "${user?.mainStatus || user?.status}", sub status: "${user?.subStatus || 'None'}", wasAutoApplied: ${user?.wasAutoApplied}, isScheduleStatus: ${hasScheduleStatus}`);
-      
-      // Clear if: (1) wasAutoApplied is true, OR (2) main status matches a schedule status
-      if (user && (user.mainStatus || user.status) !== 'Available' && (user.wasAutoApplied || hasScheduleStatus)) {
-        const oldStatus = user.mainStatus || user.status;
-        console.log(`      🔄 Clearing expired auto-status: "${oldStatus}" → "Available"`);
-        console.log(`      ℹ️ Sub-status preserved: "${user.subStatus || 'None'}"`);
-        
-        // Clear MAIN status only (keep sub-status!)
-        user.status = 'Available';
-        user.customStatus = '';
-        user.mainStatus = 'Available';
-        user.mainDuration = 0;
-        user.mainDurationLabel = '';
-        user.mainStartTime = null;
-        user.mainEndTime = null;
-        user.statusUpdatedAt = now;
-        user.wasAutoApplied = false;
-        // NOTE: subStatus is preserved!
-        await user.save();
-        
-        // Broadcast status change
-        try {
-          const socketManager = require('../socketManager');
-          const statusData = {
-            userId: user.userId,
-            status: 'Available',
-            customStatus: '',
-            mainStatus: 'Available',
-            mainDuration: 0,
-            mainDurationLabel: '',
-            mainStartTime: null,
-            mainEndTime: null,
-            subStatus: user.subStatus, // Preserve sub-status
-            subDuration: user.subDuration,
-            subDurationLabel: user.subDurationLabel,
-            timestamp: now,
-            wasAutoApplied: false
-          };
-          
-          // Use the enhanced socketManager to broadcast to friends
-          socketManager.broadcastStatusUpdate(user, statusData);
-          console.log(`📡 [AUTO-STATUS] Broadcasted status cleared for ${userId} to friends`);
-        } catch (socketError) {
-          console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError.message);
-        }
-        
-        return {
-          userId,
-          oldStatus,
-          newStatus: 'Available',
-          activity: 'Available',
-          time: now
-        };
-      }
-      
       return null;
     } catch (error) {
       console.error(`❌ [AUTO-STATUS] Error checking ${userId}:`, error.message);

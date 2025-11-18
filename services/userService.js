@@ -71,6 +71,13 @@ class UserService {
       user.status = 'available';
       user.customStatus = '';
       user.statusUntil = null;
+      // CRITICAL: Also clear hierarchical status fields
+      user.mainStatus = null;
+      user.mainDuration = 0;
+      user.mainDurationLabel = '';
+      user.mainStartTime = null;
+      user.mainEndTime = null;
+      user.wasAutoApplied = false;
       await user.save();
     }
 
@@ -96,6 +103,13 @@ class UserService {
       user.status = 'available';
       user.customStatus = '';
       user.statusUntil = null;
+      // CRITICAL: Also clear hierarchical status fields
+      user.mainStatus = null;
+      user.mainDuration = 0;
+      user.mainDurationLabel = '';
+      user.mainStartTime = null;
+      user.mainEndTime = null;
+      user.wasAutoApplied = false;
       await user.save();
     }
 

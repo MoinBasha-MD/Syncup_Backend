@@ -298,19 +298,7 @@ const getUserStatus = async (req, res) => {
         userId: user.userId,
         status: user.status,
         customStatus: user.customStatus,
-        statusUntil: user.statusUntil,
-        // NEW: Hierarchical status fields
-        mainStatus: user.mainStatus || user.status,
-        mainDuration: user.mainDuration || 0,
-        mainDurationLabel: user.mainDurationLabel || '',
-        mainStartTime: user.mainStartTime,
-        mainEndTime: user.mainEndTime,
-        subStatus: user.subStatus,
-        subDuration: user.subDuration || 0,
-        subDurationLabel: user.subDurationLabel || '',
-        subStartTime: user.subStartTime,
-        subEndTime: user.subEndTime,
-        wasAutoApplied: user.wasAutoApplied || false
+        statusUntil: user.statusUntil
       }
     });
   } catch (error) {
@@ -386,19 +374,7 @@ const getSpecificUserStatus = async (req, res) => {
       lastSeen: user.lastSeen,
       isOnline: user.isOnline,
       location: user.location || null,
-      statusHistory: latestStatusHistory || null,
-      // NEW: Hierarchical status fields
-      mainStatus: user.mainStatus || user.status,
-      mainDuration: user.mainDuration || 0,
-      mainDurationLabel: user.mainDurationLabel || '',
-      mainStartTime: user.mainStartTime,
-      mainEndTime: user.mainEndTime,
-      subStatus: user.subStatus,
-      subDuration: user.subDuration || 0,
-      subDurationLabel: user.subDurationLabel || '',
-      subStartTime: user.subStartTime,
-      subEndTime: user.subEndTime,
-      wasAutoApplied: user.wasAutoApplied || false
+      statusHistory: latestStatusHistory || null
     };
 
     console.log(`📤 Sending status data:`, statusData);

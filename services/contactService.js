@@ -287,6 +287,13 @@ class ContactService {
           user.status = 'Available';  // ✅ FIXED: Capitalized to match app convention
           user.customStatus = '';
           user.statusUntil = null;
+          // CRITICAL: Also clear hierarchical status fields
+          user.mainStatus = null;
+          user.mainDuration = 0;
+          user.mainDurationLabel = '';
+          user.mainStartTime = null;
+          user.mainEndTime = null;
+          user.wasAutoApplied = false;
           await user.save();
         } else {
           console.log('Status is still active, not resetting');
@@ -461,6 +468,13 @@ class ContactService {
         contact.status = 'available';
         contact.customStatus = '';
         contact.statusUntil = null;
+        // CRITICAL: Also clear hierarchical status fields
+        contact.mainStatus = null;
+        contact.mainDuration = 0;
+        contact.mainDurationLabel = '';
+        contact.mainStartTime = null;
+        contact.mainEndTime = null;
+        contact.wasAutoApplied = false;
         await contact.save();
       }
       
