@@ -106,46 +106,52 @@ class AutoStatusService {
           }
           
           // Check if status needs updating
-          console.log(`      👤 Current user status: "${user.status}"`);
-          console.log(`      🎯 Target status: "${schedule.status}"`);
+          console.log(`      👤 Current main status: "${user.mainStatus || user.status}"`);
+          console.log(`      👤 Current sub status: "${user.subStatus || 'None'}"`);
+          console.log(`      🎯 Target main status: "${schedule.status}"`);
           
-          if (user.status !== schedule.status) {
-            const oldStatus = user.status;
-            console.log(`      🔄 Status needs updating!`);
+          if ((user.mainStatus || user.status) !== schedule.status) {
+            const oldStatus = user.mainStatus || user.status;
+            console.log(`      🔄 Main status needs updating!`);
             
-            // Update user status
-            user.status = schedule.status;
+            // Update user MAIN status (keep sub-status intact!)
+            user.status = schedule.status; // Backward compatibility
             user.customStatus = schedule.customStatus || '';
+            user.mainStatus = schedule.status; // NEW: Set main status
+            user.mainDuration = 0; // Daily schedule has no duration
+            user.mainDurationLabel = 'All day';
+            user.mainStartTime = now;
+            user.mainEndTime = null; // No end time for daily schedule
             user.statusUpdatedAt = now;
             user.wasAutoApplied = true;
+            // NOTE: subStatus is NOT cleared - user can still have activities!
             await user.save();
             
             console.log(`✅ [AUTO-STATUS] Updated ${userId}: "${oldStatus}" → "${schedule.status}"`);
+            console.log(`      ℹ️ Sub-status preserved: "${user.subStatus || 'None'}"`);
             
-            // Broadcast to friends via socket
+            // Broadcast to friends via socket using the proper broadcast method
             try {
-              const io = require('../socketManager').getIO();
-              if (io) {
-                // Broadcast to all connected clients
-                io.emit('status_update', {
-                  userId: user.userId,
-                  status: user.status,
-                  customStatus: user.customStatus,
-                  timestamp: now,
-                  wasAutoApplied: true
-                });
-                
-                // Also emit specific event for this user's contacts
-                io.emit('contact_status_update', {
-                  userId: user.userId,
-                  status: user.status,
-                  customStatus: user.customStatus,
-                  timestamp: now,
-                  wasAutoApplied: true
-                });
-                
-                console.log(`📡 [AUTO-STATUS] Broadcasted status update for ${userId}`);
-              }
+              const socketManager = require('../socketManager');
+              const statusData = {
+                userId: user.userId,
+                status: user.status,
+                customStatus: user.customStatus,
+                mainStatus: user.mainStatus,
+                mainDuration: user.mainDuration,
+                mainDurationLabel: user.mainDurationLabel,
+                mainStartTime: user.mainStartTime,
+                mainEndTime: user.mainEndTime,
+                subStatus: user.subStatus,
+                subDuration: user.subDuration,
+                subDurationLabel: user.subDurationLabel,
+                timestamp: now,
+                wasAutoApplied: true
+              };
+              
+              // Use the enhanced socketManager to broadcast to friends
+              socketManager.broadcastStatusUpdate(user, statusData);
+              console.log(`📡 [AUTO-STATUS] Broadcasted status update for ${userId} to friends`);
             } catch (socketError) {
               console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError.message);
             }
@@ -173,43 +179,51 @@ class AutoStatusService {
       
       // Check if user has a status that looks like it's from a schedule
       const scheduleStatuses = schedules.map(s => s.status);
-      const hasScheduleStatus = scheduleStatuses.includes(user?.status);
+      const hasScheduleStatus = scheduleStatuses.includes(user?.mainStatus || user?.status);
       
-      console.log(`      📊 User status: "${user?.status}", wasAutoApplied: ${user?.wasAutoApplied}, isScheduleStatus: ${hasScheduleStatus}`);
+      console.log(`      📊 User main status: "${user?.mainStatus || user?.status}", sub status: "${user?.subStatus || 'None'}", wasAutoApplied: ${user?.wasAutoApplied}, isScheduleStatus: ${hasScheduleStatus}`);
       
-      // Clear if: (1) wasAutoApplied is true, OR (2) status matches a schedule status
-      if (user && user.status !== 'Available' && (user.wasAutoApplied || hasScheduleStatus)) {
-        const oldStatus = user.status;
+      // Clear if: (1) wasAutoApplied is true, OR (2) main status matches a schedule status
+      if (user && (user.mainStatus || user.status) !== 'Available' && (user.wasAutoApplied || hasScheduleStatus)) {
+        const oldStatus = user.mainStatus || user.status;
         console.log(`      🔄 Clearing expired auto-status: "${oldStatus}" → "Available"`);
+        console.log(`      ℹ️ Sub-status preserved: "${user.subStatus || 'None'}"`);
         
+        // Clear MAIN status only (keep sub-status!)
         user.status = 'Available';
         user.customStatus = '';
+        user.mainStatus = 'Available';
+        user.mainDuration = 0;
+        user.mainDurationLabel = '';
+        user.mainStartTime = null;
+        user.mainEndTime = null;
         user.statusUpdatedAt = now;
         user.wasAutoApplied = false;
+        // NOTE: subStatus is preserved!
         await user.save();
         
         // Broadcast status change
         try {
-          const io = require('../socketManager').getIO();
-          if (io) {
-            io.emit('status_update', {
-              userId: user.userId,
-              status: 'Available',
-              customStatus: '',
-              timestamp: now,
-              wasAutoApplied: false
-            });
-            
-            io.emit('contact_status_update', {
-              userId: user.userId,
-              status: 'Available',
-              customStatus: '',
-              timestamp: now,
-              wasAutoApplied: false
-            });
-            
-            console.log(`📡 [AUTO-STATUS] Broadcasted status cleared for ${userId}`);
-          }
+          const socketManager = require('../socketManager');
+          const statusData = {
+            userId: user.userId,
+            status: 'Available',
+            customStatus: '',
+            mainStatus: 'Available',
+            mainDuration: 0,
+            mainDurationLabel: '',
+            mainStartTime: null,
+            mainEndTime: null,
+            subStatus: user.subStatus, // Preserve sub-status
+            subDuration: user.subDuration,
+            subDurationLabel: user.subDurationLabel,
+            timestamp: now,
+            wasAutoApplied: false
+          };
+          
+          // Use the enhanced socketManager to broadcast to friends
+          socketManager.broadcastStatusUpdate(user, statusData);
+          console.log(`📡 [AUTO-STATUS] Broadcasted status cleared for ${userId} to friends`);
         } catch (socketError) {
           console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError.message);
         }
