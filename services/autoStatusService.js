@@ -159,6 +159,54 @@ class AutoStatusService {
       }
       
       console.log(`ℹ️ [AUTO-STATUS] No matching schedule for ${userId} at current time`);
+      
+      // No schedule matches - check if user has an auto-applied status that needs to be cleared
+      const user = await User.findOne({ userId });
+      if (user && user.wasAutoApplied && user.status !== 'Available') {
+        const oldStatus = user.status;
+        console.log(`      🔄 Clearing expired auto-status: "${oldStatus}" → "Available"`);
+        
+        user.status = 'Available';
+        user.customStatus = '';
+        user.statusUpdatedAt = now;
+        user.wasAutoApplied = false;
+        await user.save();
+        
+        // Broadcast status change
+        try {
+          const io = require('../socketManager').getIO();
+          if (io) {
+            io.emit('status_update', {
+              userId: user.userId,
+              status: 'Available',
+              customStatus: '',
+              timestamp: now,
+              wasAutoApplied: false
+            });
+            
+            io.emit('contact_status_update', {
+              userId: user.userId,
+              status: 'Available',
+              customStatus: '',
+              timestamp: now,
+              wasAutoApplied: false
+            });
+            
+            console.log(`📡 [AUTO-STATUS] Broadcasted status cleared for ${userId}`);
+          }
+        } catch (socketError) {
+          console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError.message);
+        }
+        
+        return {
+          userId,
+          oldStatus,
+          newStatus: 'Available',
+          activity: 'Available',
+          time: now
+        };
+      }
+      
       return null;
     } catch (error) {
       console.error(`❌ [AUTO-STATUS] Error checking ${userId}:`, error.message);
