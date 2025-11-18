@@ -170,7 +170,15 @@ class AutoStatusService {
       
       // No schedule matches - check if user has an auto-applied status that needs to be cleared
       const user = await User.findOne({ userId });
-      if (user && user.wasAutoApplied && user.status !== 'Available') {
+      
+      // Check if user has a status that looks like it's from a schedule
+      const scheduleStatuses = schedules.map(s => s.status);
+      const hasScheduleStatus = scheduleStatuses.includes(user?.status);
+      
+      console.log(`      📊 User status: "${user?.status}", wasAutoApplied: ${user?.wasAutoApplied}, isScheduleStatus: ${hasScheduleStatus}`);
+      
+      // Clear if: (1) wasAutoApplied is true, OR (2) status matches a schedule status
+      if (user && user.status !== 'Available' && (user.wasAutoApplied || hasScheduleStatus)) {
         const oldStatus = user.status;
         console.log(`      🔄 Clearing expired auto-status: "${oldStatus}" → "Available"`);
         
