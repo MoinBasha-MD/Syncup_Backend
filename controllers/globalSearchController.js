@@ -231,36 +231,47 @@ const searchUsers = asyncHandler(async (req, res) => {
     // Use manually filtered results instead of original search results
     const finalResults = manuallyFilteredResults;
     
-    // Get existing connection requests for these users (including all statuses)
+    // CRITICAL FIX: Use Friend model instead of ConnectionRequest to match friends list
+    const Friend = require('../models/Friend');
     const userIds = finalResults.map(user => user.userId);
-    const existingRequests = await ConnectionRequest.find({
+    
+    // Get existing friendships for these users (including all statuses)
+    const existingFriendships = await Friend.find({
       $or: [
-        { fromUserId: currentUserId, toUserId: { $in: userIds } },
-        { fromUserId: { $in: userIds }, toUserId: currentUserId }
+        { userId: currentUserId, friendUserId: { $in: userIds }, isDeleted: false },
+        { userId: { $in: userIds }, friendUserId: currentUserId, isDeleted: false }
       ]
     }).lean();
     
-    // Create lookup map for request status with detailed info
-    const requestStatusMap = new Map();
-    existingRequests.forEach(req => {
-      if (req.fromUserId === currentUserId) {
-        // Current user sent the request
-        requestStatusMap.set(req.toUserId, {
-          status: req.status,
+    console.log(`🔍 [DEBUG] Found ${existingFriendships.length} friendships for ${userIds.length} users`);
+    
+    // Create lookup map for friendship status with detailed info
+    const friendshipStatusMap = new Map();
+    existingFriendships.forEach(friendship => {
+      if (friendship.userId === currentUserId) {
+        // Current user initiated the friendship
+        friendshipStatusMap.set(friendship.friendUserId, {
+          status: friendship.status, // 'pending', 'accepted', 'blocked'
           direction: 'outgoing',
-          requestId: req._id,
-          createdAt: req.createdAt
+          requestId: friendship._id,
+          createdAt: friendship.addedAt
         });
       } else {
-        // Current user received the request
-        requestStatusMap.set(req.fromUserId, {
-          status: req.status,
+        // Other user initiated the friendship
+        friendshipStatusMap.set(friendship.userId, {
+          status: friendship.status,
           direction: 'incoming',
-          requestId: req._id,
-          createdAt: req.createdAt
+          requestId: friendship._id,
+          createdAt: friendship.addedAt
         });
       }
     });
+    
+    console.log(`🔍 [DEBUG] Friendship status map:`, Array.from(friendshipStatusMap.entries()).map(([userId, status]) => ({
+      userId,
+      status: status.status,
+      direction: status.direction
+    })));
     
     // Optimize mutual connections calculation - batch process instead of individual queries
     // userIds already declared above for connection requests
@@ -295,49 +306,49 @@ const searchUsers = asyncHandler(async (req, res) => {
         }
       }
       
-      const requestStatus = requestStatusMap.get(user.userId) || null;
+      const friendshipStatus = friendshipStatusMap.get(user.userId) || null;
       
       // Determine the display status and action availability
       let displayStatus = 'none'; // none, sent, received, connected, declined
       let canSendRequest = true;
       let actionText = 'Add Friend';
       
-      if (requestStatus) {
-        if (requestStatus.status === 'pending') {
-          if (requestStatus.direction === 'outgoing') {
+      if (friendshipStatus) {
+        if (friendshipStatus.status === 'pending') {
+          if (friendshipStatus.direction === 'outgoing') {
             displayStatus = 'sent';
-              canSendRequest = false;
-              actionText = 'Sent';
-            } else {
-              displayStatus = 'received';
-              canSendRequest = false;
-              actionText = 'Respond';
-            }
-          } else if (requestStatus.status === 'accepted') {
-            displayStatus = 'connected';
             canSendRequest = false;
-            actionText = 'Connected';
-          } else if (requestStatus.status === 'declined') {
-            displayStatus = 'declined';
-            canSendRequest = true; // Allow sending new request after decline
-            actionText = 'Add Friend';
+            actionText = 'Sent';
+          } else {
+            displayStatus = 'received';
+            canSendRequest = false;
+            actionText = 'Respond';
           }
+        } else if (friendshipStatus.status === 'accepted') {
+          displayStatus = 'connected';
+          canSendRequest = false;
+          actionText = 'Connected';
+        } else if (friendshipStatus.status === 'blocked') {
+          displayStatus = 'blocked';
+          canSendRequest = false;
+          actionText = 'Blocked';
         }
-        
-        return {
-          userId: user.userId,
-          name: user.name,
-          username: user.username || '',
-          profileImage: user.profileImage || '',
-          mutualConnectionsCount,
-          connectionStatus: requestStatus?.status || null,
-          connectionDirection: requestStatus?.direction || null,
-          requestId: requestStatus?.requestId || null,
-          displayStatus,
-          canSendRequest,
-          actionText,
-          requestSentAt: requestStatus?.createdAt || null
-        };
+      }
+      
+      return {
+        userId: user.userId,
+        name: user.name,
+        username: user.username || '',
+        profileImage: user.profileImage || '',
+        mutualConnectionsCount,
+        connectionStatus: friendshipStatus?.status || null,
+        connectionDirection: friendshipStatus?.direction || null,
+        requestId: friendshipStatus?.requestId || null,
+        displayStatus,
+        canSendRequest,
+        actionText,
+        requestSentAt: friendshipStatus?.createdAt || null
+      };
     });
     
     res.status(200).json({
