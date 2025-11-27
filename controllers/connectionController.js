@@ -142,7 +142,10 @@ const sendConnectionRequest = asyncHandler(async (req, res) => {
     // Calculate mutual connections
     const mutualConnectionsCount = await calculateMutualConnections(fromUserId, toUserId);
     
-    // Create connection request
+    // CRITICAL FIX: Create BOTH ConnectionRequest AND Friend record to keep systems in sync
+    const Friend = require('../models/Friend');
+    
+    // Create connection request (OLD system)
     const connectionRequest = new ConnectionRequest({
       fromUserId,
       toUserId,
@@ -159,6 +162,40 @@ const sendConnectionRequest = asyncHandler(async (req, res) => {
     await connectionRequest.save();
     
     console.log(`✅ Connection request sent: ${connectionRequest._id}`);
+    
+    // CRITICAL: Also create Friend record (NEW system) to keep both systems synchronized
+    try {
+      // Check if Friend record already exists
+      const existingFriend = await Friend.findOne({
+        userId: fromUserId,
+        friendUserId: toUserId,
+        isDeleted: false
+      });
+      
+      if (!existingFriend) {
+        const friendRequest = new Friend({
+          userId: fromUserId,
+          friendUserId: toUserId,
+          source: 'app_search',
+          status: 'pending',
+          cachedData: {
+            name: toUser.name,
+            profileImage: toUser.profileImage || '',
+            username: toUser.username || '',
+            lastCacheUpdate: new Date()
+          }
+        });
+        
+        await friendRequest.save();
+        console.log(`✅ Friend record created for synchronization: ${friendRequest._id}`);
+      } else {
+        console.log(`ℹ️ Friend record already exists, skipping creation`);
+      }
+    } catch (friendError) {
+      console.error('❌ Error creating Friend record:', friendError);
+      // Don't fail the request if Friend creation fails
+      console.warn('⚠️ ConnectionRequest created but Friend record failed - systems may be out of sync');
+    }
     
     // Send push notification to target user
     try {
@@ -368,6 +405,75 @@ const acceptConnectionRequest = asyncHandler(async (req, res) => {
     await Promise.all([fromUser.save(), toUser.save()]);
     
     console.log(`✅ Connection established between ${request.fromUserId} and ${request.toUserId}`);
+    
+    // CRITICAL: Also update Friend records to 'accepted' status to keep systems synchronized
+    try {
+      const Friend = require('../models/Friend');
+      
+      // Update the original Friend request to accepted
+      const originalFriend = await Friend.findOne({
+        userId: request.fromUserId,
+        friendUserId: request.toUserId,
+        isDeleted: false
+      });
+      
+      if (originalFriend) {
+        originalFriend.status = 'accepted';
+        originalFriend.acceptedAt = new Date();
+        await originalFriend.save();
+        console.log(`✅ Updated original Friend record to accepted`);
+      } else {
+        console.warn(`⚠️ Original Friend record not found, creating new one`);
+        const newFriend = new Friend({
+          userId: request.fromUserId,
+          friendUserId: request.toUserId,
+          source: 'app_connection',
+          status: 'accepted',
+          acceptedAt: new Date(),
+          cachedData: {
+            name: toUser.name,
+            profileImage: toUser.profileImage || '',
+            username: toUser.username || '',
+            lastCacheUpdate: new Date()
+          }
+        });
+        await newFriend.save();
+      }
+      
+      // Create reciprocal Friend record
+      const reciprocalFriend = await Friend.findOne({
+        userId: request.toUserId,
+        friendUserId: request.fromUserId,
+        isDeleted: false
+      });
+      
+      if (!reciprocalFriend) {
+        const newReciprocal = new Friend({
+          userId: request.toUserId,
+          friendUserId: request.fromUserId,
+          source: 'app_connection',
+          status: 'accepted',
+          acceptedAt: new Date(),
+          cachedData: {
+            name: fromUser.name,
+            profileImage: fromUser.profileImage || '',
+            username: fromUser.username || '',
+            lastCacheUpdate: new Date()
+          }
+        });
+        await newReciprocal.save();
+        console.log(`✅ Created reciprocal Friend record`);
+      } else {
+        reciprocalFriend.status = 'accepted';
+        reciprocalFriend.acceptedAt = new Date();
+        await reciprocalFriend.save();
+        console.log(`✅ Updated reciprocal Friend record to accepted`);
+      }
+    } catch (friendError) {
+      console.error('❌ Error updating Friend records:', friendError);
+      // Don't fail the request if Friend update fails
+      console.warn('⚠️ Connection accepted but Friend records may be out of sync');
+    }
     
     // Send push notification to sender about acceptance
     try {
