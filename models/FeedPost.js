@@ -281,27 +281,47 @@ feedPostSchema.statics.getExplorePosts = async function(userId, page = 1, limit 
   console.log('🔍 [FEED POST MODEL] getExplorePosts called');
   console.log('🔍 [FEED POST MODEL] userId:', userId);
   console.log('🔍 [FEED POST MODEL] Excluding contactIds count:', contactIds.length);
+  console.log('🔍 [FEED POST MODEL] Excluding followedPageIds count:', followedPageIds.length);
   
   // EXPLORE FEED LOGIC (Public posts from non-friends):
-  // 1. Public posts from users NOT in contacts
-  // 2. Public posts from pages NOT followed
-  // 3. Exclude own posts
+  // 1. Must be active and public
+  // 2. Exclude own posts
+  // 3. For user posts: exclude friends
+  // 4. For page posts: exclude followed pages
   
   const query = {
     isActive: true,
     privacy: 'public',
-    userId: { $ne: userId, $nin: contactIds }, // Exclude self and contacts
-    $or: [
-      // Public posts from non-contacts (not page posts)
-      { $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }] },
+    $and: [
+      // Exclude own posts
+      { userId: { $ne: userId } },
       
-      // Public page posts from pages NOT followed
+      // Either:
+      // - User post from non-friend
+      // - Page post from non-followed page
       {
-        isPagePost: true,
-        pageId: { $nin: followedPageIds }
+        $or: [
+          // User posts (not page posts) from non-friends
+          {
+            $and: [
+              { $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }] },
+              { userId: { $nin: contactIds } }
+            ]
+          },
+          
+          // Page posts from non-followed pages
+          {
+            $and: [
+              { isPagePost: true },
+              { pageId: { $nin: followedPageIds } }
+            ]
+          }
+        ]
       }
     ]
   };
+  
+  console.log('🔍 [FEED POST MODEL] Query:', JSON.stringify(query, null, 2));
   
   const posts = await this.find(query)
     .sort({ createdAt: -1 })
@@ -311,6 +331,21 @@ feedPostSchema.statics.getExplorePosts = async function(userId, page = 1, limit 
     .lean();
   
   console.log('🔍 [FEED POST MODEL] Found', posts.length, 'posts for Explore feed');
+  
+  // Debug: Show first post details if available
+  if (posts.length > 0) {
+    console.log('🔍 [FEED POST MODEL] Sample post:', {
+      _id: posts[0]._id,
+      userId: posts[0].userId,
+      privacy: posts[0].privacy,
+      isPagePost: posts[0].isPagePost,
+      caption: posts[0].caption?.substring(0, 50)
+    });
+  } else {
+    // Debug: Check if there are ANY public posts
+    const totalPublicPosts = await this.countDocuments({ isActive: true, privacy: 'public' });
+    console.log('🔍 [FEED POST MODEL] Total public posts in DB:', totalPublicPosts);
+  }
   
   return posts;
 };
