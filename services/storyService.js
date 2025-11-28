@@ -574,17 +574,8 @@ class StoryService {
     try {
       console.log('🔍 Getting contacts for user:', currentUserId);
       
-      // If contacts array is provided from frontend (home tab), use it directly
-      if (contactsArray && Array.isArray(contactsArray) && contactsArray.length > 0) {
-        const contactIds = contactsArray
-          .filter(contact => contact && (contact.userId || contact.id))
-          .map(contact => contact.userId || contact.id);
-        
-        console.log('📋 Using provided contacts array:', contactIds.length, 'contacts');
-        return contactIds;
-      }
-      
-      // Fallback: Use Friend model to get accepted friends
+      // ALWAYS use Friend model to get actual friends (privacy enforcement)
+      // This ensures stories only show to accepted friends, not random contacts
       try {
         const Friend = require('../models/Friend');
         const friends = await Friend.getFriends(currentUserId, {
@@ -599,10 +590,22 @@ class StoryService {
             .map(friend => friend.friendUserId);
           
           console.log('📋 Found friends from Friend model:', friendIds.length, 'friends');
+          console.log('📋 Friend IDs:', friendIds);
           return friendIds;
         }
       } catch (friendModelError) {
         console.error('❌ Error getting friends from Friend model:', friendModelError);
+      }
+      
+      // If contacts array is provided from frontend, use it as fallback but only for actual friends
+      if (contactsArray && Array.isArray(contactsArray) && contactsArray.length > 0) {
+        console.log('⚠️ Friend model failed, using contacts array as fallback (privacy may be compromised)');
+        const contactIds = contactsArray
+          .filter(contact => contact && (contact.userId || contact.id))
+          .map(contact => contact.userId || contact.id);
+        
+        console.log('📋 Using provided contacts array as fallback:', contactIds.length, 'contacts');
+        return contactIds;
       }
       
       // No contacts found - return empty array
