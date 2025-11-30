@@ -5,15 +5,23 @@
 
 require('dotenv').config();
 const mongoose = require('mongoose');
-const Story = require('./models/storyModel');
-const User = require('./models/userModel');
-const Friend = require('./models/Friend');
+
+// Suppress mongoose deprecation warnings
+mongoose.set('strictQuery', false);
 
 async function testStoryVisibility() {
   try {
-    // Connect to MongoDB
-    await mongoose.connect(process.env.MONGODB_URI);
+    // Connect to MongoDB with options to suppress warnings
+    await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
     console.log('✅ Connected to MongoDB\n');
+
+    // Import models after connection to avoid index warnings
+    const Story = require('./models/storyModel');
+    const User = require('./models/userModel');
+    const Friend = require('./models/Friend');
 
     // Get all users
     const users = await User.find({}).select('userId name username').limit(5);
@@ -129,10 +137,23 @@ async function testStoryVisibility() {
     console.log(`  - Stories visible to User 2: ${visibleStories.length}`);
 
     console.log('\n✅ Test complete!');
+    
+    // Close MongoDB connection
+    await mongoose.connection.close();
+    console.log('🔌 MongoDB connection closed');
     process.exit(0);
 
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('❌ Error:', error.message);
+    console.error('Stack:', error.stack);
+    
+    // Close connection on error
+    try {
+      await mongoose.connection.close();
+    } catch (closeError) {
+      // Ignore close errors
+    }
+    
     process.exit(1);
   }
 }
