@@ -60,25 +60,54 @@ const upload = multer({
 // All routes require authentication
 router.use(protect);
 
+// Apply input sanitization to all routes
+router.use(sanitizeDocumentInput);
+
 // Doc Space Management
-router.get('/', docSpaceController.getDocSpace);
-router.post('/upload', upload.single('document'), docSpaceController.uploadDocument);
-router.delete('/document/:documentId', docSpaceController.deleteDocument);
+router.get('/', logSecurityEvent('GET_DOC_SPACE'), docSpaceController.getDocSpace);
+router.post('/upload', 
+  documentUploadLimiter,
+  logSecurityEvent('UPLOAD_DOCUMENT'),
+  upload.single('document'), 
+  validateFileContent,
+  docSpaceController.uploadDocument
+);
+router.delete('/document/:documentId', 
+  logSecurityEvent('DELETE_DOCUMENT'),
+  docSpaceController.deleteDocument
+);
 
 // Access Management
 router.get('/friends', docSpaceController.getFriendsForAccess);
-router.post('/grant-access', docSpaceController.grantGeneralAccess);
-router.delete('/revoke-access/:friendUserId', docSpaceController.revokeGeneralAccess);
+router.post('/grant-access', 
+  logSecurityEvent('GRANT_ACCESS'),
+  docSpaceController.grantGeneralAccess
+);
+router.delete('/revoke-access/:friendUserId', 
+  logSecurityEvent('REVOKE_ACCESS'),
+  docSpaceController.revokeGeneralAccess
+);
 router.get('/access-list', docSpaceController.getAccessList);
 
 // Document Requests
-router.post('/request-document', docSpaceController.requestDocument);
+router.post('/request-document', 
+  documentRequestLimiter,
+  logSecurityEvent('REQUEST_DOCUMENT'),
+  docSpaceController.requestDocument
+);
 router.get('/requests/received', docSpaceController.getReceivedRequests);
 router.get('/requests/sent', docSpaceController.getSentRequests);
-router.post('/requests/:requestId/respond', docSpaceController.respondToRequest);
+router.post('/requests/:requestId/respond', 
+  logSecurityEvent('RESPOND_TO_REQUEST'),
+  docSpaceController.respondToRequest
+);
 
 // Document Access
-router.get('/document/:ownerId/:documentType', docSpaceController.getDocument);
+router.get('/document/:ownerId/:documentType', 
+  validateDocumentAccess,
+  logSecurityEvent('ACCESS_DOCUMENT'),
+  docSpaceController.getDocument
+);
 router.get('/document/:documentId/access-log', docSpaceController.getAccessLog);
 
 module.exports = router;

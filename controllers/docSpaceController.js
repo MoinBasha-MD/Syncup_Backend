@@ -204,14 +204,29 @@ exports.grantGeneralAccess = async (req, res) => {
     const userId = req.user.userId;
     const { friendUserIds } = req.body; // Array of friend user IDs
     
-    if (!Array.isArray(friendUserIds) || friendUserIds.length === 0) {
+    if (!Array.isArray(friendUserIds)) {
       return res.status(400).json({
         success: false,
-        message: 'Friend user IDs array is required'
+        message: 'Friend user IDs must be an array'
       });
     }
     
     const docSpace = await DocSpace.getOrCreate(userId);
+    
+    // If empty array, clear all general access
+    if (friendUserIds.length === 0) {
+      docSpace.generalAccessList = [];
+      await docSpace.save();
+      
+      console.log(`✅ [DOC SPACE] All general access cleared for user ${userId}`);
+      
+      return res.json({
+        success: true,
+        message: 'All access cleared',
+        docSpace
+      });
+    }
+    
     const currentUser = await User.findOne({ userId });
     
     // Get friend details
@@ -220,6 +235,9 @@ exports.grantGeneralAccess = async (req, res) => {
       friendUserId: { $in: friendUserIds },
       status: 'accepted'
     });
+    
+    // Clear existing access and grant to selected friends only
+    docSpace.generalAccessList = [];
     
     // Grant access to each friend
     for (const friend of friends) {
