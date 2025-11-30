@@ -43,20 +43,20 @@ const documentUploadLimiter = rateLimit({
 const sanitizeDocumentInput = (req, res, next) => {
   try {
     // Sanitize all string inputs to prevent MongoDB injection
-    if (req.body) {
+    if (req.body && typeof req.body === 'object') {
       req.body = mongoSanitize.sanitize(req.body);
     }
     
-    if (req.params) {
+    if (req.params && typeof req.params === 'object') {
       req.params = mongoSanitize.sanitize(req.params);
     }
     
-    if (req.query) {
+    if (req.query && typeof req.query === 'object') {
       req.query = mongoSanitize.sanitize(req.query);
     }
     
     // Additional XSS protection for text fields
-    if (req.body.customName) {
+    if (req.body && req.body.customName && typeof req.body.customName === 'string') {
       req.body.customName = validator.escape(req.body.customName.trim());
       
       // Validate length
@@ -68,7 +68,7 @@ const sanitizeDocumentInput = (req, res, next) => {
       }
     }
     
-    if (req.body.requestMessage) {
+    if (req.body && req.body.requestMessage && typeof req.body.requestMessage === 'string') {
       req.body.requestMessage = validator.escape(req.body.requestMessage.trim());
       
       // Validate length
@@ -80,7 +80,7 @@ const sanitizeDocumentInput = (req, res, next) => {
       }
     }
     
-    if (req.body.responseMessage) {
+    if (req.body && req.body.responseMessage && typeof req.body.responseMessage === 'string') {
       req.body.responseMessage = validator.escape(req.body.responseMessage.trim());
       
       // Validate length
