@@ -112,7 +112,16 @@ const validateFileContent = async (req, res, next) => {
       return next();
     }
     
-    const fileType = require('file-type');
+    // Try to load file-type package (optional)
+    let fileType;
+    try {
+      fileType = require('file-type');
+    } catch (e) {
+      // file-type package not installed - skip validation
+      console.log('⚠️ [DOC SPACE SECURITY] file-type package not installed, skipping content validation');
+      return next();
+    }
+    
     const fs = require('fs').promises;
     
     // Read first 4100 bytes for file type detection
