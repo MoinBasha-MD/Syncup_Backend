@@ -68,8 +68,7 @@ const sanitizeDocumentInput = (req, res, next) => {
       }
     }
     
-    // Additional XSS protection for text fields
-    if (req.body.requestMessage) {
+    if (req.body && req.body.requestMessage && typeof req.body.requestMessage === 'string') {
       req.body.requestMessage = validator.escape(req.body.requestMessage.trim());
       
       // Validate length
