@@ -349,6 +349,111 @@ class EnhancedNotificationService {
   }
 
   /**
+   * Send document access notification (when someone accesses your document)
+   */
+  async sendDocumentAccessNotification(ownerId, accessorId, accessorName, documentType) {
+    try {
+      console.log(`📄 [NOTIFICATION] Document accessed: ${documentType} by ${accessorName}`);
+      
+      const notificationData = {
+        type: 'document_access',
+        title: 'Document Accessed',
+        body: `${accessorName} accessed your ${documentType}`,
+        data: {
+          accessorId,
+          accessorName,
+          documentType,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      // Send WebSocket notification
+      const socketSuccess = broadcastToUser(ownerId, 'notification:document:access', notificationData);
+      
+      if (socketSuccess) {
+        this.notificationStats.totalSent++;
+        this.notificationStats.totalDelivered++;
+      }
+      
+      return socketSuccess;
+    } catch (error) {
+      console.error('❌ Error sending document access notification:', error);
+      this.notificationStats.totalFailed++;
+      return false;
+    }
+  }
+
+  /**
+   * Send document request notification (when someone requests your document)
+   */
+  async sendDocumentRequestNotification(ownerId, requesterId, requesterName, documentType) {
+    try {
+      console.log(`📄 [NOTIFICATION] Document requested: ${documentType} by ${requesterName}`);
+      
+      const notificationData = {
+        type: 'document_request',
+        title: 'Document Request',
+        body: `${requesterName} is requesting your ${documentType}`,
+        data: {
+          requesterId,
+          requesterName,
+          documentType,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      // Send WebSocket notification
+      const socketSuccess = broadcastToUser(ownerId, 'notification:document:request', notificationData);
+      
+      if (socketSuccess) {
+        this.notificationStats.totalSent++;
+        this.notificationStats.totalDelivered++;
+      }
+      
+      return socketSuccess;
+    } catch (error) {
+      console.error('❌ Error sending document request notification:', error);
+      this.notificationStats.totalFailed++;
+      return false;
+    }
+  }
+
+  /**
+   * Send document shared notification (when someone shares a document with you)
+   */
+  async sendDocumentSharedNotification(receiverId, senderId, senderName, documentType) {
+    try {
+      console.log(`📄 [NOTIFICATION] Document shared: ${documentType} by ${senderName}`);
+      
+      const notificationData = {
+        type: 'document_shared',
+        title: 'Document Shared',
+        body: `${senderName} shared their ${documentType} with you`,
+        data: {
+          senderId,
+          senderName,
+          documentType,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      // Send WebSocket notification
+      const socketSuccess = broadcastToUser(receiverId, 'notification:document:shared', notificationData);
+      
+      if (socketSuccess) {
+        this.notificationStats.totalSent++;
+        this.notificationStats.totalDelivered++;
+      }
+      
+      return socketSuccess;
+    } catch (error) {
+      console.error('❌ Error sending document shared notification:', error);
+      this.notificationStats.totalFailed++;
+      return false;
+    }
+  }
+
+  /**
    * Test notification system
    */
   async testNotificationSystem(userId) {

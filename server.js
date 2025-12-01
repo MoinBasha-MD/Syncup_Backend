@@ -252,6 +252,7 @@ app.use('/api/agents', apiLimiter, agentRoutes); // Agentic framework management
 app.use('/api/pages', apiLimiter, pageRoutes); // Pages management routes (Phase 1)
 app.use('/api/daily-schedule', apiLimiter, dailyScheduleRoutes); // Daily schedule management routes
 app.use('/api/doc-space', apiLimiter, docSpaceRoutes); // Doc Space management routes (Maya AI document sharing)
+app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Serve static files from the uploads directory
