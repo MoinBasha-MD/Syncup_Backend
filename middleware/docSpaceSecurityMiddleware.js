@@ -55,8 +55,8 @@ const sanitizeDocumentInput = (req, res, next) => {
       req.query = mongoSanitize.sanitize(req.query);
     }
     
-    // Additional XSS protection for text fields
-    if (req.body.customName) {
+    // Additional XSS protection for text fields - only if req.body exists
+    if (req.body && req.body.customName && typeof req.body.customName === 'string') {
       req.body.customName = validator.escape(req.body.customName.trim());
       
       // Validate length
