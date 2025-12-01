@@ -51,6 +51,7 @@
     "express-rate-limit": "^7.5.0",
     "express-session": "^1.18.2",
     "express-validator": "^7.2.1",
+    "file-type": "^16.5.4",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
     "https": "^1.0.0",
