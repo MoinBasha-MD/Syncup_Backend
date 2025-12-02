@@ -165,7 +165,20 @@ exports.getPeopleISharedWith = async (req, res) => {
     // Find user's DocSpace
     const docSpace = await DocSpace.findOne({ userId });
 
-    if (!docSpace || !docSpace.documentSpecificAccess || docSpace.documentSpecificAccess.length === 0) {
+    if (!docSpace) {
+      console.log('❌ [DOC SHARE] No doc space found for user:', userId);
+      return res.json({
+        success: true,
+        people: [],
+        totalCount: 0,
+      });
+    }
+
+    console.log('📊 [DOC SHARE] DocSpace found');
+    console.log('📊 [DOC SHARE] Total documentSpecificAccess entries:', docSpace.documentSpecificAccess?.length || 0);
+
+    if (!docSpace.documentSpecificAccess || docSpace.documentSpecificAccess.length === 0) {
+      console.log('⚠️ [DOC SHARE] No documentSpecificAccess entries found');
       return res.json({
         success: true,
         people: [],
@@ -176,12 +189,28 @@ exports.getPeopleISharedWith = async (req, res) => {
     // Collect all unique people user has shared with from documentSpecificAccess
     const peopleMap = new Map();
 
+    console.log('🔄 [DOC SHARE] Processing documentSpecificAccess entries...');
+    
     for (const access of docSpace.documentSpecificAccess) {
+      console.log('📄 [DOC SHARE] Access entry:', {
+        userId: access.userId,
+        userName: access.userName,
+        documentId: access.documentId,
+        isRevoked: access.isRevoked,
+        expiryDate: access.expiryDate
+      });
+      
       // Skip revoked access
-      if (access.isRevoked) continue;
+      if (access.isRevoked) {
+        console.log('⏭️ [DOC SHARE] Skipping revoked access');
+        continue;
+      }
       
       // Skip expired access
-      if (access.expiryDate && new Date() > new Date(access.expiryDate)) continue;
+      if (access.expiryDate && new Date() > new Date(access.expiryDate)) {
+        console.log('⏭️ [DOC SHARE] Skipping expired access');
+        continue;
+      }
       
       const sharedUserId = access.userId;
       
@@ -543,6 +572,9 @@ exports.shareDocumentEnhanced = async (req, res) => {
     }
 
     await docSpace.save();
+
+    console.log('✅ [SHARE ENHANCED] Document shared successfully');
+    console.log('📊 [SHARE ENHANCED] Total documentSpecificAccess entries:', docSpace.documentSpecificAccess.length);
 
     res.json({
       success: true,
