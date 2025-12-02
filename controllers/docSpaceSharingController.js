@@ -534,7 +534,8 @@ exports.shareDocumentEnhanced = async (req, res) => {
       permissionType = 'download',
       accessType = 'permanent',
       expiryDate = null,
-      viewLimit = null
+      viewLimit = null,
+      downloadLimit = null
     } = req.body;
 
     console.log('📤 [SHARE ENHANCED] Request:', {
@@ -576,6 +577,8 @@ exports.shareDocumentEnhanced = async (req, res) => {
       existingAccess.expiryDate = expiryDate;
       existingAccess.viewLimit = viewLimit;
       existingAccess.viewCount = 0;
+      existingAccess.downloadLimit = downloadLimit;
+      existingAccess.downloadCount = 0;
       existingAccess.isRevoked = false;
     } else {
       docSpace.documentSpecificAccess.push({
@@ -587,6 +590,8 @@ exports.shareDocumentEnhanced = async (req, res) => {
         expiryDate,
         viewLimit,
         viewCount: 0,
+        downloadLimit,
+        downloadCount: 0,
         grantedAt: new Date()
       });
     }
