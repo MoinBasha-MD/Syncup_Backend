@@ -259,6 +259,7 @@ app.use('/api/doc-space', apiLimiter, docSpaceRoutes); // Doc Space management r
 app.use('/api/doc-space-sharing', apiLimiter, docSpaceSharingRoutes); // Doc Space sharing with people view
 app.use('/api/doc-space', apiLimiter, docSpaceAnalyticsRoutes); // Doc Space analytics and access control
 app.use('/api/doc-space', apiLimiter, docSpaceSearchRoutes); // Doc Space search and collections
+app.use('/api/doc-space-download', apiLimiter, require('./routes/docSpaceDownloadRoutes')); // Doc Space file download with proper headers
 app.use('/api/categories', apiLimiter, categoryRoutes); // Document categories
 app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard

@@ -45,6 +45,29 @@ exports.uploadDocument = async (req, res) => {
       });
     }
     
+    // Only allow PDF files
+    const fileExt = path.extname(req.file.originalname).toLowerCase();
+    if (fileExt !== '.pdf') {
+      // Delete uploaded file
+      await fs.unlink(req.file.path);
+      
+      return res.status(400).json({
+        success: false,
+        message: 'Only PDF files are allowed. Please upload a PDF document.'
+      });
+    }
+    
+    // Validate MIME type as well
+    if (req.file.mimetype !== 'application/pdf') {
+      // Delete uploaded file
+      await fs.unlink(req.file.path);
+      
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid file type. Only PDF files are allowed.'
+      });
+    }
+    
     // Get or create doc space
     const docSpace = await DocSpace.getOrCreate(userId);
     
