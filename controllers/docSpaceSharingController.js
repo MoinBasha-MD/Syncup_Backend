@@ -165,7 +165,7 @@ exports.getPeopleISharedWith = async (req, res) => {
     // Find user's DocSpace
     const docSpace = await DocSpace.findOne({ userId });
 
-    if (!docSpace || docSpace.documents.length === 0) {
+    if (!docSpace || !docSpace.documentSpecificAccess || docSpace.documentSpecificAccess.length === 0) {
       return res.json({
         success: true,
         people: [],
@@ -173,43 +173,46 @@ exports.getPeopleISharedWith = async (req, res) => {
       });
     }
 
-    // Collect all unique people user has shared with
+    // Collect all unique people user has shared with from documentSpecificAccess
     const peopleMap = new Map();
 
-    for (const doc of docSpace.documents) {
-      for (const share of doc.sharedWith) {
-        if (share.hasAccess) {
-          const sharedUserId = share.userId.toString();
-          
-          if (!peopleMap.has(sharedUserId)) {
-            peopleMap.set(sharedUserId, {
-              userId: share.userId,
-              documentCount: 0,
-              lastSharedAt: null,
-            });
-          }
+    for (const access of docSpace.documentSpecificAccess) {
+      // Skip revoked access
+      if (access.isRevoked) continue;
+      
+      // Skip expired access
+      if (access.expiryDate && new Date() > new Date(access.expiryDate)) continue;
+      
+      const sharedUserId = access.userId;
+      
+      if (!peopleMap.has(sharedUserId)) {
+        peopleMap.set(sharedUserId, {
+          userId: access.userId,
+          userName: access.userName,
+          documentCount: 0,
+          lastSharedAt: null,
+        });
+      }
 
-          const person = peopleMap.get(sharedUserId);
-          person.documentCount += 1;
+      const person = peopleMap.get(sharedUserId);
+      person.documentCount += 1;
 
-          if (!person.lastSharedAt || new Date(share.sharedAt) > new Date(person.lastSharedAt)) {
-            person.lastSharedAt = share.sharedAt;
-          }
-        }
+      if (!person.lastSharedAt || new Date(access.grantedAt) > new Date(person.lastSharedAt)) {
+        person.lastSharedAt = access.grantedAt;
       }
     }
 
     // Populate user details
     const userIds = Array.from(peopleMap.keys());
-    const users = await User.find({ _id: { $in: userIds } })
-      .select('name profileImage');
+    const users = await User.find({ userId: { $in: userIds } })
+      .select('userId name username profileImage');
 
     const people = users.map(user => {
-      const personData = peopleMap.get(user._id.toString());
+      const personData = peopleMap.get(user.userId);
       return {
-        userId: user._id,
+        userId: user.userId,
         name: user.name,
-        username: user.name,
+        username: user.username || user.name,
         profileImage: user.profileImage,
         documentCount: personData.documentCount,
         lastSharedAt: personData.lastSharedAt,
@@ -264,29 +267,36 @@ exports.getDocumentsSharedWithPerson = async (req, res) => {
       });
     }
 
+    // Get document IDs shared with this person from documentSpecificAccess
+    const sharedDocumentIds = docSpace.documentSpecificAccess
+      .filter(access => 
+        access.userId === personId && 
+        !access.isRevoked &&
+        (!access.expiryDate || new Date() <= new Date(access.expiryDate))
+      )
+      .map(access => access.documentId);
+
     // Filter documents shared with this person
     const sharedDocuments = docSpace.documents
-      .filter(doc => 
-        doc.sharedWith.some(share => 
-          share.userId.toString() === personId && share.hasAccess
-        )
-      )
+      .filter(doc => sharedDocumentIds.includes(doc.documentId))
       .map(doc => {
-        const personShare = doc.sharedWith.find(s => 
-          s.userId.toString() === personId
+        const access = docSpace.documentSpecificAccess.find(a => 
+          a.documentId === doc.documentId && a.userId === personId
         );
         
         return {
-          documentId: doc._id,
+          documentId: doc.documentId,
           documentType: doc.documentType,
           customName: doc.customName,
           fileUrl: doc.fileUrl,
           fileSize: doc.fileSize,
           uploadedAt: doc.uploadedAt,
-          sharedAt: personShare.sharedAt,
-          expiresAt: personShare.expiresAt,
-          accessCount: personShare.accessCount || 0,
-          lastAccessedAt: personShare.lastAccessedAt,
+          sharedAt: access.grantedAt,
+          expiresAt: access.expiryDate,
+          accessCount: access.viewCount || 0,
+          lastAccessedAt: access.lastAccessedAt,
+          permissionType: access.permissionType,
+          accessType: access.accessType,
         };
       })
       .sort((a, b) => new Date(b.sharedAt) - new Date(a.sharedAt));
@@ -478,20 +488,34 @@ exports.shareDocumentEnhanced = async (req, res) => {
       viewLimit = null
     } = req.body;
 
+    console.log('📤 [SHARE ENHANCED] Request:', {
+      ownerId,
+      documentId,
+      recipientUserId,
+      permissionType,
+      accessType
+    });
+
     const docSpace = await DocSpace.findOne({ userId: ownerId });
     if (!docSpace) {
+      console.error('❌ [SHARE ENHANCED] Doc space not found for owner:', ownerId);
       return res.status(404).json({ success: false, message: 'Doc space not found' });
     }
 
     const document = docSpace.documents.find(doc => doc.documentId === documentId);
     if (!document) {
+      console.error('❌ [SHARE ENHANCED] Document not found:', documentId);
+      console.log('Available documents:', docSpace.documents.map(d => d.documentId));
       return res.status(404).json({ success: false, message: 'Document not found' });
     }
 
     const recipient = await User.findOne({ userId: recipientUserId });
     if (!recipient) {
+      console.error('❌ [SHARE ENHANCED] Recipient not found:', recipientUserId);
       return res.status(404).json({ success: false, message: 'Recipient not found' });
     }
+
+    console.log('✅ [SHARE ENHANCED] Found recipient:', recipient.name);
 
     const existingAccess = docSpace.documentSpecificAccess.find(
       access => access.documentId === documentId && access.userId === recipientUserId

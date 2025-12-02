@@ -229,7 +229,7 @@ const docSpaceSchema = new mongoose.Schema(
     settings: {
       maxDocuments: {
         type: Number,
-        default: 3,
+        default: 5,  // Changed from 3 to 5 - allows users to upload 5 documents
         min: 1,
         max: 10
       },
