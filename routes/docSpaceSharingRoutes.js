@@ -11,6 +11,7 @@ const docSpaceSharingController = require('../controllers/docSpaceSharingControl
 // Get people who shared documents with me
 router.get(
   '/shared-with-me/people',
+  protect,
   docSpaceSharingController.getPeopleWhoSharedWithMe
 );
 
@@ -47,6 +48,13 @@ router.post(
   '/access/:ownerId/documents/:documentId',
   protect,
   docSpaceSharingController.trackDocumentAccess
+);
+
+// Share document with enhanced access control
+router.post(
+  '/share-enhanced',
+  protect,
+  docSpaceSharingController.shareDocumentEnhanced
 );
 
 module.exports = router;

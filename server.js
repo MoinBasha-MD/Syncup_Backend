@@ -61,6 +61,9 @@ const pageRoutes = require('./routes/pageRoutes');
 const dailyScheduleRoutes = require('./routes/dailyScheduleRoutes');
 const docSpaceRoutes = require('./routes/docSpaceRoutes');
 const docSpaceSharingRoutes = require('./routes/docSpaceSharingRoutes');
+const docSpaceAnalyticsRoutes = require('./routes/docSpaceAnalyticsRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
+const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
@@ -254,6 +257,9 @@ app.use('/api/pages', apiLimiter, pageRoutes); // Pages management routes (Phase
 app.use('/api/daily-schedule', apiLimiter, dailyScheduleRoutes); // Daily schedule management routes
 app.use('/api/doc-space', apiLimiter, docSpaceRoutes); // Doc Space management routes (Maya AI document sharing)
 app.use('/api/doc-space-sharing', apiLimiter, docSpaceSharingRoutes); // Doc Space sharing with people view
+app.use('/api/doc-space', apiLimiter, docSpaceAnalyticsRoutes); // Doc Space analytics and access control
+app.use('/api/doc-space', apiLimiter, docSpaceSearchRoutes); // Doc Space search and collections
+app.use('/api/categories', apiLimiter, categoryRoutes); // Document categories
 app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 

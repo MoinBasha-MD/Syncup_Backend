@@ -13,7 +13,7 @@ const { sendNotification } = require('../services/enhancedNotificationService');
  */
 exports.getPeopleWhoSharedWithMe = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     console.log('📊 [DOC SHARE] Getting people who shared with user:', userId);
 
     // Find all DocSpaces where user has shared access
@@ -89,7 +89,7 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
  */
 exports.getDocumentsSharedByPerson = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     const { personId } = req.params;
     console.log(`📄 [DOC SHARE] Getting documents from ${personId} shared with ${userId}`);
 
@@ -159,7 +159,7 @@ exports.getDocumentsSharedByPerson = async (req, res) => {
  */
 exports.getPeopleISharedWith = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     console.log('📤 [DOC SHARE] Getting people user shared with:', userId);
 
     // Find user's DocSpace
@@ -238,7 +238,7 @@ exports.getPeopleISharedWith = async (req, res) => {
  */
 exports.getDocumentsSharedWithPerson = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     const { personId } = req.params;
     console.log(`📤 [DOC SHARE] Getting documents shared with ${personId}`);
 
@@ -319,7 +319,7 @@ exports.getDocumentsSharedWithPerson = async (req, res) => {
  */
 exports.revokeDocumentAccess = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     const { personId, documentId } = req.params;
     console.log(`🚫 [DOC SHARE] Revoking access: doc ${documentId} from person ${personId}`);
 
@@ -392,7 +392,7 @@ exports.revokeDocumentAccess = async (req, res) => {
  */
 exports.trackDocumentAccess = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     const { ownerId, documentId } = req.params;
     console.log(`👁️ [DOC SHARE] Tracking access: user ${userId} accessing doc ${documentId} from ${ownerId}`);
 
@@ -459,6 +459,75 @@ exports.trackDocumentAccess = async (req, res) => {
       message: 'Failed to track access',
       error: error.message,
     });
+  }
+};
+
+/**
+ * Share document with enhanced access control
+ * POST /api/doc-space-sharing/share-enhanced
+ */
+exports.shareDocumentEnhanced = async (req, res) => {
+  try {
+    const ownerId = req.user.userId;
+    const {
+      documentId,
+      recipientUserId,
+      permissionType = 'download',
+      accessType = 'permanent',
+      expiryDate = null,
+      viewLimit = null
+    } = req.body;
+
+    const docSpace = await DocSpace.findOne({ userId: ownerId });
+    if (!docSpace) {
+      return res.status(404).json({ success: false, message: 'Doc space not found' });
+    }
+
+    const document = docSpace.documents.find(doc => doc.documentId === documentId);
+    if (!document) {
+      return res.status(404).json({ success: false, message: 'Document not found' });
+    }
+
+    const recipient = await User.findOne({ userId: recipientUserId });
+    if (!recipient) {
+      return res.status(404).json({ success: false, message: 'Recipient not found' });
+    }
+
+    const existingAccess = docSpace.documentSpecificAccess.find(
+      access => access.documentId === documentId && access.userId === recipientUserId
+    );
+
+    if (existingAccess) {
+      existingAccess.permissionType = permissionType;
+      existingAccess.accessType = accessType;
+      existingAccess.expiryDate = expiryDate;
+      existingAccess.viewLimit = viewLimit;
+      existingAccess.viewCount = 0;
+      existingAccess.isRevoked = false;
+    } else {
+      docSpace.documentSpecificAccess.push({
+        documentId,
+        userId: recipientUserId,
+        userName: recipient.name,
+        permissionType,
+        accessType,
+        expiryDate,
+        viewLimit,
+        viewCount: 0,
+        grantedAt: new Date()
+      });
+    }
+
+    await docSpace.save();
+
+    res.json({
+      success: true,
+      message: 'Document shared successfully',
+      access: { documentId, recipientUserId, permissionType, accessType, expiryDate, viewLimit }
+    });
+  } catch (error) {
+    console.error('❌ [DOC SHARE ENHANCED] Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to share document', error: error.message });
   }
 };
 

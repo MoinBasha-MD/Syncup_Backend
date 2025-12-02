@@ -70,6 +70,55 @@ const docSpaceSchema = new mongoose.Schema(
         default: Date.now
       },
       
+      // Enhanced Access Control
+      accessControl: {
+        enabled: {
+          type: Boolean,
+          default: false
+        },
+        expiryDate: {
+          type: Date,
+          default: null
+        },
+        viewLimit: {
+          type: Number,
+          default: null // null = unlimited
+        },
+        viewCount: {
+          type: Number,
+          default: 0
+        },
+        downloadLimit: {
+          type: Number,
+          default: null // null = unlimited
+        },
+        downloadCount: {
+          type: Number,
+          default: 0
+        },
+        autoRevoke: {
+          type: Boolean,
+          default: false
+        }
+      },
+      
+      // Document Category & Tags
+      category: {
+        type: String,
+        enum: ['Identity', 'Financial', 'Medical', 'Education', 'Personal', 'Work', 'Other'],
+        default: 'Other'
+      },
+      
+      tags: [{
+        type: String,
+        maxlength: 30
+      }],
+      
+      isFavorite: {
+        type: Boolean,
+        default: false
+      },
+      
       // Track who accessed this document
       accessLog: [{
         userId: {
@@ -86,8 +135,16 @@ const docSpaceSchema = new mongoose.Schema(
         },
         accessType: {
           type: String,
-          enum: ['view', 'download'],
+          enum: ['view', 'download', 'share'],
           default: 'view'
+        },
+        ipAddress: {
+          type: String,
+          default: null
+        },
+        deviceInfo: {
+          type: String,
+          default: null
         }
       }]
     }],
@@ -130,13 +187,40 @@ const docSpaceSchema = new mongoose.Schema(
         type: Date,
         default: Date.now
       },
+      // Permission Level
+      permissionType: {
+        type: String,
+        enum: ['view', 'download', 'share'],
+        default: 'download'
+      },
+      // Access Duration
       accessType: {
         type: String,
-        enum: ['one-time', 'permanent'],
+        enum: ['one-time', 'limited', 'permanent'],
         default: 'permanent'
+      },
+      expiryDate: {
+        type: Date,
+        default: null
+      },
+      viewLimit: {
+        type: Number,
+        default: null // null = unlimited
+      },
+      viewCount: {
+        type: Number,
+        default: 0
       },
       usedAt: {
         type: Date, // For one-time access tracking
+        default: null
+      },
+      isRevoked: {
+        type: Boolean,
+        default: false
+      },
+      revokedAt: {
+        type: Date,
         default: null
       }
     }],
@@ -247,9 +331,24 @@ docSpaceSchema.statics.hasAccess = async function(ownerId, requesterId, document
     );
     
     if (specificAccess) {
+      // Check if revoked
+      if (specificAccess.isRevoked) {
+        return { hasAccess: false, accessType: null, reason: 'Access revoked' };
+      }
+      
+      // Check if expired
+      if (specificAccess.expiryDate && new Date() > new Date(specificAccess.expiryDate)) {
+        return { hasAccess: false, accessType: null, reason: 'Access expired' };
+      }
+      
       // Check if one-time access was already used
       if (specificAccess.accessType === 'one-time' && specificAccess.usedAt) {
-        return { hasAccess: false, accessType: null };
+        return { hasAccess: false, accessType: null, reason: 'One-time access already used' };
+      }
+      
+      // Check view limit
+      if (specificAccess.viewLimit && specificAccess.viewCount >= specificAccess.viewLimit) {
+        return { hasAccess: false, accessType: null, reason: 'View limit reached' };
       }
       
       return { hasAccess: true, accessType: 'document-specific', accessDetails: specificAccess };
