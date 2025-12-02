@@ -286,28 +286,48 @@ exports.getDocumentsSharedWithPerson = async (req, res) => {
     }
 
     // Get person details
-    const person = await User.findById(personId)
-      .select('name profileImage');
+    const person = await User.findOne({ userId: personId })
+      .select('userId name username profileImage');
 
     if (!person) {
+      console.error('❌ [DOC SHARE] Person not found:', personId);
       return res.status(404).json({
         success: false,
         message: 'Person not found',
       });
     }
 
+    console.log('✅ [DOC SHARE] Found person:', person.name);
+
     // Get document IDs shared with this person from documentSpecificAccess
+    console.log('📊 [DOC SHARE] Total documentSpecificAccess entries:', docSpace.documentSpecificAccess?.length || 0);
+    console.log('📊 [DOC SHARE] Looking for personId:', personId);
+    
     const sharedDocumentIds = docSpace.documentSpecificAccess
-      .filter(access => 
-        access.userId === personId && 
-        !access.isRevoked &&
-        (!access.expiryDate || new Date() <= new Date(access.expiryDate))
-      )
+      .filter(access => {
+        console.log('🔍 [DOC SHARE] Checking access:', {
+          accessUserId: access.userId,
+          personId: personId,
+          match: access.userId === personId,
+          isRevoked: access.isRevoked,
+          documentId: access.documentId
+        });
+        return access.userId === personId && 
+          !access.isRevoked &&
+          (!access.expiryDate || new Date() <= new Date(access.expiryDate));
+      })
       .map(access => access.documentId);
+
+    console.log('📄 [DOC SHARE] Shared document IDs:', sharedDocumentIds);
+    console.log('📄 [DOC SHARE] Total documents in docSpace:', docSpace.documents.length);
 
     // Filter documents shared with this person
     const sharedDocuments = docSpace.documents
-      .filter(doc => sharedDocumentIds.includes(doc.documentId))
+      .filter(doc => {
+        const included = sharedDocumentIds.includes(doc.documentId);
+        console.log(`📄 [DOC SHARE] Document ${doc.documentId} (${doc.documentType}): ${included ? 'INCLUDED' : 'EXCLUDED'}`);
+        return included;
+      })
       .map(doc => {
         const access = docSpace.documentSpecificAccess.find(a => 
           a.documentId === doc.documentId && a.userId === personId
