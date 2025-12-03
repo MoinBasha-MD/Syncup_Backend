@@ -14,7 +14,30 @@ const { sendNotification } = require('../services/enhancedNotificationService');
 exports.getPeopleWhoSharedWithMe = async (req, res) => {
   try {
     const userId = req.user.userId;
+    console.log('📊 [DOC SHARE] ========================================');
     console.log('📊 [DOC SHARE] Getting people who shared with user:', userId);
+    console.log('📊 [DOC SHARE] User type:', typeof userId);
+
+    // First, let's see ALL DocSpaces with documentSpecificAccess
+    const allDocSpaces = await DocSpace.find({
+      'documentSpecificAccess.0': { $exists: true }
+    }).select('userId documentSpecificAccess');
+    
+    console.log(`📊 [DOC SHARE] Total DocSpaces with ANY documentSpecificAccess: ${allDocSpaces.length}`);
+    
+    allDocSpaces.forEach((ds, index) => {
+      console.log(`📊 [DOC SHARE] DocSpace ${index + 1}:`, {
+        owner: ds.userId,
+        accessCount: ds.documentSpecificAccess.length,
+        accessEntries: ds.documentSpecificAccess.map(a => ({
+          userId: a.userId,
+          userIdType: typeof a.userId,
+          documentId: a.documentId,
+          isRevoked: a.isRevoked,
+          userName: a.userName
+        }))
+      });
+    });
 
     // Find all DocSpaces where user has documentSpecificAccess
     const sharedDocSpaces = await DocSpace.find({
@@ -22,7 +45,7 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
       'documentSpecificAccess.isRevoked': false,
     }).populate('userId', 'name username profileImage');
 
-    console.log(`📊 [DOC SHARE] Found ${sharedDocSpaces.length} DocSpaces with access`);
+    console.log(`📊 [DOC SHARE] Found ${sharedDocSpaces.length} DocSpaces with access for user ${userId}`);
 
     // Group by person
     const peopleMap = new Map();
@@ -30,12 +53,28 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
     sharedDocSpaces.forEach(docSpace => {
       const ownerId = docSpace.userId._id.toString();
       
+      console.log(`📄 [DOC SHARE] Processing DocSpace for owner: ${docSpace.userId.name} (${docSpace.userId._id})`);
+      console.log(`📄 [DOC SHARE] Total documentSpecificAccess entries: ${docSpace.documentSpecificAccess.length}`);
+      
       // Count documents shared with this user from documentSpecificAccess
-      const sharedAccess = docSpace.documentSpecificAccess.filter(access => 
-        access.userId === userId && 
-        !access.isRevoked &&
-        (!access.expiryDate || new Date() <= new Date(access.expiryDate))
-      );
+      const sharedAccess = docSpace.documentSpecificAccess.filter(access => {
+        const userIdMatch = access.userId === userId;
+        const notRevoked = !access.isRevoked;
+        const notExpired = !access.expiryDate || new Date() <= new Date(access.expiryDate);
+        
+        console.log(`📄 [DOC SHARE] Checking access:`, {
+          accessUserId: access.userId,
+          accessUserIdType: typeof access.userId,
+          targetUserId: userId,
+          targetUserIdType: typeof userId,
+          userIdMatch,
+          notRevoked,
+          notExpired,
+          willInclude: userIdMatch && notRevoked && notExpired
+        });
+        
+        return userIdMatch && notRevoked && notExpired;
+      });
 
       console.log(`📄 [DOC SHARE] Owner ${docSpace.userId.name}: ${sharedAccess.length} documents shared`);
 
@@ -593,12 +632,14 @@ exports.shareDocumentEnhanced = async (req, res) => {
     }
 
     console.log('✅ [SHARE ENHANCED] Found recipient:', recipient.name);
+    console.log('📊 [SHARE ENHANCED] Recipient userId:', recipientUserId, 'Type:', typeof recipientUserId);
 
     const existingAccess = docSpace.documentSpecificAccess.find(
       access => access.documentId === documentId && access.userId === recipientUserId
     );
 
     if (existingAccess) {
+      console.log('📝 [SHARE ENHANCED] Updating existing access');
       existingAccess.permissionType = permissionType;
       existingAccess.accessType = accessType;
       existingAccess.expiryDate = expiryDate;
@@ -608,7 +649,8 @@ exports.shareDocumentEnhanced = async (req, res) => {
       existingAccess.downloadCount = 0;
       existingAccess.isRevoked = false;
     } else {
-      docSpace.documentSpecificAccess.push({
+      console.log('📝 [SHARE ENHANCED] Creating new access entry');
+      const newAccess = {
         documentId,
         userId: recipientUserId,
         userName: recipient.name,
@@ -620,13 +662,22 @@ exports.shareDocumentEnhanced = async (req, res) => {
         downloadLimit,
         downloadCount: 0,
         grantedAt: new Date()
-      });
+      };
+      console.log('📝 [SHARE ENHANCED] New access object:', newAccess);
+      docSpace.documentSpecificAccess.push(newAccess);
     }
 
     await docSpace.save();
 
     console.log('✅ [SHARE ENHANCED] Document shared successfully');
     console.log('📊 [SHARE ENHANCED] Total documentSpecificAccess entries:', docSpace.documentSpecificAccess.length);
+    console.log('📊 [SHARE ENHANCED] All access entries:', docSpace.documentSpecificAccess.map(a => ({
+      documentId: a.documentId,
+      userId: a.userId,
+      userIdType: typeof a.userId,
+      userName: a.userName,
+      isRevoked: a.isRevoked
+    })));
 
     res.json({
       success: true,
