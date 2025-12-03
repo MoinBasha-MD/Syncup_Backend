@@ -53,8 +53,7 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
     const ownerUserIds = [...new Set(sharedDocSpaces.map(ds => ds.userId))];
     console.log(`📊 [DOC SHARE] Fetching owner data for ${ownerUserIds.length} users:`, ownerUserIds);
     
-    // Fetch owner user data
-    const User = require('../models/User');
+    // Fetch owner user data (User model already imported at top)
     const owners = await User.find({ userId: { $in: ownerUserIds } })
       .select('userId name username profileImage');
     
