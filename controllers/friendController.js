@@ -140,13 +140,24 @@ class FriendController {
       
       const result = await friendService.sendFriendRequest(userId, targetUserId, metadata);
       
-      console.log('✅ [FRIEND CONTROLLER] Friend request sent successfully');
-      
-      res.status(201).json({
-        success: true,
-        data: result,
-        message: 'Friend request sent successfully'
-      });
+      // Check if this was an auto-accept (both users sent requests to each other)
+      if (result.autoAccepted) {
+        console.log('✅ [FRIEND CONTROLLER] Friend requests auto-accepted - now friends!');
+        
+        res.status(200).json({
+          success: true,
+          data: result,
+          message: result.message || 'You both sent requests! You are now friends.'
+        });
+      } else {
+        console.log('✅ [FRIEND CONTROLLER] Friend request sent successfully');
+        
+        res.status(201).json({
+          success: true,
+          data: result,
+          message: 'Friend request sent successfully'
+        });
+      }
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error sending friend request:', error);
       res.status(error.statusCode || 500);

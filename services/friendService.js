@@ -135,7 +135,7 @@ class FriendService {
         throw new Error('Friend user not found');
       }
       
-      // Check if friendship already exists
+      // Check if friendship already exists (sender → recipient)
       const existingFriendship = await Friend.findOne({
         userId,
         friendUserId,
@@ -150,6 +150,31 @@ class FriendService {
         } else if (existingFriendship.status === 'blocked') {
           throw new Error('Cannot send friend request to blocked user');
         }
+      }
+      
+      // CRITICAL: Check if recipient already sent a request to sender (reverse direction)
+      const reverseRequest = await Friend.findOne({
+        userId: friendUserId,
+        friendUserId: userId,
+        status: 'pending',
+        isDeleted: false
+      });
+      
+      if (reverseRequest) {
+        console.log(`🔄 [FRIEND SERVICE] Found reverse pending request - auto-accepting!`);
+        
+        // Auto-accept the reverse request instead of creating a new one
+        const result = await this.acceptFriendRequest(reverseRequest._id.toString(), userId);
+        
+        return {
+          requestId: reverseRequest._id.toString(),
+          userId,
+          friendUserId,
+          status: 'accepted',
+          autoAccepted: true,
+          message: 'You both sent requests! You are now friends.',
+          ...result
+        };
       }
       
       // Check for mutual friends
@@ -574,7 +599,10 @@ class FriendService {
           
           await newFriendship.save();
           
-          // Create reciprocal friendship
+          // Get current user's data for reciprocal friendship cache
+          const currentUser = await User.findOne({ userId }).select('name profileImage username phoneNumber').lean();
+          
+          // Create reciprocal friendship (with CURRENT USER's data in cache, not registeredUser's)
           const reciprocalFriendship = new Friend({
             userId: registeredUser.userId,
             friendUserId: userId,
@@ -582,12 +610,12 @@ class FriendService {
             status: 'accepted',
             acceptedAt: now,
             isDeviceContact: true,
-            phoneNumber: registeredUser.phoneNumber,
+            phoneNumber: currentUser?.phoneNumber || null,
             lastDeviceSync: now,
             cachedData: {
-              name: registeredUser.name,
-              profileImage: registeredUser.profileImage || '',
-              username: registeredUser.username || '',
+              name: currentUser?.name || 'Unknown',
+              profileImage: currentUser?.profileImage || '',
+              username: currentUser?.username || '',
               lastCacheUpdate: now
             }
           });
