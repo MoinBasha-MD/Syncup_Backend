@@ -137,7 +137,7 @@ exports.startSession = async (req, res) => {
     }
     
     // Verify contact/connection (using 'contacts' field, not 'friends')
-    const user = await User.findById(userObjectId).select('contacts appConnections userId name profileImage currentLocation');
+    const user = await User.findById(userObjectId).select('userId name profileImage currentLocation');
     if (!user) {
       console.log('❌ [LOCATION SHARING] User not found:', userObjectId);
       return res.status(404).json({
@@ -146,35 +146,22 @@ exports.startSession = async (req, res) => {
       });
     }
     
-    // Convert friendId to string for comparison
-    const friendIdStr = friendId.toString();
+    // Check if they are friends using the Friend model
+    const Friend = require('../models/Friend');
+    const areFriends = await Friend.areFriends(userId, friendId);
     
-    // Check if friend is in contacts (device contacts)
-    const isContact = user.contacts && user.contacts.some(
-      c => c.toString() === friendIdStr
-    );
-    
-    // Check if friend is in app connections
-    const isAppConnection = user.appConnections && user.appConnections.some(
-      conn => conn.userId === friendIdStr
-    );
-    
-    const hasConnection = isContact || isAppConnection;
-    
-    if (!hasConnection) {
-      console.log('⚠️ [LOCATION SHARING] Not connected:', { 
+    if (!areFriends) {
+      console.log('⚠️ [LOCATION SHARING] Not friends:', { 
         userId, 
-        friendId, 
-        hasContacts: user.contacts?.length > 0,
-        hasAppConnections: user.appConnections?.length > 0 
+        friendId
       });
       return res.status(403).json({
         success: false,
-        message: 'Not connected with this user'
+        message: 'You must be friends to share live location'
       });
     }
     
-    console.log('✅ [LOCATION SHARING] Connection verified:', { userId, friendId, isContact, isAppConnection });
+    console.log('✅ [LOCATION SHARING] Friendship verified:', { userId, friendId });
     
     // Convert friendId (UUID) to MongoDB ObjectId
     // friendId is a UUID string, we need to find the friend's MongoDB _id
