@@ -39,10 +39,12 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
       });
     });
 
-    // Find all DocSpaces where user has documentSpecificAccess
+    // Find all DocSpaces where user has documentSpecificAccess OR generalAccessList
     const sharedDocSpaces = await DocSpace.find({
-      'documentSpecificAccess.userId': userId,
-      'documentSpecificAccess.isRevoked': false,
+      $or: [
+        { 'documentSpecificAccess.userId': userId, 'documentSpecificAccess.isRevoked': false },
+        { 'generalAccessList.userId': userId }
+      ]
     }).populate('userId', 'name username profileImage');
 
     console.log(`📊 [DOC SHARE] Found ${sharedDocSpaces.length} DocSpaces with access for user ${userId}`);
@@ -55,30 +57,57 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
       
       console.log(`📄 [DOC SHARE] Processing DocSpace for owner: ${docSpace.userId.name} (${docSpace.userId._id})`);
       console.log(`📄 [DOC SHARE] Total documentSpecificAccess entries: ${docSpace.documentSpecificAccess.length}`);
+      console.log(`📄 [DOC SHARE] Total generalAccessList entries: ${docSpace.generalAccessList.length}`);
       
-      // Count documents shared with this user from documentSpecificAccess
-      const sharedAccess = docSpace.documentSpecificAccess.filter(access => {
-        const userIdMatch = access.userId === userId;
-        const notRevoked = !access.isRevoked;
-        const notExpired = !access.expiryDate || new Date() <= new Date(access.expiryDate);
-        
-        console.log(`📄 [DOC SHARE] Checking access:`, {
-          accessUserId: access.userId,
-          accessUserIdType: typeof access.userId,
-          targetUserId: userId,
-          targetUserIdType: typeof userId,
-          userIdMatch,
-          notRevoked,
-          notExpired,
-          willInclude: userIdMatch && notRevoked && notExpired
+      // Check if user has general access (access to ALL documents)
+      const hasGeneralAccess = docSpace.generalAccessList.some(access => access.userId === userId);
+      console.log(`📄 [DOC SHARE] User has general access: ${hasGeneralAccess}`);
+      
+      let documentCount = 0;
+      let lastSharedDate = null;
+      
+      if (hasGeneralAccess) {
+        // User has access to ALL documents
+        documentCount = docSpace.documents.length;
+        const generalAccessEntry = docSpace.generalAccessList.find(access => access.userId === userId);
+        lastSharedDate = generalAccessEntry.grantedAt;
+        console.log(`📄 [DOC SHARE] General access: ${documentCount} documents, granted at ${lastSharedDate}`);
+      } else {
+        // Count documents shared with this user from documentSpecificAccess
+        const sharedAccess = docSpace.documentSpecificAccess.filter(access => {
+          const userIdMatch = access.userId === userId;
+          const notRevoked = !access.isRevoked;
+          const notExpired = !access.expiryDate || new Date() <= new Date(access.expiryDate);
+          
+          console.log(`📄 [DOC SHARE] Checking access:`, {
+            accessUserId: access.userId,
+            accessUserIdType: typeof access.userId,
+            targetUserId: userId,
+            targetUserIdType: typeof userId,
+            userIdMatch,
+            notRevoked,
+            notExpired,
+            willInclude: userIdMatch && notRevoked && notExpired
+          });
+          
+          return userIdMatch && notRevoked && notExpired;
         });
         
-        return userIdMatch && notRevoked && notExpired;
-      });
+        documentCount = sharedAccess.length;
+        
+        // Get most recent share date
+        sharedAccess.forEach(access => {
+          if (access.grantedAt) {
+            if (!lastSharedDate || new Date(access.grantedAt) > new Date(lastSharedDate)) {
+              lastSharedDate = access.grantedAt;
+            }
+          }
+        });
+      }
 
-      console.log(`📄 [DOC SHARE] Owner ${docSpace.userId.name}: ${sharedAccess.length} documents shared`);
+      console.log(`📄 [DOC SHARE] Owner ${docSpace.userId.name}: ${documentCount} documents shared`);
 
-      if (sharedAccess.length > 0) {
+      if (documentCount > 0) {
         if (!peopleMap.has(ownerId)) {
           peopleMap.set(ownerId, {
             userId: docSpace.userId._id,
@@ -91,16 +120,14 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
         }
 
         const person = peopleMap.get(ownerId);
-        person.documentCount += sharedAccess.length;
+        person.documentCount += documentCount;
 
-        // Get most recent share date
-        sharedAccess.forEach(access => {
-          if (access.grantedAt) {
-            if (!person.lastSharedAt || new Date(access.grantedAt) > new Date(person.lastSharedAt)) {
-              person.lastSharedAt = access.grantedAt;
-            }
+        // Update last shared date
+        if (lastSharedDate) {
+          if (!person.lastSharedAt || new Date(lastSharedDate) > new Date(person.lastSharedAt)) {
+            person.lastSharedAt = lastSharedDate;
           }
-        });
+        }
       }
     });
 
@@ -144,43 +171,71 @@ exports.getDocumentsSharedByPerson = async (req, res) => {
       });
     }
 
-    // Get document IDs shared with this user from documentSpecificAccess
-    const sharedAccess = docSpace.documentSpecificAccess.filter(access => 
-      access.userId === userId && 
-      !access.isRevoked &&
-      (!access.expiryDate || new Date() <= new Date(access.expiryDate))
-    );
+    // Check if user has general access (access to ALL documents)
+    const hasGeneralAccess = docSpace.generalAccessList.some(access => access.userId === userId);
+    console.log(`📊 [DOC SHARE] User has general access: ${hasGeneralAccess}`);
 
-    console.log(`📊 [DOC SHARE] Found ${sharedAccess.length} access entries for user`);
+    let sharedDocuments = [];
 
-    // Map access to actual documents
-    const sharedDocuments = sharedAccess
-      .map(access => {
-        const doc = docSpace.documents.find(d => d.documentId === access.documentId);
-        if (!doc) {
-          console.warn(`⚠️ [DOC SHARE] Document ${access.documentId} not found in docSpace`);
-          return null;
-        }
-        
-        return {
-          documentId: doc.documentId,
-          documentType: doc.documentType,
-          customName: doc.customName,
-          fileUrl: doc.fileUrl,
-          fileSize: doc.fileSize,
-          uploadedAt: doc.uploadedAt,
-          sharedAt: access.grantedAt,
-          expiresAt: access.expiryDate,
-          accessCount: access.viewCount || 0,
-          lastAccessedAt: access.lastAccessedAt || access.usedAt,
-          permissionType: access.permissionType,
-          accessType: access.accessType,
-        };
-      })
-      .filter(doc => doc !== null)
-      .sort((a, b) => new Date(b.sharedAt) - new Date(a.sharedAt));
+    if (hasGeneralAccess) {
+      // User has access to ALL documents
+      const generalAccessEntry = docSpace.generalAccessList.find(access => access.userId === userId);
+      
+      sharedDocuments = docSpace.documents.map(doc => ({
+        documentId: doc.documentId,
+        documentType: doc.documentType,
+        customName: doc.customName,
+        fileUrl: doc.fileUrl,
+        fileSize: doc.fileSize,
+        uploadedAt: doc.uploadedAt,
+        sharedAt: generalAccessEntry.grantedAt,
+        expiresAt: null,
+        accessCount: 0,
+        lastAccessedAt: null,
+        permissionType: 'download',
+        accessType: 'permanent',
+      })).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+      
+      console.log(`✅ [DOC SHARE] General access: ${sharedDocuments.length} documents from ${docSpace.userId.name}`);
+    } else {
+      // Get document IDs shared with this user from documentSpecificAccess
+      const sharedAccess = docSpace.documentSpecificAccess.filter(access => 
+        access.userId === userId && 
+        !access.isRevoked &&
+        (!access.expiryDate || new Date() <= new Date(access.expiryDate))
+      );
 
-    console.log(`✅ [DOC SHARE] Found ${sharedDocuments.length} documents from ${docSpace.userId.name}`);
+      console.log(`📊 [DOC SHARE] Found ${sharedAccess.length} specific access entries for user`);
+
+      // Map access to actual documents
+      sharedDocuments = sharedAccess
+        .map(access => {
+          const doc = docSpace.documents.find(d => d.documentId === access.documentId);
+          if (!doc) {
+            console.warn(`⚠️ [DOC SHARE] Document ${access.documentId} not found in docSpace`);
+            return null;
+          }
+          
+          return {
+            documentId: doc.documentId,
+            documentType: doc.documentType,
+            customName: doc.customName,
+            fileUrl: doc.fileUrl,
+            fileSize: doc.fileSize,
+            uploadedAt: doc.uploadedAt,
+            sharedAt: access.grantedAt,
+            expiresAt: access.expiryDate,
+            accessCount: access.viewCount || 0,
+            lastAccessedAt: access.lastAccessedAt || access.usedAt,
+            permissionType: access.permissionType,
+            accessType: access.accessType,
+          };
+        })
+        .filter(doc => doc !== null)
+        .sort((a, b) => new Date(b.sharedAt) - new Date(a.sharedAt));
+
+      console.log(`✅ [DOC SHARE] Found ${sharedDocuments.length} documents from ${docSpace.userId.name}`);
+    }
 
     res.json({
       success: true,
