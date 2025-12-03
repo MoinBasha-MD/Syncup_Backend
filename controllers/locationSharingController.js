@@ -389,7 +389,7 @@ exports.getActiveSessions = async (req, res) => {
     const userId = req.user._id;
     
     const settings = await LocationSettings.findOne({ userId })
-      .populate('activeSessions.friendId', 'name profileImage');
+      .populate('activeSessions.friendId', 'userId name profileImage');
     
     if (!settings) {
       return res.json({
