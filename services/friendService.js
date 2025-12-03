@@ -1,7 +1,6 @@
 const Friend = require('../models/Friend');
 const User = require('../models/userModel');
 const friendWebSocketService = require('./friendWebSocketService');
-const { createPhoneNumberQuery, normalizePhoneNumber } = require('../utils/phoneNormalization');
 
 /**
  * FriendService - Business logic for friendship management
@@ -586,19 +585,13 @@ class FriendService {
         return { newFriends: [], removedContacts: [], totalFriends: 0 };
       }
       
-      // Log sample phone numbers for debugging
-      console.log(`📱 [SAMPLE NUMBERS] First 5: ${phoneNumbers.slice(0, 5).join(', ')}`);
-      
-      // Create phone number query with normalization
-      const phoneQuery = createPhoneNumberQuery(phoneNumbers);
-      
-      // Find registered users from phone numbers (with normalized matching)
+      // Find registered users from phone numbers
       const registeredUsers = await User.find({
-        ...phoneQuery,
+        phoneNumber: { $in: phoneNumbers },
         userId: { $ne: userId } // Exclude self
       }).select('userId name phoneNumber profileImage username').lean();
       
-      console.log(`📱 [FRIEND SERVICE] Found ${registeredUsers.length} registered users from ${phoneNumbers.length} device contacts`);
+      console.log(`📱 [FRIEND SERVICE] Found ${registeredUsers.length} registered users`);
       
       const newFriends = [];
       const now = new Date();

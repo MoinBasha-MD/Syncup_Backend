@@ -1,6 +1,5 @@
 const User = require('../models/userModel');
-const StatusPrivacy = require('../models/StatusPrivacy');
-const { createPhoneNumberQuery, normalizePhoneNumber } = require('../utils/phoneNormalization');
+const StatusPrivacy = require('../models/statusPrivacyModel');
 const { getAsync, setAsync } = require('../config/redis');
 
 /**
@@ -152,19 +151,40 @@ class ContactService {
         return [];
       }
 
-      console.log(`📞 [CONTACT SERVICE] Filtering ${phoneNumbers.length} phone numbers`);
-      console.log(`📞 [SAMPLE] First 3: ${phoneNumbers.slice(0, 3).join(', ')}`);
-
-      // Use comprehensive phone number normalization
-      const phoneQuery = createPhoneNumberQuery(phoneNumbers);
+      // Normalize phone numbers to ensure consistent format
+      const normalizedPhoneNumbers = phoneNumbers.map(phone => {
+        if (!phone) return null; // Skip empty or null phone numbers
+        
+        // Convert to string if not already
+        let phoneStr = String(phone);
+        
+        // First handle international format with country code
+        if (phoneStr.includes('+')) {
+          // Handle +91 (India) and other country codes
+          phoneStr = phoneStr.replace(/^\+\d{1,3}/, '');
+        }
+        
+        // Remove all non-numeric characters
+        let normalized = phoneStr.replace(/\D/g, '');
+        
+        // For numbers with leading 0, remove it
+        if (normalized.length > 10 && normalized.startsWith('0')) {
+          normalized = normalized.substring(1);
+        }
+        
+        // If we still have more than 10 digits, take the last 10
+        if (normalized.length > 10) {
+          normalized = normalized.slice(-10);
+        }
+        
+        return normalized;
+      }).filter(phone => phone); // Remove any null/empty values
       
-      // Find users with matching phone numbers (using normalized query)
+      // Find users with matching phone numbers
       const registeredUsers = await User.find(
-        phoneQuery,
+        { phoneNumber: { $in: normalizedPhoneNumbers } },
         '_id userId name phoneNumber email profileImage status customStatus statusUntil'
       );
-      
-      console.log(`📞 [CONTACT SERVICE] Found ${registeredUsers.length} registered users`);
       
       // Apply privacy filtering and format the response
       const filteredUsers = [];
@@ -224,18 +244,26 @@ class ContactService {
         throw error;
       }
       
-      console.log(`📞 [CONTACT SERVICE] Looking up phone: ${phoneNumber}`);
+      // Normalize phone number
+      let normalized = String(phoneNumber).replace(/\D/g, '');
       
-      // Use comprehensive phone number normalization
-      const phoneQuery = createPhoneNumberQuery([phoneNumber]);
+      // For numbers with leading 0, remove it
+      if (normalized.length > 10 && normalized.startsWith('0')) {
+        normalized = normalized.substring(1);
+      }
+      
+      // If we still have more than 10 digits, take the last 10
+      if (normalized.length > 10) {
+        normalized = normalized.slice(-10);
+      }
+      
+      console.log(`Looking for user with normalized phone number: ${normalized}`);
       
       // Find user with matching phone number
       const user = await User.findOne(
-        phoneQuery,
+        { phoneNumber: normalized },
         '_id userId name phoneNumber email profileImage status customStatus statusUntil'
       );
-      
-      console.log(`📞 [CONTACT SERVICE] User ${user ? 'found' : 'not found'}: ${user?.name || 'N/A'}`);
       
       if (!user) {
         const error = new Error('User not found');
