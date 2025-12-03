@@ -342,6 +342,29 @@ exports.stopSession = async (req, res) => {
     
     console.log(`✅ [LOCATION SHARING] Stopped session: ${userId} → ${friendId}`);
     
+    // Notify the friend via WebSocket that location sharing stopped
+    try {
+      const io = req.app.get('io');
+      const userSockets = req.app.get('userSockets');
+      
+      if (io && userSockets) {
+        const friendSocketId = userSockets.get(friendId);
+        if (friendSocketId) {
+          io.to(friendSocketId).emit('location_sharing_stopped', {
+            userId: req.user.userId,
+            userName: req.user.name,
+            timestamp: new Date().toISOString()
+          });
+          console.log(`✅ [LOCATION SHARING] Notified ${friendId} that sharing stopped`);
+        } else {
+          console.log(`⚠️ [LOCATION SHARING] Friend ${friendId} not connected to receive stop notification`);
+        }
+      }
+    } catch (socketError) {
+      console.error('❌ [LOCATION SHARING] Error notifying friend:', socketError);
+      // Don't fail the request if socket notification fails
+    }
+    
     res.json({
       success: true,
       message: 'Stopped sharing location',
