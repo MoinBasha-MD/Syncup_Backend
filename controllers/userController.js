@@ -123,11 +123,15 @@ const getUserProfile = async (req, res) => {
         name: user.name,
         phoneNumber: user.phoneNumber,
         email: user.email,
+        profileImage: user.profileImage,
         status: user.status,
         customStatus: user.customStatus,
         statusUntil: user.statusUntil,
         dateOfBirth: user.dateOfBirth,
-        gender: user.gender
+        gender: user.gender,
+        username: user.username,
+        bio: user.bio,
+        isPublic: user.isPublic
       });
     } else {
       res.status(404).json({ message: 'User not found' });
@@ -709,7 +713,7 @@ const getUserByPhone = async (req, res) => {
 // @access  Private
 const updateUserProfileWithDiscovery = async (req, res) => {
   try {
-    const { name, username, isPublic, dateOfBirth, gender } = req.body;
+    const { name, username, bio, isPublic, dateOfBirth, gender } = req.body;
     const user = await User.findById(req.user.id);
 
     if (!user) {
@@ -723,6 +727,16 @@ const updateUserProfileWithDiscovery = async (req, res) => {
     if (name) {
       user.name = name;
       user.searchableName = name.toLowerCase(); // Update searchable name
+    }
+    if (bio !== undefined) {
+      // Allow clearing bio or updating it
+      if (bio.length > 150) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bio must be 150 characters or less'
+        });
+      }
+      user.bio = bio;
     }
     if (typeof isPublic === 'boolean') user.isPublic = isPublic;
     if (dateOfBirth) user.dateOfBirth = dateOfBirth;
@@ -782,6 +796,7 @@ const updateUserProfileWithDiscovery = async (req, res) => {
         dateOfBirth: user.dateOfBirth,
         gender: user.gender,
         username: user.username,
+        bio: user.bio,
         isPublic: user.isPublic
       },
       message: 'Profile updated successfully'

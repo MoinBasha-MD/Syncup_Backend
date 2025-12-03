@@ -241,6 +241,11 @@ const userSchema = mongoose.Schema(
       maxlength: 20,
       match: [/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores']
     },
+    bio: {
+      type: String,
+      default: '',
+      maxlength: 150 // Limit bio to 150 characters
+    },
     searchableName: {
       type: String,
       index: true // For faster name-based searches
