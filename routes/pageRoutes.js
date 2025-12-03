@@ -225,6 +225,65 @@ router.get('/suggested', protect, async (req, res) => {
   }
 });
 
+// @route   GET /api/pages/my/pages
+// @desc    Get current user's pages
+// @access  Private
+router.get('/my/pages', protect, async (req, res) => {
+  try {
+    const pages = await Page.find({ owner: req.user._id })
+      .sort('-createdAt');
+
+    res.json({
+      success: true,
+      pages,
+      count: pages.length
+    });
+  } catch (error) {
+    console.error('❌ [PAGES] Error fetching my pages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch pages'
+    });
+  }
+});
+
+// @route   GET /api/pages/following
+// @desc    Get pages user is following
+// @access  Private
+router.get('/following', protect, async (req, res) => {
+  try {
+    console.log('📄 [PAGES] Fetching following pages for user:', req.user._id);
+    
+    const followedPages = await PageFollower.find({ 
+      userId: req.user._id 
+    })
+    .populate({
+      path: 'pageId',
+      populate: { path: 'owner', select: 'name username profileImage' }
+    })
+    .sort('-createdAt');
+    
+    // Filter out null pages (in case page was deleted)
+    const pages = followedPages
+      .map(f => f.pageId)
+      .filter(p => p != null);
+    
+    console.log(`✅ [PAGES] Found ${pages.length} following pages for user`);
+    
+    res.json({
+      success: true,
+      pages,
+      count: pages.length
+    });
+  } catch (error) {
+    console.error('❌ [PAGES] Error fetching following pages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch following pages'
+    });
+  }
+});
+
 // @route   GET /api/pages/:id
 // @desc    Get page by ID
 // @access  Public
@@ -416,28 +475,6 @@ router.get('/user/:userId', async (req, res) => {
   }
 });
 
-// @route   GET /api/pages/my/pages
-// @desc    Get current user's pages
-// @access  Private
-router.get('/my/pages', protect, async (req, res) => {
-  try {
-    const pages = await Page.find({ owner: req.user._id })
-      .sort('-createdAt');
-
-    res.json({
-      success: true,
-      pages,
-      count: pages.length
-    });
-  } catch (error) {
-    console.error('❌ [PAGES] Error fetching my pages:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch pages'
-    });
-  }
-});
-
 // @route   POST /api/pages/:id/follow
 // @desc    Follow a page
 // @access  Private
@@ -552,43 +589,6 @@ router.get('/:id/is-following', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to check follow status'
-    });
-  }
-});
-
-// @route   GET /api/pages/following
-// @desc    Get pages user is following
-// @access  Private
-router.get('/following', protect, async (req, res) => {
-  try {
-    console.log('📄 [PAGES] Fetching following pages for user:', req.user._id);
-    
-    const followedPages = await PageFollower.find({ 
-      userId: req.user._id 
-    })
-    .populate({
-      path: 'pageId',
-      populate: { path: 'owner', select: 'name username profileImage' }
-    })
-    .sort('-createdAt');
-    
-    // Filter out null pages (in case page was deleted)
-    const pages = followedPages
-      .map(f => f.pageId)
-      .filter(p => p != null);
-    
-    console.log(`✅ [PAGES] Found ${pages.length} following pages for user`);
-    
-    res.json({
-      success: true,
-      pages,
-      count: pages.length
-    });
-  } catch (error) {
-    console.error('❌ [PAGES] Error fetching following pages:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch following pages'
     });
   }
 });

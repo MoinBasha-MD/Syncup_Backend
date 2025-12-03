@@ -183,13 +183,23 @@ exports.getDocumentsSharedByPerson = async (req, res) => {
     console.log(`📄 [DOC SHARE] Getting documents from ${personId} shared with ${userId}`);
 
     // Find the person's DocSpace
-    const docSpace = await DocSpace.findOne({ userId: personId })
-      .populate('userId', 'name username profileImage');
+    const docSpace = await DocSpace.findOne({ userId: personId });
 
     if (!docSpace) {
       return res.status(404).json({
         success: false,
         message: 'Person not found or has no documents',
+      });
+    }
+    
+    // Fetch owner user data
+    const owner = await User.findOne({ userId: personId })
+      .select('userId name username profileImage');
+    
+    if (!owner) {
+      return res.status(404).json({
+        success: false,
+        message: 'Person not found',
       });
     }
 
@@ -218,7 +228,7 @@ exports.getDocumentsSharedByPerson = async (req, res) => {
         accessType: 'permanent',
       })).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
       
-      console.log(`✅ [DOC SHARE] General access: ${sharedDocuments.length} documents from ${docSpace.userId.name}`);
+      console.log(`✅ [DOC SHARE] General access: ${sharedDocuments.length} documents from ${owner.name}`);
     } else {
       // Get document IDs shared with this user from documentSpecificAccess
       const sharedAccess = docSpace.documentSpecificAccess.filter(access => 
@@ -256,16 +266,16 @@ exports.getDocumentsSharedByPerson = async (req, res) => {
         .filter(doc => doc !== null)
         .sort((a, b) => new Date(b.sharedAt) - new Date(a.sharedAt));
 
-      console.log(`✅ [DOC SHARE] Found ${sharedDocuments.length} documents from ${docSpace.userId.name}`);
+      console.log(`✅ [DOC SHARE] Found ${sharedDocuments.length} documents from ${owner.name}`);
     }
 
     res.json({
       success: true,
       owner: {
-        userId: docSpace.userId._id,
-        name: docSpace.userId.name,
-        username: docSpace.userId.username || docSpace.userId.name,
-        profileImage: docSpace.userId.profileImage,
+        userId: owner.userId,
+        name: owner.name,
+        username: owner.username || owner.name,
+        profileImage: owner.profileImage,
       },
       documents: sharedDocuments,
       totalCount: sharedDocuments.length,
