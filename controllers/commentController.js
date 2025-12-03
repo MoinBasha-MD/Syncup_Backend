@@ -1,6 +1,7 @@
 const Comment = require('../models/Comment');
 const FeedPost = require('../models/FeedPost');
 const User = require('../models/userModel');
+const mongoose = require('mongoose');
 
 // Create a comment on a post
 const createComment = async (req, res) => {
@@ -45,8 +46,23 @@ const createComment = async (req, res) => {
 
     await comment.save();
 
-    // Update post comment count
-    post.commentsCount += 1;
+    // Update post comment count (recalculate total including replies)
+    const totalComments = await Comment.aggregate([
+      { $match: { postId: mongoose.Types.ObjectId(postId), isActive: true } },
+      {
+        $project: {
+          total: { $add: [1, { $size: '$replies' }] } // 1 for comment + number of replies
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalCount: { $sum: '$total' }
+        }
+      }
+    ]);
+    
+    post.commentsCount = totalComments.length > 0 ? totalComments[0].totalCount : 0;
     await post.save();
 
     // Update page statistics if it's a page post
@@ -222,10 +238,25 @@ const deleteComment = async (req, res) => {
     comment.isActive = false;
     await comment.save();
 
-    // Update post comment count
+    // Update post comment count (recalculate total including replies)
     const post = await FeedPost.findById(comment.postId);
     if (post) {
-      post.commentsCount = Math.max(0, post.commentsCount - 1);
+      const totalComments = await Comment.aggregate([
+        { $match: { postId: mongoose.Types.ObjectId(comment.postId), isActive: true } },
+        {
+          $project: {
+            total: { $add: [1, { $size: '$replies' }] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalCount: { $sum: '$total' }
+          }
+        }
+      ]);
+      
+      post.commentsCount = totalComments.length > 0 ? totalComments[0].totalCount : 0;
       await post.save();
 
       // Update page statistics if it's a page post
@@ -345,6 +376,43 @@ const addReply = async (req, res) => {
 
     await comment.addReply(replyData);
 
+    // Update post comment count to include this new reply
+    const post = await FeedPost.findById(comment.postId);
+    if (post) {
+      const totalComments = await Comment.aggregate([
+        { $match: { postId: mongoose.Types.ObjectId(comment.postId), isActive: true } },
+        {
+          $project: {
+            total: { $add: [1, { $size: '$replies' }] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalCount: { $sum: '$total' }
+          }
+        }
+      ]);
+      
+      post.commentsCount = totalComments.length > 0 ? totalComments[0].totalCount : 0;
+      await post.save();
+      
+      // Broadcast to WebSocket for real-time updates
+      try {
+        const { broadcastToAll } = require('../socketManager');
+        
+        broadcastToAll('post:comment_update', {
+          postId: comment.postId,
+          comment: replyData,
+          commentsCount: post.commentsCount
+        });
+        
+        console.log(`📡 Reply update broadcasted for post ${comment.postId}`);
+      } catch (broadcastError) {
+        console.error('❌ Error broadcasting reply:', broadcastError);
+      }
+    }
+
     console.log(`💬 Reply added to comment ${commentId}`);
 
     // Broadcast to WebSocket
@@ -457,6 +525,42 @@ const deleteReply = async (req, res) => {
     }
 
     await comment.deleteReply(replyId);
+
+    // Update post comment count to reflect deleted reply
+    const post = await FeedPost.findById(comment.postId);
+    if (post) {
+      const totalComments = await Comment.aggregate([
+        { $match: { postId: mongoose.Types.ObjectId(comment.postId), isActive: true } },
+        {
+          $project: {
+            total: { $add: [1, { $size: '$replies' }] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalCount: { $sum: '$total' }
+          }
+        }
+      ]);
+      
+      post.commentsCount = totalComments.length > 0 ? totalComments[0].totalCount : 0;
+      await post.save();
+      
+      // Broadcast to WebSocket for real-time updates
+      try {
+        const { broadcastToAll } = require('../socketManager');
+        
+        broadcastToAll('post:comment_update', {
+          postId: comment.postId,
+          commentsCount: post.commentsCount
+        });
+        
+        console.log(`📡 Reply deletion broadcasted for post ${comment.postId}`);
+      } catch (broadcastError) {
+        console.error('❌ Error broadcasting reply deletion:', broadcastError);
+      }
+    }
 
     console.log(`🗑️ Reply deleted: ${replyId}`);
 
