@@ -587,7 +587,8 @@ const getUserByUserId = async (req, res) => {
         gender: user.gender,
         // Global discovery fields
         isPublic: user.isPublic,
-        username: user.username
+        username: user.username,
+        bio: user.bio
       }
     });
   } catch (error) {
