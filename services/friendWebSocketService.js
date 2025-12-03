@@ -12,22 +12,33 @@ class FriendWebSocketService {
    * @param {String} recipientUserId - User receiving the request
    * @param {Object} requestData - Friend request data
    */
-  broadcastFriendRequest(recipientUserId, requestData) {
+  async broadcastFriendRequest(recipientUserId, requestData) {
     try {
       console.log(`📤 [FRIEND WS] Broadcasting friend request to ${recipientUserId}`);
+      console.log(`📤 [FRIEND WS] Request data:`, JSON.stringify(requestData, null, 2));
+      
+      // Get sender's data (the person who sent the request)
+      const User = require('../models/userModel');
+      const sender = await User.findOne({ userId: requestData.userId }).select('name profileImage username');
+      
+      const senderName = sender?.name || 'Unknown';
+      const senderProfileImage = sender?.profileImage || '';
+      const senderUsername = sender?.username || '';
+      
+      console.log(`📤 [FRIEND WS] Sender info: ${senderName} (${requestData.userId})`);
       
       socketManager.broadcastToUser(recipientUserId, 'friend:request_received', {
-        requestId: requestData.requestId,
+        requestId: requestData._id?.toString() || requestData.requestId,
         fromUserId: requestData.userId,
-        fromName: requestData.cachedData?.name || 'Unknown',
-        fromProfileImage: requestData.cachedData?.profileImage || '',
-        fromUsername: requestData.cachedData?.username || '',
+        fromName: senderName,
+        fromProfileImage: senderProfileImage,
+        fromUsername: senderUsername,
         message: requestData.requestMetadata?.requestMessage || '',
         mutualFriends: requestData.requestMetadata?.mutualFriends || [],
         timestamp: new Date().toISOString()
       });
       
-      console.log(`✅ [FRIEND WS] Friend request broadcast sent`);
+      console.log(`✅ [FRIEND WS] Friend request broadcast sent to ${recipientUserId}`);
     } catch (error) {
       console.error(`❌ [FRIEND WS] Error broadcasting friend request:`, error);
     }

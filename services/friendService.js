@@ -180,7 +180,28 @@ class FriendService {
       console.log(`✅ [FRIEND SERVICE] Friend request created: ${friendRequest._id}`);
       
       // Broadcast to recipient via WebSocket
-      friendWebSocketService.broadcastFriendRequest(friendUserId, friendRequest);
+      await friendWebSocketService.broadcastFriendRequest(friendUserId, friendRequest);
+      
+      // Also send push notification to recipient
+      try {
+        const notificationService = require('./notificationService');
+        await notificationService.sendNotification(friendUserId, {
+          type: 'friend_request',
+          title: '👋 New Friend Request',
+          message: `${user.name} wants to connect with you`,
+          data: {
+            requestId: friendRequest._id.toString(),
+            fromUserId: userId,
+            fromName: user.name,
+            fromProfileImage: user.profileImage || '',
+            action: 'friend_request'
+          }
+        });
+        console.log(`📱 [FRIEND SERVICE] Push notification sent to ${friendUserId}`);
+      } catch (notifError) {
+        console.error('⚠️ [FRIEND SERVICE] Failed to send push notification:', notifError.message);
+        // Don't fail the request if notification fails
+      }
       
       return {
         requestId: friendRequest._id.toString(),

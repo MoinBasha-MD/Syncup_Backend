@@ -318,10 +318,41 @@ const getRegisteredUsers = async (req, res) => {
     console.log(`🔍 [REGISTERED USERS] Request from userId: ${requestingUserId || 'anonymous'}`);
     
     let excludedUserIds = [];
+    let friendshipMap = new Map(); // Map of userId -> friendship status
     
-    // If userId is provided, exclude existing contacts and app connections
+    // If userId is provided, get friendship data
     if (requestingUserId) {
       const requestingUser = await User.findOne({ userId: requestingUserId }, 'contacts appConnections');
+      
+      // Get all friendships for this user from the Friend model
+      const Friend = require('../models/Friend');
+      const friendships = await Friend.find({
+        $or: [
+          { userId: requestingUserId, isDeleted: false },
+          { friendUserId: requestingUserId, isDeleted: false }
+        ]
+      }).lean();
+      
+      console.log(`🔍 [REGISTERED USERS] Found ${friendships.length} friendships for user`);
+      
+      // Build friendship map
+      friendships.forEach(friendship => {
+        const otherUserId = friendship.userId === requestingUserId 
+          ? friendship.friendUserId 
+          : friendship.userId;
+        
+        // Determine if this is a sent or received request
+        const isSentByMe = friendship.userId === requestingUserId;
+        
+        friendshipMap.set(otherUserId, {
+          status: friendship.status,
+          isSentByMe,
+          requestId: friendship._id.toString()
+        });
+        
+        console.log(`  - ${otherUserId}: status=${friendship.status}, sentByMe=${isSentByMe}`);
+      });
+      
       if (requestingUser) {
         // Get contact userIds
         const contactUsers = await User.find({ 
@@ -329,21 +360,28 @@ const getRegisteredUsers = async (req, res) => {
         }, 'userId').lean();
         const contactUserIds = contactUsers.map(user => user.userId);
         
-        // Get app connection userIds
+        // Get app connection userIds (legacy)
         const existingAppConnectionIds = requestingUser.appConnections
           .filter(conn => conn.status === 'accepted')
           .map(conn => conn.userId);
         
+        // Get accepted friends from Friend model
+        const acceptedFriendIds = Array.from(friendshipMap.entries())
+          .filter(([_, data]) => data.status === 'accepted')
+          .map(([userId, _]) => userId);
+        
         excludedUserIds = [
           requestingUserId, // Exclude self
           ...contactUserIds, // Exclude existing device contacts
-          ...existingAppConnectionIds // Exclude existing app connections
+          ...existingAppConnectionIds, // Exclude existing app connections (legacy)
+          ...acceptedFriendIds // Exclude accepted friends
         ];
         
         console.log(`🔍 [REGISTERED USERS] Excluding ${excludedUserIds.length} users:`, {
           self: 1,
           contacts: contactUserIds.length,
-          appConnections: existingAppConnectionIds.length
+          appConnections: existingAppConnectionIds.length,
+          acceptedFriends: acceptedFriendIds.length
         });
       }
     }
@@ -435,6 +473,24 @@ const getRegisteredUsers = async (req, res) => {
       console.log(`📝 Profile Image Empty Check: ${!user.profileImage ? 'EMPTY/NULL' : 'HAS_VALUE'}`);
       console.log('---');
       
+      // Get friendship status for this user
+      const friendshipData = friendshipMap.get(user.userId);
+      let connectionStatus = null;
+      let canSendRequest = true;
+      
+      if (friendshipData) {
+        if (friendshipData.status === 'pending') {
+          connectionStatus = friendshipData.isSentByMe ? 'pending' : 'received';
+          canSendRequest = false;
+        } else if (friendshipData.status === 'accepted') {
+          connectionStatus = 'accepted';
+          canSendRequest = false;
+        } else if (friendshipData.status === 'blocked') {
+          connectionStatus = 'blocked';
+          canSendRequest = false;
+        }
+      }
+      
       return {
         id: user._id,
         userId: user.userId,
@@ -448,7 +504,9 @@ const getRegisteredUsers = async (req, res) => {
         customStatus: currentCustomStatus,
         statusUntil: user.statusUntil,
         isPublic: user.isPublic, // CRITICAL: Include isPublic field for global search filtering
-        username: user.username
+        username: user.username,
+        connectionStatus, // NEW: Include connection status
+        canSendRequest // NEW: Whether user can send friend request
       };
     });
     

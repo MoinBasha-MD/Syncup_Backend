@@ -500,6 +500,109 @@ class FriendController {
   });
   
   /**
+   * GET /api/friends/status/:targetUserId
+   * Check friendship status with a specific user
+   */
+  checkFriendshipStatus = asyncHandler(async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const { targetUserId } = req.params;
+      
+      console.log(`🔍 [FRIEND CONTROLLER] Checking friendship status: ${userId} <-> ${targetUserId}`);
+      
+      if (!userId) {
+        res.status(400);
+        throw new Error('User ID is required');
+      }
+      
+      if (!targetUserId) {
+        res.status(400);
+        throw new Error('Target user ID is required');
+      }
+      
+      // Check if they are the same user
+      if (userId === targetUserId) {
+        return res.status(200).json({
+          success: true,
+          status: 'self',
+          isFriend: false,
+          hasPendingRequest: false,
+          hasReceivedRequest: false,
+          message: 'This is your own profile'
+        });
+      }
+      
+      const Friend = require('../models/Friend');
+      
+      // Check for any friendship record between these users
+      const friendship = await Friend.findOne({
+        $or: [
+          { userId, friendUserId: targetUserId, isDeleted: false },
+          { userId: targetUserId, friendUserId: userId, isDeleted: false }
+        ]
+      });
+      
+      if (!friendship) {
+        console.log(`📊 [FRIEND CONTROLLER] No friendship found - status: none`);
+        return res.status(200).json({
+          success: true,
+          status: 'none',
+          isFriend: false,
+          hasPendingRequest: false,
+          hasReceivedRequest: false,
+          canSendRequest: true,
+          message: 'Not connected'
+        });
+      }
+      
+      // Determine the relationship
+      const isSentByMe = friendship.userId === userId;
+      let status = 'none';
+      let isFriend = false;
+      let hasPendingRequest = false;
+      let hasReceivedRequest = false;
+      let canSendRequest = false;
+      let requestId = null;
+      
+      if (friendship.status === 'accepted') {
+        status = 'connected';
+        isFriend = true;
+      } else if (friendship.status === 'pending') {
+        if (isSentByMe) {
+          status = 'pending';
+          hasPendingRequest = true;
+        } else {
+          status = 'received';
+          hasReceivedRequest = true;
+          requestId = friendship._id.toString();
+        }
+      } else if (friendship.status === 'blocked') {
+        status = 'blocked';
+      }
+      
+      console.log(`📊 [FRIEND CONTROLLER] Friendship status: ${status}, isFriend: ${isFriend}`);
+      
+      res.status(200).json({
+        success: true,
+        status,
+        isFriend,
+        hasPendingRequest,
+        hasReceivedRequest,
+        canSendRequest,
+        requestId,
+        message: isFriend ? 'You are friends' : 
+                 hasPendingRequest ? 'Friend request sent' :
+                 hasReceivedRequest ? 'You have a pending request from this user' :
+                 status === 'blocked' ? 'User is blocked' : 'Not connected'
+      });
+    } catch (error) {
+      console.error('❌ [FRIEND CONTROLLER] Error checking friendship status:', error);
+      res.status(error.statusCode || 500);
+      throw new Error(error.message || 'Failed to check friendship status');
+    }
+  });
+
+  /**
    * POST /api/friends/refresh-cache
    * Refresh cached friend data
    */

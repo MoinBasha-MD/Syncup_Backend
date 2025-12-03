@@ -36,6 +36,11 @@ router.get('/search', friendController.searchUsers);
 // @access  Private
 router.get('/mutual/:userId', friendController.getMutualFriends);
 
+// @route   GET /api/friends/status/:targetUserId
+// @desc    Check friendship status with a specific user
+// @access  Private
+router.get('/status/:targetUserId', friendController.checkFriendshipStatus);
+
 // @route   POST /api/friends/add
 // @desc    Send a friend request
 // @access  Private

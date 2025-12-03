@@ -59,13 +59,8 @@ const registerUser = async (req, res) => {
       });
     }
 
-    // Check for special character
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Password must contain at least one special character (!@#$%^&*(),.?":{}|<>)' 
-      });
-    }
+    // Special character is now optional but recommended
+    // Removed strict requirement to make registration easier
 
     // Normalize phone number using utility function
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
