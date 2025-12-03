@@ -57,6 +57,11 @@ router.post('/accept/:requestId', friendController.acceptFriendRequest);
 // @access  Private
 router.post('/reject/:requestId', friendController.rejectFriendRequest);
 
+// @route   DELETE /api/friends/cancel/:requestId
+// @desc    Cancel an outgoing friend request (by sender)
+// @access  Private
+router.delete('/cancel/:requestId', friendController.cancelFriendRequest);
+
 // @route   POST /api/friends/sync-contacts
 // @desc    Sync device contacts to create friendships
 // @access  Private

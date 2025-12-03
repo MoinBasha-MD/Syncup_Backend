@@ -240,6 +240,43 @@ class FriendController {
   });
   
   /**
+   * DELETE /api/friends/cancel/:requestId
+   * Cancel an outgoing friend request (by sender)
+   */
+  cancelFriendRequest = asyncHandler(async (req, res) => {
+    try {
+      console.log('🚫 [FRIEND CONTROLLER] Cancel friend request received');
+      
+      const userId = req.user.userId;
+      const { requestId } = req.params;
+      
+      if (!userId) {
+        res.status(400);
+        throw new Error('User ID is required');
+      }
+      
+      if (!requestId) {
+        res.status(400);
+        throw new Error('Request ID is required');
+      }
+      
+      const result = await friendService.cancelFriendRequest(requestId, userId);
+      
+      console.log('✅ [FRIEND CONTROLLER] Friend request cancelled successfully');
+      
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'Friend request cancelled successfully'
+      });
+    } catch (error) {
+      console.error('❌ [FRIEND CONTROLLER] Error cancelling friend request:', error);
+      res.status(error.statusCode || 500);
+      throw new Error(error.message || 'Failed to cancel friend request');
+    }
+  });
+  
+  /**
    * DELETE /api/friends/:friendUserId
    * Remove a friend
    */

@@ -398,6 +398,46 @@ class FriendService {
   }
   
   /**
+   * Cancel outgoing friend request (by the sender)
+   * @param {String} requestId - Friend request ID
+   * @param {String} userId - User cancelling the request (must be the sender)
+   * @returns {Object} Result
+   */
+  async cancelFriendRequest(requestId, userId) {
+    try {
+      console.log(`🚫 [FRIEND SERVICE] Cancelling friend request: ${requestId} by user: ${userId}`);
+      
+      const friendRequest = await Friend.findById(requestId);
+      
+      if (!friendRequest) {
+        throw new Error('Friend request not found');
+      }
+      
+      // Verify this user is the SENDER (not recipient)
+      if (friendRequest.userId !== userId) {
+        throw new Error('Unauthorized to cancel this request - you are not the sender');
+      }
+      
+      if (friendRequest.status !== 'pending') {
+        throw new Error('Friend request is not pending - cannot cancel');
+      }
+      
+      // Soft delete the request
+      await friendRequest.remove();
+      
+      console.log(`✅ [FRIEND SERVICE] Friend request cancelled successfully`);
+      
+      return {
+        requestId: friendRequest._id.toString(),
+        status: 'cancelled'
+      };
+    } catch (error) {
+      console.error('❌ [FRIEND SERVICE] Error cancelling friend request:', error);
+      throw new Error(`Failed to cancel friend request: ${error.message}`);
+    }
+  }
+  
+  /**
    * Remove friend
    * @param {String} userId - User ID
    * @param {String} friendUserId - Friend to remove
