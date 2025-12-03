@@ -45,17 +45,40 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
         { 'documentSpecificAccess.userId': userId, 'documentSpecificAccess.isRevoked': false },
         { 'generalAccessList.userId': userId }
       ]
-    }).populate('userId', 'name username profileImage');
+    });
 
     console.log(`📊 [DOC SHARE] Found ${sharedDocSpaces.length} DocSpaces with access for user ${userId}`);
+    
+    // Get unique owner userIds
+    const ownerUserIds = [...new Set(sharedDocSpaces.map(ds => ds.userId))];
+    console.log(`📊 [DOC SHARE] Fetching owner data for ${ownerUserIds.length} users:`, ownerUserIds);
+    
+    // Fetch owner user data
+    const User = require('../models/User');
+    const owners = await User.find({ userId: { $in: ownerUserIds } })
+      .select('userId name username profileImage');
+    
+    // Create a map for quick lookup
+    const ownerMap = new Map();
+    owners.forEach(owner => {
+      ownerMap.set(owner.userId, owner);
+    });
+    
+    console.log(`📊 [DOC SHARE] Loaded ${owners.length} owner profiles`);
 
     // Group by person
     const peopleMap = new Map();
 
     sharedDocSpaces.forEach(docSpace => {
-      const ownerId = docSpace.userId._id.toString();
+      const ownerUserId = docSpace.userId; // This is the UUID string
+      const owner = ownerMap.get(ownerUserId);
       
-      console.log(`📄 [DOC SHARE] Processing DocSpace for owner: ${docSpace.userId.name} (${docSpace.userId._id})`);
+      if (!owner) {
+        console.log(`⚠️ [DOC SHARE] Owner not found for userId: ${ownerUserId}`);
+        return;
+      }
+      
+      console.log(`📄 [DOC SHARE] Processing DocSpace for owner: ${owner.name} (${ownerUserId})`);
       console.log(`📄 [DOC SHARE] Total documentSpecificAccess entries: ${docSpace.documentSpecificAccess.length}`);
       console.log(`📄 [DOC SHARE] Total generalAccessList entries: ${docSpace.generalAccessList.length}`);
       
@@ -105,21 +128,21 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
         });
       }
 
-      console.log(`📄 [DOC SHARE] Owner ${docSpace.userId.name}: ${documentCount} documents shared`);
+      console.log(`📄 [DOC SHARE] Owner ${owner.name}: ${documentCount} documents shared`);
 
       if (documentCount > 0) {
-        if (!peopleMap.has(ownerId)) {
-          peopleMap.set(ownerId, {
-            userId: docSpace.userId._id,
-            name: docSpace.userId.name,
-            username: docSpace.userId.username || docSpace.userId.name,
-            profileImage: docSpace.userId.profileImage,
+        if (!peopleMap.has(ownerUserId)) {
+          peopleMap.set(ownerUserId, {
+            userId: owner.userId,
+            name: owner.name,
+            username: owner.username || owner.name,
+            profileImage: owner.profileImage,
             documentCount: 0,
             lastSharedAt: null,
           });
         }
 
-        const person = peopleMap.get(ownerId);
+        const person = peopleMap.get(ownerUserId);
         person.documentCount += documentCount;
 
         // Update last shared date
