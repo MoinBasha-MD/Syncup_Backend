@@ -16,11 +16,13 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
     const userId = req.user.userId;
     console.log('📊 [DOC SHARE] Getting people who shared with user:', userId);
 
-    // Find all DocSpaces where user has shared access
+    // Find all DocSpaces where user has documentSpecificAccess
     const sharedDocSpaces = await DocSpace.find({
-      'documents.sharedWith.userId': userId,
-      'documents.sharedWith.hasAccess': true,
-    }).populate('userId', 'name profileImage');
+      'documentSpecificAccess.userId': userId,
+      'documentSpecificAccess.isRevoked': false,
+    }).populate('userId', 'name username profileImage');
+
+    console.log(`📊 [DOC SHARE] Found ${sharedDocSpaces.length} DocSpaces with access`);
 
     // Group by person
     const peopleMap = new Map();
@@ -28,19 +30,21 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
     sharedDocSpaces.forEach(docSpace => {
       const ownerId = docSpace.userId._id.toString();
       
-      // Count documents shared with this user
-      const sharedDocs = docSpace.documents.filter(doc => 
-        doc.sharedWith.some(share => 
-          share.userId.toString() === userId.toString() && share.hasAccess
-        )
+      // Count documents shared with this user from documentSpecificAccess
+      const sharedAccess = docSpace.documentSpecificAccess.filter(access => 
+        access.userId === userId && 
+        !access.isRevoked &&
+        (!access.expiryDate || new Date() <= new Date(access.expiryDate))
       );
 
-      if (sharedDocs.length > 0) {
+      console.log(`📄 [DOC SHARE] Owner ${docSpace.userId.name}: ${sharedAccess.length} documents shared`);
+
+      if (sharedAccess.length > 0) {
         if (!peopleMap.has(ownerId)) {
           peopleMap.set(ownerId, {
             userId: docSpace.userId._id,
             name: docSpace.userId.name,
-            username: docSpace.userId.name,
+            username: docSpace.userId.username || docSpace.userId.name,
             profileImage: docSpace.userId.profileImage,
             documentCount: 0,
             lastSharedAt: null,
@@ -48,16 +52,13 @@ exports.getPeopleWhoSharedWithMe = async (req, res) => {
         }
 
         const person = peopleMap.get(ownerId);
-        person.documentCount += sharedDocs.length;
+        person.documentCount += sharedAccess.length;
 
         // Get most recent share date
-        sharedDocs.forEach(doc => {
-          const userShare = doc.sharedWith.find(s => 
-            s.userId.toString() === userId.toString()
-          );
-          if (userShare && userShare.sharedAt) {
-            if (!person.lastSharedAt || new Date(userShare.sharedAt) > new Date(person.lastSharedAt)) {
-              person.lastSharedAt = userShare.sharedAt;
+        sharedAccess.forEach(access => {
+          if (access.grantedAt) {
+            if (!person.lastSharedAt || new Date(access.grantedAt) > new Date(person.lastSharedAt)) {
+              person.lastSharedAt = access.grantedAt;
             }
           }
         });
@@ -104,31 +105,40 @@ exports.getDocumentsSharedByPerson = async (req, res) => {
       });
     }
 
-    // Filter documents shared with this user
-    const sharedDocuments = docSpace.documents
-      .filter(doc => 
-        doc.sharedWith.some(share => 
-          share.userId.toString() === userId.toString() && share.hasAccess
-        )
-      )
-      .map(doc => {
-        const userShare = doc.sharedWith.find(s => 
-          s.userId.toString() === userId.toString()
-        );
+    // Get document IDs shared with this user from documentSpecificAccess
+    const sharedAccess = docSpace.documentSpecificAccess.filter(access => 
+      access.userId === userId && 
+      !access.isRevoked &&
+      (!access.expiryDate || new Date() <= new Date(access.expiryDate))
+    );
+
+    console.log(`📊 [DOC SHARE] Found ${sharedAccess.length} access entries for user`);
+
+    // Map access to actual documents
+    const sharedDocuments = sharedAccess
+      .map(access => {
+        const doc = docSpace.documents.find(d => d.documentId === access.documentId);
+        if (!doc) {
+          console.warn(`⚠️ [DOC SHARE] Document ${access.documentId} not found in docSpace`);
+          return null;
+        }
         
         return {
-          documentId: doc._id,
+          documentId: doc.documentId,
           documentType: doc.documentType,
           customName: doc.customName,
           fileUrl: doc.fileUrl,
           fileSize: doc.fileSize,
           uploadedAt: doc.uploadedAt,
-          sharedAt: userShare.sharedAt,
-          expiresAt: userShare.expiresAt,
-          accessCount: userShare.accessCount || 0,
-          lastAccessedAt: userShare.lastAccessedAt,
+          sharedAt: access.grantedAt,
+          expiresAt: access.expiryDate,
+          accessCount: access.viewCount || 0,
+          lastAccessedAt: access.lastAccessedAt || access.usedAt,
+          permissionType: access.permissionType,
+          accessType: access.accessType,
         };
       })
+      .filter(doc => doc !== null)
       .sort((a, b) => new Date(b.sharedAt) - new Date(a.sharedAt));
 
     console.log(`✅ [DOC SHARE] Found ${sharedDocuments.length} documents from ${docSpace.userId.name}`);
@@ -138,7 +148,7 @@ exports.getDocumentsSharedByPerson = async (req, res) => {
       owner: {
         userId: docSpace.userId._id,
         name: docSpace.userId.name,
-        username: docSpace.userId.name,
+        username: docSpace.userId.username || docSpace.userId.name,
         profileImage: docSpace.userId.profileImage,
       },
       documents: sharedDocuments,
@@ -393,7 +403,7 @@ exports.revokeDocumentAccess = async (req, res) => {
     }
 
     // Find the document
-    const document = docSpace.documents.id(documentId);
+    const document = docSpace.documents.find(d => d.documentId === documentId);
 
     if (!document) {
       return res.status(404).json({
@@ -402,20 +412,20 @@ exports.revokeDocumentAccess = async (req, res) => {
       });
     }
 
-    // Find and revoke access
-    const shareIndex = document.sharedWith.findIndex(s => 
-      s.userId.toString() === personId
+    // Find and revoke access in documentSpecificAccess
+    const accessEntry = docSpace.documentSpecificAccess.find(access => 
+      access.documentId === documentId && access.userId === personId
     );
 
-    if (shareIndex === -1) {
+    if (!accessEntry) {
       return res.status(404).json({
         success: false,
         message: 'Access not found',
       });
     }
 
-    document.sharedWith[shareIndex].hasAccess = false;
-    document.sharedWith[shareIndex].revokedAt = new Date();
+    accessEntry.isRevoked = true;
+    accessEntry.revokedAt = new Date();
 
     await docSpace.save();
 
@@ -466,7 +476,7 @@ exports.trackDocumentAccess = async (req, res) => {
     }
 
     // Find the document
-    const document = docSpace.documents.id(documentId);
+    const document = docSpace.documents.find(d => d.documentId === documentId);
 
     if (!document) {
       return res.status(404).json({
@@ -475,21 +485,38 @@ exports.trackDocumentAccess = async (req, res) => {
       });
     }
 
-    // Find user's share entry
-    const shareEntry = document.sharedWith.find(s => 
-      s.userId.toString() === userId.toString()
+    // Find user's access entry in documentSpecificAccess
+    const accessEntry = docSpace.documentSpecificAccess.find(access => 
+      access.documentId === documentId && access.userId === userId
     );
 
-    if (!shareEntry || !shareEntry.hasAccess) {
+    if (!accessEntry || accessEntry.isRevoked) {
       return res.status(403).json({
         success: false,
         message: 'Access denied',
       });
     }
 
+    // Check if access has expired
+    if (accessEntry.expiryDate && new Date() > new Date(accessEntry.expiryDate)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access expired',
+      });
+    }
+
     // Update access tracking
-    shareEntry.accessCount = (shareEntry.accessCount || 0) + 1;
-    shareEntry.lastAccessedAt = new Date();
+    accessEntry.viewCount = (accessEntry.viewCount || 0) + 1;
+    accessEntry.usedAt = new Date();
+    accessEntry.lastAccessedAt = new Date();
+
+    // Add to document access log
+    document.accessLog.push({
+      userId: userId,
+      userName: req.user.name || 'Unknown User',
+      accessedAt: new Date(),
+      accessType: 'view',
+    });
 
     await docSpace.save();
 

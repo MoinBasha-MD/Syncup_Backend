@@ -211,8 +211,20 @@ const docSpaceSchema = new mongoose.Schema(
         type: Number,
         default: 0
       },
+      downloadLimit: {
+        type: Number,
+        default: null // null = unlimited
+      },
+      downloadCount: {
+        type: Number,
+        default: 0
+      },
       usedAt: {
         type: Date, // For one-time access tracking
+        default: null
+      },
+      lastAccessedAt: {
+        type: Date, // Last time this access was used
         default: null
       },
       isRevoked: {
