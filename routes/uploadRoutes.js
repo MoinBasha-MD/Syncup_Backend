@@ -6,11 +6,15 @@ const {
   uploadChatImage, 
   uploadChatFile, 
   uploadPostMedia,
+  uploadPageProfileImage,
+  uploadPageCoverImage,
   profileUploadMiddleware, 
   storyUploadMiddleware, 
   chatUploadMiddleware, 
   chatFileUploadMiddleware,
-  postMediaUploadMiddleware
+  postMediaUploadMiddleware,
+  pageProfileUploadMiddleware,
+  pageCoverUploadMiddleware
 } = require('../controllers/uploadController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -28,5 +32,11 @@ router.post('/chat-file', protect, chatFileUploadMiddleware, uploadChatFile);
 
 // Route for uploading post media (photos and videos)
 router.post('/post-media', protect, postMediaUploadMiddleware, uploadPostMedia);
+
+// ✅ Route for uploading page profile image
+router.post('/page-profile-image', protect, pageProfileUploadMiddleware, uploadPageProfileImage);
+
+// ✅ Route for uploading page cover image
+router.post('/page-cover-image', protect, pageCoverUploadMiddleware, uploadPageCoverImage);
 
 module.exports = router;

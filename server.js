@@ -59,6 +59,7 @@ const agentRoutes = require('./routes/agentRoutes');
 const agentDashboardRoutes = require('./routes/agentDashboardRoutes');
 const advancedDashboardRoutes = require('./routes/advancedDashboardRoutes');
 const pageRoutes = require('./routes/pageRoutes');
+const pagePostRoutes = require('./routes/pagePostRoutes');
 const dailyScheduleRoutes = require('./routes/dailyScheduleRoutes');
 const docSpaceRoutes = require('./routes/docSpaceRoutes');
 const docSpaceSharingRoutes = require('./routes/docSpaceSharingRoutes');
@@ -256,6 +257,7 @@ app.use('/api/blocks', apiLimiter, blockRoutes); // User blocking management rou
 app.use('/api/calls', apiLimiter, callRoutes); // Call history and management routes
 app.use('/api/agents', apiLimiter, agentRoutes); // Agentic framework management routes
 app.use('/api/pages', apiLimiter, pageRoutes); // Pages management routes (Phase 1)
+app.use('/api/pages', apiLimiter, pagePostRoutes); // Page posts routes (Phase 2)
 app.use('/api/daily-schedule', apiLimiter, dailyScheduleRoutes); // Daily schedule management routes
 app.use('/api/doc-space', apiLimiter, docSpaceRoutes); // Doc Space management routes (Maya AI document sharing)
 app.use('/api/doc-space-sharing', apiLimiter, docSpaceSharingRoutes); // Doc Space sharing with people view

@@ -614,15 +614,201 @@ const uploadPostMedia = async (req, res) => {
   }
 };
 
+// ✅ Upload page profile image
+const uploadPageProfileImage = async (req, res) => {
+  try {
+    console.log('📄 [PAGE UPLOAD] Profile image upload request received');
+    console.log('📄 [PAGE UPLOAD] Authenticated user:', req.user?._id);
+    console.log('📄 [PAGE UPLOAD] Request body:', req.body);
+    console.log('📄 [PAGE UPLOAD] File:', req.file ? 'File uploaded' : 'No file');
+    
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please upload a file'
+      });
+    }
+
+    const { pageid } = req.body;
+    console.log('📄 [PAGE UPLOAD] Page ID from body:', pageid);
+    
+    if (!pageid) {
+      fs.unlinkSync(req.file.path);
+      console.error('📄 [PAGE UPLOAD] No pageid provided in request body');
+      return res.status(400).json({
+        success: false,
+        message: 'Page ID is required'
+      });
+    }
+
+    // Import Page model
+    const Page = require('../models/Page');
+    
+    // Find page by ID
+    console.log('📄 [PAGE UPLOAD] Finding page with ID:', pageid);
+    const page = await Page.findById(pageid);
+
+    if (!page) {
+      fs.unlinkSync(req.file.path);
+      console.error('📄 [PAGE UPLOAD] Page not found with ID:', pageid);
+      return res.status(404).json({
+        success: false,
+        message: 'Page not found'
+      });
+    }
+    
+    console.log('📄 [PAGE UPLOAD] Page found:', page.name);
+
+    // Check if user has permission to edit
+    if (!page.isOwner(req.user._id) && !page.canEdit(req.user._id)) {
+      fs.unlinkSync(req.file.path);
+      console.error('📄 [PAGE UPLOAD] User does not have permission to edit page');
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to edit this page'
+      });
+    }
+
+    // If page already has a profile image, delete the old one
+    if (page.profileImage && page.profileImage.startsWith('/uploads/')) {
+      const oldImagePath = path.join(__dirname, '..', page.profileImage);
+      if (fs.existsSync(oldImagePath)) {
+        fs.unlinkSync(oldImagePath);
+        console.log('📄 [PAGE UPLOAD] Deleted old profile image');
+      }
+    }
+
+    // Update page profile with new image URL
+    const imageUrl = `/uploads/profile-images/${req.file.filename}`;
+    page.profileImage = imageUrl;
+    await page.save();
+
+    console.log('✅ [PAGE UPLOAD] Page profile image updated successfully:', imageUrl);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        profileImage: imageUrl
+      },
+      message: 'Page profile image uploaded successfully'
+    });
+  } catch (error) {
+    console.error('❌ [PAGE UPLOAD] Error uploading page profile image:', error);
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading page profile image',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Upload page cover image
+const uploadPageCoverImage = async (req, res) => {
+  try {
+    console.log('📄 [PAGE UPLOAD] Cover image upload request received');
+    console.log('📄 [PAGE UPLOAD] Authenticated user:', req.user?._id);
+    console.log('📄 [PAGE UPLOAD] Request body:', req.body);
+    console.log('📄 [PAGE UPLOAD] File:', req.file ? 'File uploaded' : 'No file');
+    
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please upload a file'
+      });
+    }
+
+    const { pageid } = req.body;
+    console.log('📄 [PAGE UPLOAD] Page ID from body:', pageid);
+    
+    if (!pageid) {
+      fs.unlinkSync(req.file.path);
+      console.error('📄 [PAGE UPLOAD] No pageid provided in request body');
+      return res.status(400).json({
+        success: false,
+        message: 'Page ID is required'
+      });
+    }
+
+    // Import Page model
+    const Page = require('../models/Page');
+    
+    // Find page by ID
+    console.log('📄 [PAGE UPLOAD] Finding page with ID:', pageid);
+    const page = await Page.findById(pageid);
+
+    if (!page) {
+      fs.unlinkSync(req.file.path);
+      console.error('📄 [PAGE UPLOAD] Page not found with ID:', pageid);
+      return res.status(404).json({
+        success: false,
+        message: 'Page not found'
+      });
+    }
+    
+    console.log('📄 [PAGE UPLOAD] Page found:', page.name);
+
+    // Check if user has permission to edit
+    if (!page.isOwner(req.user._id) && !page.canEdit(req.user._id)) {
+      fs.unlinkSync(req.file.path);
+      console.error('📄 [PAGE UPLOAD] User does not have permission to edit page');
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to edit this page'
+      });
+    }
+
+    // If page already has a cover image, delete the old one
+    if (page.coverImage && page.coverImage.startsWith('/uploads/')) {
+      const oldImagePath = path.join(__dirname, '..', page.coverImage);
+      if (fs.existsSync(oldImagePath)) {
+        fs.unlinkSync(oldImagePath);
+        console.log('📄 [PAGE UPLOAD] Deleted old cover image');
+      }
+    }
+
+    // Update page cover with new image URL
+    const imageUrl = `/uploads/profile-images/${req.file.filename}`;
+    page.coverImage = imageUrl;
+    await page.save();
+
+    console.log('✅ [PAGE UPLOAD] Page cover image updated successfully:', imageUrl);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        coverImage: imageUrl
+      },
+      message: 'Page cover image uploaded successfully'
+    });
+  } catch (error) {
+    console.error('❌ [PAGE UPLOAD] Error uploading page cover image:', error);
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading page cover image',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   uploadProfileImage,
   uploadStoryImage,
   uploadChatImage,
   uploadChatFile,
   uploadPostMedia,
+  uploadPageProfileImage,
+  uploadPageCoverImage,
   profileUploadMiddleware: profileUpload.single('profileImage'),
   storyUploadMiddleware: storyUpload.single('storyImage'),
   chatUploadMiddleware: chatUpload.single('chatImage'),
-  chatFileUploadMiddleware: chatFileUpload.single('chatFile'),
-  postMediaUploadMiddleware: postMediaUpload.single('postMedia')
+  chatFileUploadMiddleware: chatFileUpload.single('file'),
+  postMediaUploadMiddleware: postMediaUpload.single('media'),
+  pageProfileUploadMiddleware: profileUpload.single('profileImage'),
+  pageCoverUploadMiddleware: profileUpload.single('coverImage')
 };
