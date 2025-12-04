@@ -55,11 +55,12 @@ exports.getPublicProfile = async (req, res) => {
     });
     const canSendRequest = !existingRequest;
 
-    // Get posts count (public posts only)
-    const postsCount = await FeedPost.countDocuments({
-      userId: userId,
-      isPublic: true
-    });
+    // Get posts count - all posts for friends, public only for strangers
+    const postsCountQuery = isFriend 
+      ? { userId: userId }  // All posts for friends
+      : { userId: userId, isPublic: true };  // Only public posts for strangers
+    
+    const postsCount = await FeedPost.countDocuments(postsCountQuery);
 
     // Get followers/following counts
     const followersCount = await User.countDocuments({
@@ -113,17 +114,24 @@ exports.getPublicProfile = async (req, res) => {
       lastSeen: user.lastSeen
     };
 
-    // Include public posts if requested
+    // Include posts if requested
     if (includePosts === 'true') {
-      const posts = await FeedPost.find({
-        userId: userId,
-        isPublic: true
-      })
+      // If friends, show ALL posts. If not friends, show only public posts
+      const postQuery = isFriend 
+        ? { userId: userId }  // All posts for friends
+        : { userId: userId, isPublic: true };  // Only public posts for strangers
+      
+      const posts = await FeedPost.find(postQuery)
         .sort({ createdAt: -1 })
         .limit(50)
         .select('_id imageUrl videoUrl caption likesCount commentsCount createdAt');
 
-      profileData.publicPosts = posts;
+      // Use 'posts' key for friends, 'publicPosts' for strangers
+      if (isFriend) {
+        profileData.posts = posts;
+      } else {
+        profileData.publicPosts = posts;
+      }
     }
 
     console.log('✅ [PROFILE] Public profile retrieved successfully');
