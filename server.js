@@ -44,6 +44,7 @@ const groupChatRoutes = require('./routes/groupChatRoutes');
 const postRoutes = require('./routes/postRoutes');
 const storyRoutes = require('./routes/storyRoutes');
 const friendRoutes = require('./routes/friendRoutes');
+const profileRoutes = require('./routes/profileRoutes');
 const diyaRequestRoutes = require('./routes/diyaRequestRoutes');
 const diyaMemoryRoutes = require('./routes/diyaMemoryRoutes');
 const aiMessageRoutes = require('./routes/aiMessageRoutes');
@@ -243,6 +244,7 @@ app.use('/api/group-chats', apiLimiter, groupChatRoutes); // Group chat messagin
 app.use('/api/posts', apiLimiter, postRoutes); // User posts management routes
 app.use('/api/stories', apiLimiter, storyRoutes); // Stories management routes
 app.use('/api/friends', apiLimiter, friendRoutes); // Friends management routes (NEW)
+app.use('/api', apiLimiter, profileRoutes); // Profile routes (public profile, friend profile, follow/unfollow)
 app.use('/api/diya', apiLimiter, diyaRequestRoutes); // Cross-user Diya communication routes
 app.use('/api/diya', apiLimiter, diyaMemoryRoutes); // Diya conversation memory routes
 app.use('/api/ai', apiLimiter, aiMessageRoutes); // AI-to-AI messaging routes (legacy)

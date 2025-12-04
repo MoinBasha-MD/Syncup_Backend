@@ -246,6 +246,18 @@ const userSchema = mongoose.Schema(
       default: '',
       maxlength: 150 // Limit bio to 150 characters
     },
+    // Follow system
+    following: [{
+      type: String // Array of userIds
+    }],
+    followersCount: {
+      type: Number,
+      default: 0
+    },
+    followingCount: {
+      type: Number,
+      default: 0
+    },
     searchableName: {
       type: String,
       index: true // For faster name-based searches
