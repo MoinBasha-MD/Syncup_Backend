@@ -78,6 +78,8 @@ router.post('/check-username', async (req, res) => {
   try {
     const { username } = req.body;
 
+    console.log('🔍 [PAGES] Checking username availability:', username);
+
     if (!username) {
       return res.status(400).json({
         success: false,
@@ -85,7 +87,14 @@ router.post('/check-username', async (req, res) => {
       });
     }
 
-    const isAvailable = await Page.isUsernameAvailable(username);
+    // Check if username exists
+    const existingPage = await Page.findOne({ username: username.toLowerCase() });
+    const isAvailable = !existingPage;
+
+    console.log(`✅ [PAGES] Username "${username}" check result:`, {
+      isAvailable,
+      existingPage: existingPage ? { id: existingPage._id, name: existingPage.name } : null
+    });
 
     res.json({
       success: true,
@@ -230,8 +239,20 @@ router.get('/suggested', protect, async (req, res) => {
 // @access  Private
 router.get('/my/pages', protect, async (req, res) => {
   try {
+    console.log('📄 [PAGES] Fetching pages for user:', req.user._id);
+    
     const pages = await Page.find({ owner: req.user._id })
       .sort('-createdAt');
+
+    console.log(`✅ [PAGES] Found ${pages.length} pages for user ${req.user._id}`);
+    if (pages.length > 0) {
+      console.log('📄 [PAGES] Page details:', pages.map(p => ({
+        id: p._id,
+        name: p.name,
+        username: p.username,
+        createdAt: p.createdAt
+      })));
+    }
 
     res.json({
       success: true,
