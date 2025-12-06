@@ -817,20 +817,26 @@ const updateUserProfileWithDiscovery = async (req, res) => {
 // @access  Admin
 const adminResetPassword = async (req, res) => {
   try {
-    console.log('Admin reset password request received:', req.body);
+    console.log('Admin reset password request received');
     
     const { identifier, newPassword } = req.body;
 
+    // ✅ SECURITY FIX: Never log passwords
     if (!identifier || !newPassword) {
-      console.log('Missing required fields:', { identifier: !!identifier, newPassword: !!newPassword });
+      console.log('Missing required fields:', { 
+        identifierProvided: !!identifier, 
+        passwordProvided: !!newPassword,
+        passwordLength: newPassword?.length 
+      });
       return res.status(400).json({
         success: false,
         message: 'User identifier and new password are required'
       });
     }
 
+    // ✅ SECURITY FIX: Only log password length, not the password itself
     if (newPassword.length < 6) {
-      console.log('Password too short:', newPassword.length);
+      console.log('Password validation failed: too short (length:', newPassword.length, ')');
       return res.status(400).json({
         success: false,
         message: 'Password must be at least 6 characters long'
@@ -868,7 +874,8 @@ const adminResetPassword = async (req, res) => {
     user.resetPasswordExpire = undefined;
     
     await user.save();
-    console.log('Password updated successfully for user:', user.name);
+    // ✅ SECURITY FIX: Safe logging without sensitive data
+    console.log('✅ Password updated successfully for user:', user.name, '(ID:', user.userId, ')');
 
     res.json({
       success: true,
@@ -1135,14 +1142,15 @@ const verifyUserPassword = async (req, res) => {
     // Verify password
     const isValidPassword = await user.matchPassword(password);
     
+    // ✅ SECURITY FIX: Safe logging without revealing password details
     if (isValidPassword) {
-      console.log(`✅ [BACKEND] Password verified for PIN reset: ${user.name}`);
+      console.log(`✅ [BACKEND] Password verified for PIN reset: ${user.name} (ID: ${user.userId})`);
       res.status(200).json({
         message: 'Password verified successfully',
         verified: true
       });
     } else {
-      console.log(`❌ [BACKEND] Invalid password for PIN reset: ${user.name}`);
+      console.log(`❌ [BACKEND] Invalid password attempt for PIN reset: ${user.name} (ID: ${user.userId})`);
       res.status(401).json({ message: 'Invalid password' });
     }
   } catch (error) {

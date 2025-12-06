@@ -45,6 +45,16 @@ class AutoStatusService {
         console.log(`   🔍 Checking schedule: "${schedule.status}"`);
         console.log(`      Days: ${daysOfWeek.join(', ')}`);
         
+        // ✅ FIX BUG #7: Check if schedule is paused
+        if (schedule.pausedUntil && new Date(schedule.pausedUntil) > now) {
+          const pausedUntilDate = new Date(schedule.pausedUntil);
+          const hoursRemaining = Math.round((pausedUntilDate.getTime() - now.getTime()) / (1000 * 60 * 60));
+          console.log(`      ⏸️ Schedule paused until ${pausedUntilDate.toLocaleString()}`);
+          console.log(`      ⏰ Resumes in ${hoursRemaining} hours`);
+          console.log(`      📝 Reason: ${schedule.pauseReason || 'manual'}`);
+          continue;
+        }
+        
         // Check if schedule has "start from tomorrow" flag
         if (schedule.metadata?.startFromTomorrow) {
           const createdDate = new Date(schedule.createdAt);
@@ -101,16 +111,40 @@ class AutoStatusService {
           console.log(`      👤 Current user status: "${user.status}"`);
           console.log(`      🎯 Target status: "${schedule.status}"`);
           
+          // ✅ FIX BUG #1: Check if user has active manual status
+          const hasActiveManualStatus = user.statusUntil && 
+            new Date(user.statusUntil) > now && 
+            user.wasAutoApplied === false;
+          
+          if (hasActiveManualStatus) {
+            const manualStatusExpiry = new Date(user.statusUntil);
+            console.log(`⏸️ [AUTO-STATUS] User has active manual status until ${manualStatusExpiry.toLocaleString()}, skipping auto-apply`);
+            console.log(`      Manual status: "${user.status}" (set by user)`);
+            console.log(`      Would apply: "${schedule.status}" (from daily schedule)`);
+            console.log(`      ⏰ Manual status expires in ${Math.round((manualStatusExpiry.getTime() - now.getTime()) / 60000)} minutes`);
+            return null;
+          }
+          
           if (user.status !== schedule.status) {
             const oldStatus = user.status;
+            const oldSubStatus = user.subStatus;
             console.log(`      🔄 Status needs updating!`);
+            
+            // ✅ FIX BUG #2: Preserve sub-status during auto-status change
+            // Only update main status, keep sub-status intact
+            console.log(`      📌 Preserving sub-status: "${oldSubStatus || 'none'}"`);
             
             // Update user status
             user.status = schedule.status;
             user.customStatus = schedule.customStatus || '';
             user.statusUpdatedAt = now;
             user.wasAutoApplied = true;
+            // Note: user.subStatus is NOT modified - it's preserved!
             await user.save();
+            
+            if (oldSubStatus) {
+              console.log(`      ✅ Sub-status "${oldSubStatus}" preserved after main status change`);
+            }
             
             console.log(`✅ [AUTO-STATUS] Updated ${userId}: "${oldStatus}" → "${schedule.status}"`);
             
@@ -123,6 +157,7 @@ class AutoStatusService {
                   userId: user.userId,
                   status: user.status,
                   customStatus: user.customStatus,
+                  subStatus: user.subStatus, // ✅ Include sub-status
                   timestamp: now,
                   wasAutoApplied: true
                 });
@@ -132,6 +167,7 @@ class AutoStatusService {
                   userId: user.userId,
                   status: user.status,
                   customStatus: user.customStatus,
+                  subStatus: user.subStatus, // ✅ Include sub-status
                   timestamp: now,
                   wasAutoApplied: true
                 });
@@ -227,15 +263,15 @@ class AutoStatusService {
       return;
     }
     
-    // Run every 5 minutes: */5 * * * *
-    // For testing, use every minute: * * * * *
-    this.cronJob = cron.schedule('*/5 * * * *', async () => {
+    // ✅ FIX BUG #4: Run every 1 minute for faster response
+    // Changed from */5 (every 5 minutes) to * (every 1 minute)
+    this.cronJob = cron.schedule('* * * * *', async () => {
       await this.checkAllUsers();
     });
     
     this.isRunning = true;
-    console.log('✅ [AUTO-STATUS] Cron job started (runs every 5 minutes)');
-    console.log('📅 [AUTO-STATUS] Schedule: */5 * * * * (every 5 minutes)');
+    console.log('✅ [AUTO-STATUS] Cron job started (runs every 1 minute)');
+    console.log('📅 [AUTO-STATUS] Schedule: * * * * * (every 1 minute)');
     
     // Run immediately on startup
     console.log('🚀 [AUTO-STATUS] Running initial check...');
@@ -261,7 +297,7 @@ class AutoStatusService {
   getStatus() {
     return {
       isRunning: this.isRunning,
-      schedule: '*/5 * * * * (every 5 minutes)'
+      schedule: '* * * * * (every 1 minute)'
     };
   }
 }

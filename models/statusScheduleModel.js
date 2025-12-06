@@ -88,6 +88,25 @@ const statusScheduleSchema = mongoose.Schema(
     usageCount: { type: Number, default: 0 },
     lastUsed: Date,
     averageDuration: Number, // In minutes
+    
+    // ✅ FIX BUG #7: Pause Feature
+    pausedUntil: {
+      type: Date,
+      default: null,
+      index: true
+    },
+    pauseReason: {
+      type: String,
+      enum: ['manual', 'vacation', 'sick', 'holiday', 'other'],
+      default: 'manual'
+    },
+    
+    // Additional metadata for daily schedule
+    metadata: {
+      startFromTomorrow: { type: Boolean, default: false },
+      notifyOnChange: { type: Boolean, default: true },
+      allowManualOverride: { type: Boolean, default: true }
+    }
   },
   {
     timestamps: true,

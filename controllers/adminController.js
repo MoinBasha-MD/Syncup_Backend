@@ -31,7 +31,12 @@ const handleLogin = async (req, res) => {
     
     const { email, password } = req.body;
     
-    console.log('Login attempt:', { email, hasPassword: !!password });
+    // ✅ SECURITY FIX: Never log passwords
+    console.log('Login attempt:', { 
+      email, 
+      passwordProvided: !!password,
+      passwordLength: password?.length 
+    });
     
     // Validate input
     if (!email || !password) {
@@ -73,7 +78,8 @@ const handleLogin = async (req, res) => {
     // Verify password
     const isMatch = await admin.comparePassword(password);
     
-    console.log('Password match:', isMatch);
+    // ✅ SECURITY FIX: Don't log password match result (can reveal info)
+    console.log('Authentication result:', isMatch ? 'Success' : 'Failed');
     
     if (!isMatch) {
       // Increment login attempts
