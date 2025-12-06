@@ -188,7 +188,9 @@ const registerUser = async (req, res) => {
       userData.dateOfBirth = new Date(dateOfBirth);
     }
     if (gender) {
-      userData.gender = gender;
+      // ✅ FIX: Convert gender to lowercase to match Mongoose enum
+      userData.gender = gender.toLowerCase();
+      console.log('📝 [REGISTER] Gender normalized to:', userData.gender);
     }
 
     const user = await User.create(userData);
