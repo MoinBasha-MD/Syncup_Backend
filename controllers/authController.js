@@ -202,11 +202,12 @@ const registerUser = async (req, res) => {
     });
 
     if (user) {
-      // Create AI instance for the new user
+      // Create AI instance for the new user with timeout
       try {
         console.log(`🤖 [REGISTER] Creating AI instance for new user: ${user.name} (${user._id})`);
         
-        const aiInstance = await AIInstance.create({
+        // ✅ FIX: Add timeout to prevent hanging
+        const aiInstancePromise = AIInstance.create({
           userId: user._id.toString(),
           aiName: `${user.name}'s Maya`,
           status: 'offline', // Start as offline, will come online when user opens Maya
@@ -244,10 +245,17 @@ const registerUser = async (req, res) => {
           isActive: true
         });
 
+        // ✅ FIX: Add 5-second timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('AI instance creation timeout')), 5000)
+        );
+
+        const aiInstance = await Promise.race([aiInstancePromise, timeoutPromise]);
         console.log(`✅ AI instance created successfully: ${aiInstance.aiId} for user ${user.name}`);
         
       } catch (aiError) {
-        console.error(`❌ Failed to create AI instance for user ${user.name}:`, aiError);
+        console.error(`❌ Failed to create AI instance for user ${user.name}:`, aiError.message);
+        console.log('⚠️ [REGISTER] Continuing registration without AI instance');
         // Don't fail the registration if AI creation fails, just log it
         // The user can still use the app, and AI instance can be created later
       }
