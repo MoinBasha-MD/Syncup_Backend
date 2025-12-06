@@ -130,19 +130,25 @@ const registerUser = async (req, res) => {
       const oneHundredTwentyYearsAgo = new Date();
       oneHundredTwentyYearsAgo.setFullYear(oneHundredTwentyYearsAgo.getFullYear() - 120);
       if (dobDate < oneHundredTwentyYearsAgo) {
+        console.log('❌ [REGISTER] Date of birth too old');
         return res.status(400).json({ 
           success: false,
           message: 'Please enter a valid date of birth' 
         });
       }
+      console.log('✅ [REGISTER] Date of birth validation passed');
     }
 
-    if (gender && !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender)) {
+    // ✅ FIX: Gender validation - case-insensitive
+    console.log('🔍 [REGISTER] Validating gender...');
+    if (gender && !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender.toLowerCase())) {
+      console.log('❌ [REGISTER] Invalid gender:', gender);
       return res.status(400).json({ 
         success: false,
         message: 'Please provide a valid gender option' 
       });
     }
+    console.log('✅ [REGISTER] Gender validation passed');
 
     // Check if user already exists with this email or normalized phone
     console.log('🔍 [REGISTER] Checking for existing users...');
