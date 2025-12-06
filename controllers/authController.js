@@ -10,10 +10,22 @@ const { normalizePhoneNumber, isValidPhoneNumber } = require('../utils/phoneUtil
  */
 const registerUser = async (req, res) => {
   try {
+    console.log('🔵 [REGISTER] Registration request received');
+    console.log('📥 [REGISTER] Request body:', {
+      name: req.body.name,
+      email: req.body.email,
+      phoneNumber: req.body.phoneNumber,
+      dateOfBirth: req.body.dateOfBirth,
+      gender: req.body.gender,
+      passwordProvided: !!req.body.password,
+      passwordLength: req.body.password?.length
+    });
+    
     const { name, phoneNumber, email, password, dateOfBirth, gender } = req.body;
 
     // Validate required fields
     if (!name || !phoneNumber || !email || !password) {
+      console.log('❌ [REGISTER] Missing required fields');
       return res.status(400).json({ 
         success: false,
         message: 'Please provide all required fields: name, phoneNumber, email, password' 
@@ -21,7 +33,9 @@ const registerUser = async (req, res) => {
     }
 
     // Enhanced password validation
+    console.log('🔍 [REGISTER] Validating password...');
     if (password.length < 8) {
+      console.log('❌ [REGISTER] Password too short');
       return res.status(400).json({ 
         success: false,
         message: 'Password must be at least 8 characters long' 
@@ -29,6 +43,7 @@ const registerUser = async (req, res) => {
     }
 
     if (password.length > 20) {
+      console.log('❌ [REGISTER] Password too long');
       return res.status(400).json({ 
         success: false,
         message: 'Password must be less than 20 characters long' 
@@ -37,6 +52,7 @@ const registerUser = async (req, res) => {
 
     // Check for uppercase letter
     if (!/[A-Z]/.test(password)) {
+      console.log('❌ [REGISTER] Password missing uppercase letter');
       return res.status(400).json({ 
         success: false,
         message: 'Password must contain at least one uppercase letter' 
@@ -45,6 +61,7 @@ const registerUser = async (req, res) => {
 
     // Check for lowercase letter
     if (!/[a-z]/.test(password)) {
+      console.log('❌ [REGISTER] Password missing lowercase letter');
       return res.status(400).json({ 
         success: false,
         message: 'Password must contain at least one lowercase letter' 
@@ -53,28 +70,35 @@ const registerUser = async (req, res) => {
 
     // Check for number
     if (!/\d/.test(password)) {
+      console.log('❌ [REGISTER] Password missing number');
       return res.status(400).json({ 
         success: false,
         message: 'Password must contain at least one number' 
       });
     }
+    console.log('✅ [REGISTER] Password validation passed');
 
     // Special character is now optional but recommended
     // Removed strict requirement to make registration easier
 
     // Normalize phone number using utility function
+    console.log('🔍 [REGISTER] Validating phone number...');
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    console.log('📞 [REGISTER] Normalized phone:', normalizedPhone);
     
     // Validate phone number format
     if (!isValidPhoneNumber(phoneNumber)) {
+      console.log('❌ [REGISTER] Invalid phone number format');
       return res.status(400).json({ 
         success: false,
         message: 'Please enter a valid phone number' 
       });
     }
+    console.log('✅ [REGISTER] Phone number validation passed');
 
     // Enhanced date of birth validation
     if (dateOfBirth) {
+      console.log('🔍 [REGISTER] Validating date of birth...');
       const dobDate = new Date(dateOfBirth);
       if (isNaN(dobDate.getTime())) {
         return res.status(400).json({ 
@@ -121,8 +145,10 @@ const registerUser = async (req, res) => {
     }
 
     // Check if user already exists with this email or normalized phone
+    console.log('🔍 [REGISTER] Checking for existing users...');
     const userExistsWithEmail = await User.findOne({ email });
     if (userExistsWithEmail) {
+      console.log('❌ [REGISTER] Email already exists:', email);
       return res.status(400).json({ 
         success: false,
         message: 'User with this email already exists' 
@@ -131,13 +157,16 @@ const registerUser = async (req, res) => {
 
     const userExistsWithPhone = await User.findOne({ phoneNumber: normalizedPhone });
     if (userExistsWithPhone) {
+      console.log('❌ [REGISTER] Phone number already exists:', normalizedPhone);
       return res.status(400).json({ 
         success: false,
         message: 'User with this phone number already exists' 
       });
     }
+    console.log('✅ [REGISTER] No existing user found, proceeding with registration');
 
     // Create user with normalized phone number
+    console.log('📝 [REGISTER] Creating user document...');
     const userData = {
       name,
       phoneNumber: normalizedPhone,
@@ -157,11 +186,17 @@ const registerUser = async (req, res) => {
     }
 
     const user = await User.create(userData);
+    console.log('✅ [REGISTER] User created successfully:', {
+      userId: user.userId,
+      name: user.name,
+      email: user.email,
+      phoneNumber: user.phoneNumber
+    });
 
     if (user) {
       // Create AI instance for the new user
       try {
-        console.log(`🤖 Creating AI instance for new user: ${user.name} (${user._id})`);
+        console.log(`🤖 [REGISTER] Creating AI instance for new user: ${user.name} (${user._id})`);
         
         const aiInstance = await AIInstance.create({
           userId: user._id.toString(),
@@ -210,9 +245,11 @@ const registerUser = async (req, res) => {
       }
 
       // Generate token
+      console.log('🔑 [REGISTER] Generating authentication token...');
       const token = generateToken(user._id, user.userId);
+      console.log('✅ [REGISTER] Token generated successfully');
       
-      res.status(201).json({
+      const responseData = {
         success: true,
         data: {
           userId: user.userId,
@@ -224,15 +261,20 @@ const registerUser = async (req, res) => {
           gender: user.gender,
           token
         }
-      });
+      };
+      
+      console.log('✅ [REGISTER] Registration completed successfully, sending response');
+      res.status(201).json(responseData);
     } else {
+      console.log('❌ [REGISTER] User creation failed - no user object returned');
       res.status(400).json({ 
         success: false,
         message: 'Invalid user data' 
       });
     }
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('❌ [REGISTER] Registration error:', error);
+    console.error('❌ [REGISTER] Error stack:', error.stack);
     res.status(500).json({ 
       success: false,
       message: 'Server error during registration', 
