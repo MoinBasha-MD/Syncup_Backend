@@ -627,47 +627,59 @@ class FriendService {
           console.log(`🔄 [FRIEND SERVICE] Updated existing friendship with ${registeredUser.userId}`);
         } else {
           // Create new friendship (auto-accepted for device contacts)
-          const newFriendship = new Friend({
-            userId,
-            friendUserId: registeredUser.userId,
-            source: 'device_contact',
-            status: 'accepted',
-            acceptedAt: now,
-            isDeviceContact: true,
-            phoneNumber: registeredUser.phoneNumber,
-            lastDeviceSync: now,
-            cachedData: {
-              name: registeredUser.name,
-              profileImage: registeredUser.profileImage || '',
-              username: registeredUser.username || '',
-              lastCacheUpdate: now
-            }
-          });
-          
-          await newFriendship.save();
+          // ✅ FIX: Use upsert to avoid duplicate key error
+          await Friend.findOneAndUpdate(
+            {
+              userId,
+              friendUserId: registeredUser.userId
+            },
+            {
+              $set: {
+                source: 'device_contact',
+                status: 'accepted',
+                acceptedAt: now,
+                isDeviceContact: true,
+                phoneNumber: registeredUser.phoneNumber,
+                lastDeviceSync: now,
+                cachedData: {
+                  name: registeredUser.name,
+                  profileImage: registeredUser.profileImage || '',
+                  username: registeredUser.username || '',
+                  lastCacheUpdate: now
+                }
+              }
+            },
+            { upsert: true, new: true }
+          );
           
           // Get current user's data for reciprocal friendship cache
           const currentUser = await User.findOne({ userId }).select('name profileImage username phoneNumber').lean();
           
           // Create reciprocal friendship (with CURRENT USER's data in cache, not registeredUser's)
-          const reciprocalFriendship = new Friend({
-            userId: registeredUser.userId,
-            friendUserId: userId,
-            source: 'device_contact',
-            status: 'accepted',
-            acceptedAt: now,
-            isDeviceContact: true,
-            phoneNumber: currentUser?.phoneNumber || null,
-            lastDeviceSync: now,
-            cachedData: {
-              name: currentUser?.name || 'Unknown',
-              profileImage: currentUser?.profileImage || '',
-              username: currentUser?.username || '',
-              lastCacheUpdate: now
-            }
-          });
-          
-          await reciprocalFriendship.save();
+          // ✅ FIX: Use upsert to avoid duplicate key error
+          await Friend.findOneAndUpdate(
+            {
+              userId: registeredUser.userId,
+              friendUserId: userId
+            },
+            {
+              $set: {
+                source: 'device_contact',
+                status: 'accepted',
+                acceptedAt: now,
+                isDeviceContact: true,
+                phoneNumber: currentUser?.phoneNumber || null,
+                lastDeviceSync: now,
+                cachedData: {
+                  name: currentUser?.name || 'Unknown',
+                  profileImage: currentUser?.profileImage || '',
+                  username: currentUser?.username || '',
+                  lastCacheUpdate: now
+                }
+              }
+            },
+            { upsert: true, new: true }
+          );
           
           newFriends.push({
             friendUserId: registeredUser.userId,
