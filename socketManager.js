@@ -2220,12 +2220,38 @@ const broadcastSystemAnnouncement = (title, message, priority = 'normal') => {
   return successCount;
 };
 
+/**
+ * Broadcast to all connected users
+ * @param {string} event - Event name to emit
+ * @param {Object} data - Data to send with the event
+ */
+const broadcastToAll = (event, data) => {
+  try {
+    console.log(`📡 Broadcasting ${event} to all connected users (${userSockets.size} users)`);
+    
+    let successCount = 0;
+    for (const [userId, socket] of userSockets.entries()) {
+      if (socket && socket.connected) {
+        socket.emit(event, data);
+        successCount++;
+      }
+    }
+    
+    console.log(`✅ Broadcasted ${event} to ${successCount}/${userSockets.size} users`);
+    return successCount;
+  } catch (error) {
+    console.error('❌ Error broadcasting to all users:', error);
+    return 0;
+  }
+};
+
 // Export enhanced functions and data
 module.exports = {
   initializeSocketIO,
   broadcastStatusUpdate,
   refreshUserContacts,
   broadcastToUser,
+  broadcastToAll, // ✅ FIX: Export broadcastToAll function
   broadcastSystemAnnouncement,
   getConnectionStats,
   getUserSockets: () => userSockets,

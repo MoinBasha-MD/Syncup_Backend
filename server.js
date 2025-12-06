@@ -195,6 +195,7 @@ app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
 // Health check and monitoring routes (before API versioning)
 const { healthCheck, liveness, readiness, metrics } = require('./middleware/healthCheckMiddleware');
 app.get('/health', healthCheck);
+app.get('/api/health', healthCheck); // ✅ FIX: Add /api/health endpoint
 app.get('/health/live', liveness);
 app.get('/health/ready', readiness);
 app.get('/metrics', metrics);
@@ -327,28 +328,7 @@ app.get('/api/network-test', (req, res) => {
   });
 });
 
-// Enhanced health check endpoint
-app.get('/health', (req, res) => {
-  const uptime = process.uptime();
-  const memoryUsage = process.memoryUsage();
-  
-  res.status(200).json({
-    status: 'UP',
-    uptime: Math.floor(uptime),
-    memory: {
-      used: Math.round(memoryUsage.heapUsed / 1024 / 1024),
-      total: Math.round(memoryUsage.heapTotal / 1024 / 1024),
-      external: Math.round(memoryUsage.external / 1024 / 1024)
-    },
-    timestamp: new Date().toISOString(),
-    version: '1.0.0'
-  });
-});
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'UP' });
-});
+// ✅ FIX: Removed duplicate health check endpoints (already defined at line 197-198)
 
 // Error handling middleware
 app.use(notFound);
