@@ -12,20 +12,29 @@ const getUserGroups = asyncHandler(async (req, res) => {
     const groups = await Group.findByUserId(req.user._id);
     
     // Transform groups to match frontend interface
-    const transformedGroups = groups.map(group => ({
-      id: group.groupId,
-      name: group.name,
-      description: group.description,
-      memberCount: group.memberCount,
-      members: group.members.map(member => {
-        // Return phone numbers for backward compatibility
-        return member.phoneNumber || member.userId || member.memberId;
-      }),
-      createdAt: group.createdAt.toISOString(),
-      lastActivity: group.lastActivity.toISOString(),
-      createdBy: group.createdBy,
-      admins: group.admins
-    }));
+    const transformedGroups = groups.map(group => {
+      // ✅ FIX Bug #2: Remove duplicates and null entries from members array
+      const memberIds = group.members
+        .map(member => member.phoneNumber || member.userId || member.memberId)
+        .filter(Boolean); // Remove null/undefined
+      
+      // Remove duplicates using Set
+      const uniqueMembers = [...new Set(memberIds)];
+      
+      console.log(`📊 [GROUP] ${group.name}: DB memberCount=${group.memberCount}, actual unique=${uniqueMembers.length}`);
+      
+      return {
+        id: group.groupId,
+        name: group.name,
+        description: group.description,
+        memberCount: uniqueMembers.length, // ✅ Use actual unique count
+        members: uniqueMembers,
+        createdAt: group.createdAt.toISOString(),
+        lastActivity: group.lastActivity.toISOString(),
+        createdBy: group.createdBy,
+        admins: group.admins
+      };
+    });
 
     res.status(200).json({
       success: true,

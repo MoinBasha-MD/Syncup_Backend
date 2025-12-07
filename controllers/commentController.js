@@ -48,7 +48,7 @@ const createComment = async (req, res) => {
 
     // Update post comment count (recalculate total including replies)
     const totalComments = await Comment.aggregate([
-      { $match: { postId: mongoose.Types.ObjectId(postId), isActive: true } },
+      { $match: { postId: new mongoose.Types.ObjectId(postId), isActive: true } },
       {
         $project: {
           total: { $add: [1, { $size: '$replies' }] } // 1 for comment + number of replies
@@ -242,7 +242,7 @@ const deleteComment = async (req, res) => {
     const post = await FeedPost.findById(comment.postId);
     if (post) {
       const totalComments = await Comment.aggregate([
-        { $match: { postId: mongoose.Types.ObjectId(comment.postId), isActive: true } },
+        { $match: { postId: new mongoose.Types.ObjectId(comment.postId), isActive: true } },
         {
           $project: {
             total: { $add: [1, { $size: '$replies' }] }
@@ -380,7 +380,7 @@ const addReply = async (req, res) => {
     const post = await FeedPost.findById(comment.postId);
     if (post) {
       const totalComments = await Comment.aggregate([
-        { $match: { postId: mongoose.Types.ObjectId(comment.postId), isActive: true } },
+        { $match: { postId: new mongoose.Types.ObjectId(comment.postId), isActive: true } },
         {
           $project: {
             total: { $add: [1, { $size: '$replies' }] }
@@ -530,7 +530,7 @@ const deleteReply = async (req, res) => {
     const post = await FeedPost.findById(comment.postId);
     if (post) {
       const totalComments = await Comment.aggregate([
-        { $match: { postId: mongoose.Types.ObjectId(comment.postId), isActive: true } },
+        { $match: { postId: new mongoose.Types.ObjectId(comment.postId), isActive: true } },
         {
           $project: {
             total: { $add: [1, { $size: '$replies' }] }

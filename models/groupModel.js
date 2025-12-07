@@ -118,6 +118,19 @@ const groupSchema = mongoose.Schema(
 
 // Update member count and ensure creator is admin before saving
 groupSchema.pre('save', function(next) {
+  // ✅ FIX Bug #2: Remove duplicate members before saving
+  const uniqueMembers = [];
+  const seenIds = new Set();
+  
+  for (const member of this.members) {
+    const memberId = member.memberId || member.userId || member.phoneNumber;
+    if (memberId && !seenIds.has(memberId)) {
+      seenIds.add(memberId);
+      uniqueMembers.push(member);
+    }
+  }
+  
+  this.members = uniqueMembers;
   this.memberCount = this.members.length;
   this.lastActivity = new Date();
   

@@ -210,7 +210,7 @@ class FriendService {
       
       // Also send push notification to recipient
       try {
-        const notificationService = require('./notificationService');
+        const notificationService = require('./enhancedNotificationService');
         await notificationService.sendNotification(friendUserId, {
           type: 'friend_request',
           title: '👋 New Friend Request',
@@ -652,34 +652,16 @@ class FriendService {
             { upsert: true, new: true }
           );
           
-          // Get current user's data for reciprocal friendship cache
-          const currentUser = await User.findOne({ userId }).select('name profileImage username phoneNumber').lean();
+          // ✅ FIX: DO NOT create reciprocal friendship automatically
+          // This was causing Bug #1: Users appearing as friends without consent
+          // Only User A should have User B in their list if A has B's number
+          // User B should NOT automatically have User A unless:
+          // 1. B also has A's number in their contacts, OR
+          // 2. A sends a friend request and B accepts it
           
-          // Create reciprocal friendship (with CURRENT USER's data in cache, not registeredUser's)
-          // ✅ FIX: Use upsert to avoid duplicate key error
-          await Friend.findOneAndUpdate(
-            {
-              userId: registeredUser.userId,
-              friendUserId: userId
-            },
-            {
-              $set: {
-                source: 'device_contact',
-                status: 'accepted',
-                acceptedAt: now,
-                isDeviceContact: true,
-                phoneNumber: currentUser?.phoneNumber || null,
-                lastDeviceSync: now,
-                cachedData: {
-                  name: currentUser?.name || 'Unknown',
-                  profileImage: currentUser?.profileImage || '',
-                  username: currentUser?.username || '',
-                  lastCacheUpdate: now
-                }
-              }
-            },
-            { upsert: true, new: true }
-          );
+          // REMOVED: Automatic reciprocal friendship creation
+          // The old code was creating B → A friendship with status 'accepted'
+          // This violated user privacy and consent
           
           newFriends.push({
             friendUserId: registeredUser.userId,
