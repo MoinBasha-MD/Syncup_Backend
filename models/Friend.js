@@ -231,7 +231,30 @@ friendSchema.statics.getFriends = async function(userId, options = {}) {
     .limit(limit)
     .lean();
   
-  return friends;
+  // ✅ FIX: Only return MUTUAL friendships (both users have each other's numbers)
+  // Filter to include only friends where reciprocal friendship exists
+  const mutualFriends = [];
+  
+  for (const friend of friends) {
+    // Check if reciprocal friendship exists (friend also has this user in their contacts)
+    const reciprocal = await this.findOne({
+      userId: friend.friendUserId,
+      friendUserId: userId,
+      status: 'accepted',
+      isDeviceContact: true, // Must be from device contacts
+      isDeleted: false
+    }).lean();
+    
+    // Only include if reciprocal friendship exists (mutual contact)
+    if (reciprocal) {
+      mutualFriends.push(friend);
+      console.log(`✅ [MUTUAL CHECK] ${userId} ↔ ${friend.friendUserId}: Mutual contact`);
+    } else {
+      console.log(`⚠️ [MUTUAL CHECK] ${userId} → ${friend.friendUserId}: One-way only, excluded`);
+    }
+  }
+  
+  return mutualFriends;
 };
 
 // Static method: Get friend by friendUserId
