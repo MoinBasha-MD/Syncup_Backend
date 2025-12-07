@@ -231,12 +231,19 @@ friendSchema.statics.getFriends = async function(userId, options = {}) {
     .limit(limit)
     .lean();
   
-  // ✅ FIX: Only return MUTUAL friendships (both users have each other's numbers)
-  // Filter to include only friends where reciprocal friendship exists
+  // ✅ FIX: Only apply MUTUAL check to DEVICE CONTACTS, not app connections
+  // App connections (friend requests) should always be shown if accepted
   const mutualFriends = [];
   
   for (const friend of friends) {
-    // Check if reciprocal friendship exists (friend also has this user in their contacts)
+    // If this is an app connection (friend request), always include it
+    if (!friend.isDeviceContact) {
+      mutualFriends.push(friend);
+      console.log(`✅ [APP CONNECTION] ${userId} ↔ ${friend.friendUserId}: Friend request (always shown)`);
+      continue;
+    }
+    
+    // For device contacts, check if reciprocal friendship exists
     const reciprocal = await this.findOne({
       userId: friend.friendUserId,
       friendUserId: userId,
@@ -245,12 +252,12 @@ friendSchema.statics.getFriends = async function(userId, options = {}) {
       isDeleted: false
     }).lean();
     
-    // Only include if reciprocal friendship exists (mutual contact)
+    // Only include device contact if reciprocal exists (mutual contact)
     if (reciprocal) {
       mutualFriends.push(friend);
-      console.log(`✅ [MUTUAL CHECK] ${userId} ↔ ${friend.friendUserId}: Mutual contact`);
+      console.log(`✅ [MUTUAL CHECK] ${userId} ↔ ${friend.friendUserId}: Mutual device contact`);
     } else {
-      console.log(`⚠️ [MUTUAL CHECK] ${userId} → ${friend.friendUserId}: One-way only, excluded`);
+      console.log(`⚠️ [MUTUAL CHECK] ${userId} → ${friend.friendUserId}: One-way device contact, excluded`);
     }
   }
   
