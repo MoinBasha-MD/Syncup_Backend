@@ -1,5 +1,5 @@
 const User = require('../models/userModel');
-const { getIO } = require('../socket');
+const { broadcastToUser } = require('../socketManager');
 
 /**
  * Send SOS alert to emergency contacts
@@ -12,15 +12,13 @@ exports.sendSOSAlert = async (req, res) => {
     console.log('🆘 [SOS CONTROLLER] SOS alert received from user:', userId);
 
     // Get user info
-    const user = await User.findById(userId).select('name phoneNumber');
+    const user = await User.findOne({ userId }).select('name phoneNumber');
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-
-    const io = getIO();
 
     // Send alert to each emergency contact
     for (const contact of emergencyContacts) {
@@ -39,23 +37,26 @@ exports.sendSOSAlert = async (req, res) => {
         timestamp: new Date().toISOString(),
       };
 
-      // Emit to specific user's socket
-      io.to(contact.userId).emit('sos_alert', notification);
+      // Broadcast to specific user
+      broadcastToUser(contact.userId, 'sos_alert', notification);
 
       console.log(`📲 [SOS CONTROLLER] SOS alert sent to ${contact.name} (${contact.userId})`);
     }
 
     // Save SOS event to database (optional - for history)
-    await User.findByIdAndUpdate(userId, {
-      $push: {
-        sosHistory: {
-          timestamp: new Date(),
-          location: location,
-          emergencyContacts: emergencyContacts.map(c => c.userId),
-          message: message,
+    await User.findOneAndUpdate(
+      { userId },
+      {
+        $push: {
+          sosHistory: {
+            timestamp: new Date(),
+            location: location,
+            emergencyContacts: emergencyContacts.map(c => c.userId),
+            message: message,
+          }
         }
       }
-    });
+    );
 
     res.json({
       success: true,
@@ -83,8 +84,6 @@ exports.sendLocationUpdate = async (req, res) => {
 
     console.log('📍 [SOS CONTROLLER] Location update from user:', userId);
 
-    const io = getIO();
-
     // Send location update to each emergency contact
     for (const contact of emergencyContacts) {
       const update = {
@@ -99,7 +98,7 @@ exports.sendLocationUpdate = async (req, res) => {
         timestamp: new Date().toISOString(),
       };
 
-      io.to(contact.userId).emit('sos_location_update', update);
+      broadcastToUser(contact.userId, 'sos_location_update', update);
     }
 
     res.json({
@@ -127,8 +126,6 @@ exports.stopSOS = async (req, res) => {
 
     console.log('🛑 [SOS CONTROLLER] SOS stopped by user:', userId);
 
-    const io = getIO();
-
     // Notify emergency contacts that SOS has been stopped
     for (const contact of emergencyContacts) {
       const notification = {
@@ -137,7 +134,7 @@ exports.stopSOS = async (req, res) => {
         timestamp: new Date().toISOString(),
       };
 
-      io.to(contact.userId).emit('sos_stopped', notification);
+      broadcastToUser(contact.userId, 'sos_stopped', notification);
     }
 
     res.json({
@@ -162,7 +159,7 @@ exports.getSOSHistory = async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const user = await User.findById(userId)
+    const user = await User.findOne({ userId })
       .select('sosHistory')
       .populate('sosHistory.emergencyContacts', 'name phoneNumber');
 
