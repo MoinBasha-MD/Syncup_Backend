@@ -447,6 +447,31 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
       $addFields: {
         replyToMessage: { $arrayElemAt: ['$replyToMessage', 0] }
       }
+    },
+    {
+      $project: {
+        senderId: 1,
+        receiverId: 1,
+        message: 1,
+        messageType: 1,
+        imageUrl: 1,
+        voiceMetadata: 1,
+        fileMetadata: 1,
+        sharedPost: 1,
+        locationData: 1,
+        timestamp: 1,
+        status: 1,
+        isRead: 1,
+        replyTo: 1,
+        replyToMessage: 1,
+        isGhost: 1,
+        ghostSessionId: 1,
+        burnAfterReading: 1,
+        burnViewDuration: 1,
+        burnViewedAt: 1,
+        burnViewedBy: 1,
+        reaction: 1
+      }
     }
   ];
 
