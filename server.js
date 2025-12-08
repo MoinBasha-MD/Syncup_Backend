@@ -267,6 +267,7 @@ app.use('/api/doc-space', apiLimiter, docSpaceSearchRoutes); // Doc Space search
 app.use('/api/doc-space-download', apiLimiter, require('./routes/docSpaceDownloadRoutes')); // Doc Space file download with proper headers
 app.use('/api/categories', apiLimiter, categoryRoutes); // Document categories
 app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
+app.use('/api/sos', apiLimiter, require('./routes/sosRoutes')); // SOS emergency alert routes
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Serve static files from the uploads directory
