@@ -43,6 +43,10 @@ const messageSchema = new mongoose.Schema({
     mimeType: {
       type: String,
       default: null
+    },
+    fileUrl: {
+      type: String,
+      default: null
     }
   },
   // Voice message metadata
