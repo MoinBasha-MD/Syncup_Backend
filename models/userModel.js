@@ -295,6 +295,28 @@ const userSchema = mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'FeedPost'
     }],
+    // SOS History
+    sosHistory: [{
+      timestamp: {
+        type: Date,
+        default: Date.now
+      },
+      location: {
+        latitude: Number,
+        longitude: Number,
+        accuracy: Number
+      },
+      emergencyContacts: [{
+        type: String // Array of userIds
+      }],
+      message: String,
+      duration: Number, // in minutes
+      stopped: {
+        type: Boolean,
+        default: false
+      },
+      stoppedAt: Date
+    }],
     resetPasswordToken: String,
     resetPasswordExpire: Date,
     // Device tokens for push notifications and background service
