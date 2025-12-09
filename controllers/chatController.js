@@ -1272,6 +1272,84 @@ const deleteGhostMessages = async (req, res) => {
   }
 };
 
+// ✅ FIX #3: Mark ghost messages as viewed
+const markGhostMessagesViewed = async (req, res) => {
+  try {
+    const { ghostSessionId, userId } = req.body;
+    
+    console.log('👁️ [GHOST MODE] Marking messages as viewed:', { ghostSessionId, userId });
+    
+    if (!ghostSessionId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing ghostSessionId or userId'
+      });
+    }
+    
+    const result = await Message.updateMany(
+      {
+        isGhost: true,
+        ghostSessionId: ghostSessionId,
+        viewedBy: { $ne: userId } // Not already viewed by this user
+      },
+      {
+        $addToSet: { viewedBy: userId }, // Add userId to viewedBy array
+        $set: { viewedAt: new Date() }
+      }
+    );
+    
+    console.log('✅ [GHOST MODE] Marked', result.modifiedCount, 'messages as viewed by', userId);
+    
+    res.status(200).json({
+      success: true,
+      markedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('❌ [GHOST MODE] Mark viewed error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark messages as viewed',
+      error: error.message
+    });
+  }
+};
+
+// ✅ FIX #3: Delete viewed ghost messages
+const deleteViewedGhostMessages = async (req, res) => {
+  try {
+    const { ghostSessionId, userId } = req.body;
+    
+    console.log('🗑️ [GHOST MODE] Deleting viewed messages:', { ghostSessionId, userId });
+    
+    if (!ghostSessionId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing ghostSessionId or userId'
+      });
+    }
+    
+    const result = await Message.deleteMany({
+      isGhost: true,
+      ghostSessionId: ghostSessionId,
+      viewedBy: { $in: [userId] } // Only delete if user viewed it
+    });
+    
+    console.log('✅ [GHOST MODE] Deleted', result.deletedCount, 'viewed messages for user', userId);
+    
+    res.status(200).json({
+      success: true,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('❌ [GHOST MODE] Delete viewed error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete viewed messages',
+      error: error.message
+    });
+  }
+};
+
 // Mark burn message as viewed
 const markBurnViewed = async (req, res) => {
   try {
@@ -1349,6 +1427,8 @@ module.exports = {
   exchangeEncryptionKeys,
   getPublicKey,
   deleteGhostMessages,
+  markGhostMessagesViewed, // ✅ FIX #3
+  deleteViewedGhostMessages, // ✅ FIX #3
   markBurnViewed,
   cleanupExpiredMessages
 };

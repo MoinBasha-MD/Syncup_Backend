@@ -145,6 +145,14 @@ const messageSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // ✅ FIX #2: Track who viewed ghost messages
+  viewedBy: [{
+    type: String // Array of userIds who viewed this message
+  }],
+  viewedAt: {
+    type: Date,
+    default: null
+  },
   expiresAt: {
     type: Date,
     default: null,
