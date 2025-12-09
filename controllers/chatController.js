@@ -208,7 +208,11 @@ const sendMessage = async (req, res) => {
         status: 'delivered',
         sharedPost: savedMessage.sharedPost,     // ✅ Include shared post
         imageUrl: savedMessage.imageUrl,         // ✅ Include image URL
-        fileMetadata: savedMessage.fileMetadata  // ✅ Include file metadata
+        fileMetadata: savedMessage.fileMetadata, // ✅ Include file metadata
+        // ✅ FIX: Include ghost mode fields
+        isGhost: savedMessage.isGhost,
+        ghostSessionId: savedMessage.ghostSessionId,
+        viewedBy: savedMessage.viewedBy || []
       };
       
       // Strategy 1: Primary WebSocket broadcast
