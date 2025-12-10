@@ -3,6 +3,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const { protect } = require('../middleware/authMiddleware');
+const DocSpace = require('../models/DocSpace');
 
 /**
  * View document (inline) with proper headers
@@ -83,9 +84,11 @@ router.get('/view/:filename', protect, async (req, res) => {
 router.get('/:filename', protect, async (req, res) => {
   try {
     const { filename } = req.params;
+    const userId = req.user.userId;
     const filePath = path.join(__dirname, '../uploads/documents', filename);
 
     console.log('📥 [DOWNLOAD] Request for file:', filename);
+    console.log('📥 [DOWNLOAD] User:', userId);
     console.log('📥 [DOWNLOAD] File path:', filePath);
 
     // Check if file exists
@@ -95,6 +98,94 @@ router.get('/:filename', protect, async (req, res) => {
         success: false,
         message: 'File not found'
       });
+    }
+
+    // ⚡ FIX: Check download permissions
+    // Find the document and check if user has download permission
+    const docSpace = await DocSpace.findOne({
+      'documents.fileUrl': { $regex: filename }
+    });
+
+    if (!docSpace) {
+      console.error('❌ [DOWNLOAD] Document not found in DocSpace');
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found'
+      });
+    }
+
+    const document = docSpace.documents.find(d => d.fileUrl.includes(filename));
+    if (!document) {
+      console.error('❌ [DOWNLOAD] Document not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found'
+      });
+    }
+
+    // Check if user is the owner
+    const isOwner = docSpace.userId === userId;
+
+    if (!isOwner) {
+      // Check if user has download permission
+      const accessEntry = docSpace.documentSpecificAccess.find(access => 
+        access.documentId === document.documentId && 
+        access.userId === userId &&
+        !access.isRevoked
+      );
+
+      if (!accessEntry) {
+        console.error('❌ [DOWNLOAD] No access permission');
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have permission to download this document'
+        });
+      }
+
+      // Check if access has expired
+      if (accessEntry.expiryDate && new Date() > new Date(accessEntry.expiryDate)) {
+        console.error('❌ [DOWNLOAD] Access expired');
+        return res.status(403).json({
+          success: false,
+          message: 'Access expired'
+        });
+      }
+
+      // Check if user has download permission
+      if (accessEntry.permissionType === 'view') {
+        console.error('❌ [DOWNLOAD] View-only permission');
+        return res.status(403).json({
+          success: false,
+          message: 'You only have view permission. Download not allowed.'
+        });
+      }
+
+      // ⚡ FIX: Check download limit
+      if (accessEntry.downloadLimit && accessEntry.downloadCount >= accessEntry.downloadLimit) {
+        console.error('❌ [DOWNLOAD] Download limit reached');
+        return res.status(403).json({
+          success: false,
+          message: `Download limit reached (${accessEntry.downloadLimit} downloads)`
+        });
+      }
+
+      // ⚡ FIX: Track download
+      accessEntry.downloadCount = (accessEntry.downloadCount || 0) + 1;
+      accessEntry.lastAccessedAt = new Date();
+      
+      // Add to access log
+      document.accessLog.push({
+        userId: userId,
+        userName: req.user.name || 'Unknown User',
+        accessedAt: new Date(),
+        accessType: 'download',
+      });
+
+      await docSpace.save();
+      
+      console.log(`📊 [DOWNLOAD TRACKING] Download count updated: ${accessEntry.downloadCount}/${accessEntry.downloadLimit || 'unlimited'}`);
+    } else {
+      console.log('✅ [DOWNLOAD] Owner downloading their own document');
     }
 
     // Get file stats

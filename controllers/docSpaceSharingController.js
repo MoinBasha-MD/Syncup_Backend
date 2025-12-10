@@ -631,10 +631,20 @@ exports.trackDocumentAccess = async (req, res) => {
       });
     }
 
+    // ⚡ FIX: Check view limit before allowing access
+    if (accessEntry.viewLimit && accessEntry.viewCount >= accessEntry.viewLimit) {
+      return res.status(403).json({
+        success: false,
+        message: `View limit reached (${accessEntry.viewLimit} views)`,
+      });
+    }
+
     // Update access tracking
     accessEntry.viewCount = (accessEntry.viewCount || 0) + 1;
     accessEntry.usedAt = new Date();
     accessEntry.lastAccessedAt = new Date();
+    
+    console.log(`📊 [VIEW TRACKING] View count updated: ${accessEntry.viewCount}/${accessEntry.viewLimit || 'unlimited'}`);
 
     // Add to document access log
     document.accessLog.push({
