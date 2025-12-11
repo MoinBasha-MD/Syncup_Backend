@@ -237,6 +237,35 @@ const docSpaceSchema = new mongoose.Schema(
       }
     }],
     
+    // ⚡ FIX: Access requests (when users request more access)
+    accessRequests: [{
+      documentId: {
+        type: String,
+        required: true
+      },
+      requesterId: {
+        type: String,
+        required: true
+      },
+      requesterName: {
+        type: String,
+        required: true
+      },
+      requesterProfileImage: String,
+      message: String,
+      status: {
+        type: String,
+        enum: ['pending', 'approved', 'denied'],
+        default: 'pending'
+      },
+      requestedAt: {
+        type: Date,
+        default: Date.now
+      },
+      approvedAt: Date,
+      deniedAt: Date
+    }],
+    
     // Settings
     settings: {
       maxDocuments: {

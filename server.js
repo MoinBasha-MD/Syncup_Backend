@@ -64,6 +64,7 @@ const dailyScheduleRoutes = require('./routes/dailyScheduleRoutes');
 const docSpaceRoutes = require('./routes/docSpaceRoutes');
 const docSpaceSharingRoutes = require('./routes/docSpaceSharingRoutes');
 const docSpaceAnalyticsRoutes = require('./routes/docSpaceAnalyticsRoutes');
+const docSpaceAccessRequestRoutes = require('./routes/docSpaceAccessRequestRoutes'); // ⚡ FIX: Access requests
 const categoryRoutes = require('./routes/categoryRoutes');
 const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
 const container = require('./config/container');
@@ -265,6 +266,7 @@ app.use('/api/doc-space-sharing', apiLimiter, docSpaceSharingRoutes); // Doc Spa
 app.use('/api/doc-space', apiLimiter, docSpaceAnalyticsRoutes); // Doc Space analytics and access control
 app.use('/api/doc-space', apiLimiter, docSpaceSearchRoutes); // Doc Space search and collections
 app.use('/api/doc-space-download', apiLimiter, require('./routes/docSpaceDownloadRoutes')); // Doc Space file download with proper headers
+app.use('/api/doc-space-access-requests', apiLimiter, docSpaceAccessRequestRoutes); // ⚡ FIX: Doc Space access requests
 app.use('/api/categories', apiLimiter, categoryRoutes); // Document categories
 app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
 app.use('/api/sos', apiLimiter, require('./routes/sosRoutes')); // SOS emergency alert routes
