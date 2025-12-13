@@ -1,5 +1,6 @@
 const Friend = require('../models/Friend');
 const User = require('../models/userModel');
+const Block = require('../models/blockModel');
 const friendWebSocketService = require('./friendWebSocketService');
 const { createPhoneNumberQuery } = require('../utils/phoneNormalization');
 
@@ -22,15 +23,30 @@ class FriendService {
       
       const friends = await Friend.getFriends(userId, options);
       
-      console.log(`✅ [FRIEND SERVICE] Found ${friends.length} friends`);
+      console.log(`✅ [FRIEND SERVICE] Found ${friends.length} friends (before block filter)`);
+      
+      // Get list of blocked users to exclude them from friends list
+      const blockedUsers = await Block.find({ blockerId: userId }).select('blockedUserId').lean();
+      const blockedUserIds = new Set(blockedUsers.map(b => b.blockedUserId));
+      
+      // Filter out blocked users
+      const filteredFriends = friends.filter(friend => {
+        const isBlocked = blockedUserIds.has(friend.friendUserId);
+        if (isBlocked) {
+          console.log(`🚫 [FRIEND SERVICE] Excluding blocked user: ${friend.friendUserId}`);
+        }
+        return !isBlocked;
+      });
+      
+      console.log(`✅ [FRIEND SERVICE] Returning ${filteredFriends.length} friends (after excluding ${blockedUserIds.size} blocked users)`);
       
       // Log each friend for debugging
-      friends.forEach((friend, index) => {
+      filteredFriends.forEach((friend, index) => {
         console.log(`  Friend ${index + 1}: friendUserId=${friend.friendUserId}, name=${friend.cachedData?.name || 'NO NAME'}, status=${friend.status}, source=${friend.source}, isDeviceContact=${friend.isDeviceContact}`);
       });
       
       // Return formatted friend list with cached data
-      return friends.map(friend => ({
+      return filteredFriends.map(friend => ({
         friendUserId: friend.friendUserId,
         name: friend.cachedData.name,
         profileImage: friend.cachedData.profileImage,

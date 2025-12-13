@@ -9,22 +9,24 @@ const ConnectionRequest = require('../models/connectionRequestModel');
 const blockUser = asyncHandler(async (req, res) => {
   try {
     const blockerId = req.user.userId;
-    const { userId: blockedUserId, reason = '' } = req.body;
+    // Accept both 'blockedUserId' and 'userId' for compatibility
+    const { blockedUserId, userId, reason = '' } = req.body;
+    const targetUserId = blockedUserId || userId;
     
-    console.log(`🚫 Blocking user: ${blockerId} -> ${blockedUserId}`);
+    console.log(`🚫 Blocking user: ${blockerId} -> ${targetUserId}`);
     
-    if (!blockedUserId) {
+    if (!targetUserId) {
       res.status(400);
       throw new Error('User ID to block is required');
     }
     
-    if (blockerId === blockedUserId) {
+    if (blockerId === targetUserId) {
       res.status(400);
       throw new Error('Cannot block yourself');
     }
     
     // Check if already blocked
-    const existingBlock = await Block.findOne({ blockerId, blockedUserId });
+    const existingBlock = await Block.findOne({ blockerId, blockedUserId: targetUserId });
     if (existingBlock) {
       res.status(400);
       throw new Error('User is already blocked');
@@ -33,7 +35,7 @@ const blockUser = asyncHandler(async (req, res) => {
     // Find both users
     const [blocker, blockedUser] = await Promise.all([
       User.findOne({ userId: blockerId }),
-      User.findOne({ userId: blockedUserId })
+      User.findOne({ userId: targetUserId })
     ]);
     
     if (!blocker || !blockedUser) {
@@ -44,7 +46,7 @@ const blockUser = asyncHandler(async (req, res) => {
     // Create block record
     const block = new Block({
       blockerId,
-      blockedUserId,
+      blockedUserId: targetUserId,
       blockerName: blocker.name,
       blockerUsername: blocker.username || '',
       blockerProfileImage: blocker.profileImage || '',
@@ -59,15 +61,15 @@ const blockUser = asyncHandler(async (req, res) => {
     // Cancel any pending connection requests between them (but keep existing connections)
     await ConnectionRequest.deleteMany({
       $or: [
-        { fromUserId: blockerId, toUserId: blockedUserId },
-        { fromUserId: blockedUserId, toUserId: blockerId }
+        { fromUserId: blockerId, toUserId: targetUserId },
+        { fromUserId: targetUserId, toUserId: blockerId }
       ]
     });
     
     // Note: We keep existing connections and chat history intact
     // Blocking only prevents new interactions, not historical data
     
-    console.log(`✅ User blocked successfully: ${blockerId} -> ${blockedUserId}`);
+    console.log(`✅ User blocked successfully: ${blockerId} -> ${targetUserId}`);
     
     res.status(201).json({
       success: true,
