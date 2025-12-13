@@ -1586,18 +1586,56 @@ const initializeSocketIO = (server) => {
           return;
         }
         
-        console.log(`📡 [STATUS] Processing status update with privacy scope: ${broadcastScope}`);
-        console.log(`📡 [STATUS] Connection types:`, connectionTypes);
-        console.log(`📡 [STATUS] Privacy settings:`, privacySettings);
+        // ✅ FIX Bug #3, #4, #5: SERVER-SIDE PRIVACY VALIDATION
+        console.log(`🔒 [STATUS] Validating privacy settings server-side...`);
         
-        // Apply the comprehensive privacy and targeting logic
-        // The frontend has already done the privacy checking, so we trust the broadcastScope
+        // Get user's saved privacy settings from database
+        const dbPrivacySettings = await StatusPrivacy.getPrivacySettings(socket.user.id);
+        console.log(`🔒 [STATUS] Database privacy settings:`, {
+          visibility: dbPrivacySettings.visibility,
+          allowedGroups: dbPrivacySettings.allowedGroups?.length || 0,
+          allowedContacts: dbPrivacySettings.allowedContacts?.length || 0
+        });
+        
+        // Use database settings as source of truth (don't trust frontend)
+        const effectiveVisibility = dbPrivacySettings.visibility;
+        const effectiveAllowedGroups = dbPrivacySettings.allowedGroups || [];
+        const effectiveAllowedContacts = dbPrivacySettings.allowedContacts || [];
+        
+        console.log(`🔒 [STATUS] Effective privacy: ${effectiveVisibility}`);
         
         // Don't broadcast if private
-        if (broadcastScope === 'private' || privacySettings?.visibility === 'private') {
-          console.log(`🔒 [STATUS] Status is private - not broadcasting`);
+        if (effectiveVisibility === 'private') {
+          console.log(`🔒 [STATUS] Status is PRIVATE - not broadcasting`);
+          // Still save to database but don't broadcast
+          user.status = status;
+          user.customStatus = customStatus || '';
+          user.statusUntil = statusUntil;
+          await user.save();
           return;
         }
+        
+        // Validate allowedGroups if using selected_groups visibility
+        if (effectiveVisibility === 'selected_groups' && effectiveAllowedGroups.length === 0) {
+          console.log(`⚠️ [STATUS] selected_groups visibility but no groups selected - treating as private`);
+          user.status = status;
+          user.customStatus = customStatus || '';
+          user.statusUntil = statusUntil;
+          await user.save();
+          return;
+        }
+        
+        // Validate allowedContacts if using custom_list visibility
+        if (effectiveVisibility === 'custom_list' && effectiveAllowedContacts.length === 0) {
+          console.log(`⚠️ [STATUS] custom_list visibility but no contacts selected - treating as private`);
+          user.status = status;
+          user.customStatus = customStatus || '';
+          user.statusUntil = statusUntil;
+          await user.save();
+          return;
+        }
+        
+        console.log(`✅ [STATUS] Privacy validation passed - proceeding with broadcast`);
         
         // ✅ FIX: Save hierarchical status to database
         user.status = status;
@@ -1648,11 +1686,14 @@ const initializeSocketIO = (server) => {
           console.log(`⚠️ [BACKEND] No location data provided`);
         }
         
-        console.log(`📡 [STATUS] Broadcasting status update with frontend privacy controls applied`);
+        console.log(`📡 [STATUS] Broadcasting status update with SERVER-VALIDATED privacy controls`);
         
-        // Use the existing broadcastStatusUpdate function with the privacy-filtered data
-        // This will apply additional server-side privacy checks as a safety layer
-        broadcastStatusUpdate(user, broadcastStatusData);
+        // Pass the validated privacy settings to broadcast function
+        broadcastStatusUpdate(user, broadcastStatusData, {
+          visibility: effectiveVisibility,
+          allowedGroups: effectiveAllowedGroups,
+          allowedContacts: effectiveAllowedContacts
+        });
         
         console.log(`✅ [STATUS] Successfully processed direct status update from ${userName}`);
         
@@ -1919,12 +1960,17 @@ const broadcastToUser = (userId, event, data, options = {}) => {
   }
 };
 
+// ✅ FIX Bug #9: Cache for privacy check results to avoid repeated DB queries
+const privacyCheckCache = new Map(); // Key: `${statusUserId}_${viewerUserId}`, Value: { canSee: boolean, timestamp: number }
+const PRIVACY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Broadcast status update to all users who have this user in their contacts
  * @param {Object} user - User who updated their status
  * @param {Object} statusData - New status data
+ * @param {Object} validatedPrivacySettings - Server-validated privacy settings (optional)
  */
-const broadcastStatusUpdate = async (user, statusData) => {
+const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings = null) => {
   try {
     const userIdString = user._id.toString();
     
@@ -2026,32 +2072,97 @@ const broadcastStatusUpdate = async (user, statusData) => {
     // 🔒 PRIVACY CHECK: Filter users based on privacy settings
     console.log(`🔒 Checking privacy settings for status broadcast...`);
     console.log(`🔒 Status user details: ID=${userIdString}, Name=${user.name}, Phone=${user.phoneNumber}`);
+    
+    // ✅ FIX Bug #4: Use validated privacy settings if provided (already checked server-side)
     let authorizedUsers = [];
     
-    for (const recipientId of usersToNotify) {
-      try {
-        console.log(`🔒 Checking privacy for recipient: ${recipientId}`);
-        
-        // Get recipient details for debugging
-        const recipient = await User.findById(recipientId).select('name phoneNumber userId');
-        console.log(`🔒 Recipient details: ID=${recipientId}, Name=${recipient?.name}, Phone=${recipient?.phoneNumber}, UserId=${recipient?.userId}`);
-        
-        // userIdString is already the MongoDB ObjectId string (user._id.toString())
-        const statusOwnerObjectId = userIdString;
-        
-        const canSeeStatus = await StatusPrivacy.canUserSeeStatus(statusOwnerObjectId, recipientId);
-        console.log(`🔒 Privacy check result - User ${recipientId} (${recipient?.name}) can see ${statusOwnerObjectId} (${user.name})'s status: ${canSeeStatus}`);
-        
-        if (canSeeStatus) {
-          authorizedUsers.push(recipientId);
-          console.log(`✅ Authorized: ${recipient?.name} can see ${user.name}'s status`);
-        } else {
-          console.log(`🚫 Privacy denied - ${recipient?.name} cannot see ${user.name}'s status`);
+    if (validatedPrivacySettings) {
+      console.log(`🔒 Using PRE-VALIDATED privacy settings from server:`, validatedPrivacySettings);
+      
+      // Fast path: Use validated settings without additional DB queries
+      const { visibility, allowedGroups, allowedContacts } = validatedPrivacySettings;
+      
+      if (visibility === 'public') {
+        // Everyone can see
+        authorizedUsers = usersToNotify;
+        console.log(`✅ PUBLIC visibility - all ${usersToNotify.length} users authorized`);
+      } else if (visibility === 'selected_groups') {
+        // Only users in allowed groups
+        console.log(`🔒 Filtering by selected_groups: ${allowedGroups.length} groups`);
+        for (const recipientId of usersToNotify) {
+          const isInGroup = await StatusPrivacy.isUserInAllowedGroups(recipientId, allowedGroups);
+          if (isInGroup) {
+            authorizedUsers.push(recipientId);
+          }
         }
-      } catch (privacyError) {
-        console.error(`❌ Error checking privacy for user ${recipientId}:`, privacyError);
-        console.error(`❌ Privacy error details:`, privacyError.message);
-        // On error, deny access for safety
+        console.log(`✅ ${authorizedUsers.length}/${usersToNotify.length} users in allowed groups`);
+      } else if (visibility === 'custom_list') {
+        // Only specific allowed contacts
+        console.log(`🔒 Filtering by custom_list: ${allowedContacts.length} contacts`);
+        const allowedContactStrings = allowedContacts.map(id => id.toString());
+        authorizedUsers = usersToNotify.filter(recipientId => 
+          allowedContactStrings.includes(recipientId.toString())
+        );
+        console.log(`✅ ${authorizedUsers.length}/${usersToNotify.length} users in custom list`);
+      } else if (visibility === 'selected_friends') {
+        // Only specific allowed friends from Friend model
+        console.log(`🔒 Filtering by selected_friends: ${allowedContacts.length} friends`);
+        // allowedContacts in this context contains friend userIds
+        for (const recipientId of usersToNotify) {
+          const recipient = await User.findById(recipientId).select('userId');
+          if (recipient && allowedContacts.includes(recipient.userId)) {
+            authorizedUsers.push(recipientId);
+          }
+        }
+        console.log(`✅ ${authorizedUsers.length}/${usersToNotify.length} users in selected friends list`);
+      } else if (visibility === 'contacts_only' || visibility === 'app_connections_only' || visibility === 'friends') {
+        // Check each recipient with caching
+        for (const recipientId of usersToNotify) {
+          const cacheKey = `${userIdString}_${recipientId}`;
+          const cached = privacyCheckCache.get(cacheKey);
+          
+          let canSeeStatus;
+          if (cached && (Date.now() - cached.timestamp) < PRIVACY_CACHE_TTL) {
+            // Use cached result
+            canSeeStatus = cached.canSee;
+            console.log(`🔒 Using cached privacy result for ${recipientId}: ${canSeeStatus}`);
+          } else {
+            // Check privacy and cache result
+            canSeeStatus = await StatusPrivacy.canUserSeeStatus(userIdString, recipientId);
+            privacyCheckCache.set(cacheKey, { canSee: canSeeStatus, timestamp: Date.now() });
+            console.log(`🔒 Checked and cached privacy for ${recipientId}: ${canSeeStatus}`);
+          }
+          
+          if (canSeeStatus) {
+            authorizedUsers.push(recipientId);
+          }
+        }
+        console.log(`✅ ${authorizedUsers.length}/${usersToNotify.length} users authorized after privacy checks`);
+      }
+    } else {
+      // Legacy path: Full privacy check for each recipient (slower)
+      console.log(`⚠️ No validated privacy settings - performing full privacy checks`);
+      
+      for (const recipientId of usersToNotify) {
+        try {
+          const cacheKey = `${userIdString}_${recipientId}`;
+          const cached = privacyCheckCache.get(cacheKey);
+          
+          let canSeeStatus;
+          if (cached && (Date.now() - cached.timestamp) < PRIVACY_CACHE_TTL) {
+            canSeeStatus = cached.canSee;
+          } else {
+            canSeeStatus = await StatusPrivacy.canUserSeeStatus(userIdString, recipientId);
+            privacyCheckCache.set(cacheKey, { canSee: canSeeStatus, timestamp: Date.now() });
+          }
+          
+          if (canSeeStatus) {
+            authorizedUsers.push(recipientId);
+          }
+        } catch (privacyError) {
+          console.error(`❌ Error checking privacy for user ${recipientId}:`, privacyError);
+          // On error, deny access for safety
+        }
       }
     }
     

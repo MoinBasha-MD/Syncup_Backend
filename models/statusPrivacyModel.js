@@ -31,6 +31,9 @@ const statusPrivacySchema = mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     }],
+    allowedFriends: [{
+      type: String, // Friend userIds from Friend model
+    }],
     blockedContacts: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -90,17 +93,18 @@ statusPrivacySchema.statics.getDefaultPrivacySettings = async function(userId) {
   
   if (!defaultSettings) {
     // Create default privacy settings if they don't exist
-    defaultSettings = await this.create({
+    let privacySettings = await this.create({
       userId: userObjectId,
       visibility: 'public',
       allowedGroups: [],
       allowedContacts: [],
+      allowedFriends: [],
       blockedContacts: [],
       locationSharing: {
         enabled: true,
         shareWith: 'all',
         allowedGroups: [],
-        allowedContacts: [],
+        allowedContacts: []
       },
       isDefault: true,
     });
@@ -121,10 +125,28 @@ statusPrivacySchema.statics.getPrivacySettings = async function(userId) {
         visibility: 'public', // Default to public for better UX
         allowedGroups: [],
         allowedContacts: [],
+        allowedFriends: [],
         blockedContacts: [],
-        locationSharing: true
+        locationSharing: {
+          enabled: true,
+          shareWith: 'all',
+          allowedGroups: [],
+          allowedContacts: []
+        }
       });
       console.log(`🔒 [Privacy] Created default privacy settings for user ${userId} - defaulting to PUBLIC visibility`);
+    }
+    
+    // ✅ FIX: Normalize locationSharing to always be an object for backward compatibility
+    if (typeof privacySettings.locationSharing === 'boolean') {
+      console.log(`🔒 [Privacy] Converting legacy boolean locationSharing to object format`);
+      privacySettings.locationSharing = {
+        enabled: privacySettings.locationSharing,
+        shareWith: privacySettings.locationSharing ? 'all' : 'none',
+        allowedGroups: [],
+        allowedContacts: []
+      };
+      await privacySettings.save();
     }
     
     console.log(`🔒 [Privacy] Retrieved settings for user ${userId}:`, {
@@ -145,7 +167,12 @@ statusPrivacySchema.statics.getPrivacySettings = async function(userId) {
       allowedGroups: [],
       allowedContacts: [],
       blockedContacts: [],
-      locationSharing: true
+      locationSharing: {
+        enabled: true,
+        shareWith: 'all',
+        allowedGroups: [],
+        allowedContacts: []
+      }
     };
   }
 };
@@ -215,6 +242,19 @@ statusPrivacySchema.statics.canUserSeeStatus = async function(statusUserId, view
         );
         console.log(`🔒 [Privacy] User in custom allowed list: ${isAllowedContact}`);
         return isAllowedContact;
+        
+      case 'selected_friends':
+        console.log(`🔒 [Privacy] Selected friends visibility - checking Friend model`);
+        const viewerUser = await User.findById(viewerUserId).select('userId');
+        if (!viewerUser || !viewerUser.userId) {
+          console.log(`🔒 [Privacy] Viewer user not found or missing userId`);
+          return false;
+        }
+        
+        const isAllowedFriend = privacySettings.allowedFriends && 
+          privacySettings.allowedFriends.includes(viewerUser.userId);
+        console.log(`🔒 [Privacy] User in selected friends list: ${isAllowedFriend}`);
+        return isAllowedFriend;
         
       case 'friends':
         console.log(`🔒 [Privacy] Friends visibility - checking both device contacts and app connections`);
