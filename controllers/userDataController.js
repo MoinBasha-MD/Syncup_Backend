@@ -36,6 +36,7 @@ const getUserData = async (req, res) => {
       gender: user.gender,
       bio: user.bio,
       isPublic: user.isPublic,
+      emailVerified: user.emailVerified || false,
       status: user.status,
       customStatus: user.customStatus,
       statusUntil: user.statusUntil,
