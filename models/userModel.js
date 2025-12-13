@@ -160,6 +160,11 @@ const userSchema = mongoose.Schema(
       type: String,
       default: ''
     },
+    // Email verification status
+    emailVerified: {
+      type: Boolean,
+      default: false
+    },
     // Online/Offline Status Tracking
     isOnline: {
       type: Boolean,

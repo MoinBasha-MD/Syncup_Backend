@@ -92,4 +92,75 @@ router.route('/encryption-settings')
 router.route('/verify-password')
   .post(protect, verifyUserPassword);
 
+// OTP-related routes
+router.route('/verify-email')
+  .post(protect, async (req, res) => {
+    try {
+      const User = require('../models/userModel');
+      const userId = req.user.userId;
+      
+      await User.findByIdAndUpdate(userId, {
+        emailVerified: true
+      });
+      
+      res.json({
+        success: true,
+        message: 'Email verified successfully'
+      });
+    } catch (error) {
+      console.error('Error verifying email:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update verification status'
+      });
+    }
+  });
+
+router.route('/reset-password-otp')
+  .post(async (req, res) => {
+    try {
+      const { email, newPassword } = req.body;
+      
+      if (!email || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email and new password are required'
+        });
+      }
+      
+      const User = require('../models/userModel');
+      const bcrypt = require('bcryptjs');
+      
+      // Find user by email
+      const user = await User.findOne({ email: email.toLowerCase() });
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+      
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      
+      // Update password
+      user.password = hashedPassword;
+      await user.save();
+      
+      console.log(`✅ Password reset successful for user: ${email}`);
+      
+      res.json({
+        success: true,
+        message: 'Password reset successfully'
+      });
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to reset password'
+      });
+    }
+  });
+
 module.exports = router;
