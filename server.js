@@ -67,6 +67,7 @@ const docSpaceAnalyticsRoutes = require('./routes/docSpaceAnalyticsRoutes');
 const docSpaceAccessRequestRoutes = require('./routes/docSpaceAccessRequestRoutes'); // ⚡ FIX: Access requests
 const categoryRoutes = require('./routes/categoryRoutes');
 const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
+const otpRoutes = require('./routes/otpRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
@@ -270,6 +271,7 @@ app.use('/api/doc-space-access-requests', apiLimiter, docSpaceAccessRequestRoute
 app.use('/api/categories', apiLimiter, categoryRoutes); // Document categories
 app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
 app.use('/api/sos', apiLimiter, require('./routes/sosRoutes')); // SOS emergency alert routes
+app.use('/api/otp', apiLimiter, otpRoutes); // OTP verification routes (email verification)
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Serve static files from the uploads directory
@@ -423,6 +425,13 @@ console.log('✅ Auto-status service started (daily schedule)');
 const statusExpirationService = require('./services/statusExpirationService');
 statusExpirationService.start();
 console.log('✅ Status expiration service started (clears expired sub-statuses)');
+
+// Start OTP cleanup scheduler (runs every hour)
+const otpService = require('./services/otpService');
+setInterval(() => {
+  otpService.cleanExpiredOTPs();
+}, 60 * 60 * 1000); // 1 hour
+console.log('✅ OTP cleanup scheduler started (runs every hour)');
 
 // Initialize Agent System
 (async () => {
