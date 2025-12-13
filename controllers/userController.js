@@ -123,6 +123,7 @@ const getUserProfile = async (req, res) => {
         name: user.name,
         phoneNumber: user.phoneNumber,
         email: user.email,
+        emailVerified: user.emailVerified || false,
         profileImage: user.profileImage,
         status: user.status,
         customStatus: user.customStatus,
@@ -288,6 +289,11 @@ const updateUserProfile = async (req, res) => {
         }
       }
 
+      // Update bio if provided
+      if (req.body.bio !== undefined) {
+        user.bio = req.body.bio || '';
+      }
+
       const updatedUser = await user.save();
 
       res.json({
@@ -296,11 +302,13 @@ const updateUserProfile = async (req, res) => {
         name: updatedUser.name,
         phoneNumber: updatedUser.phoneNumber,
         email: updatedUser.email,
+        emailVerified: updatedUser.emailVerified || false,
         status: updatedUser.status,
         customStatus: updatedUser.customStatus,
         statusUntil: updatedUser.statusUntil,
         dateOfBirth: updatedUser.dateOfBirth,
         gender: updatedUser.gender,
+        bio: updatedUser.bio,
         token: updatedUser.getSignedJwtToken(),
       });
     } else {
