@@ -17,7 +17,12 @@ class OTPService {
     try {
       console.log(`📧 [OTP SERVICE] Creating OTP for ${identifier} (${type})`);
 
-      // Check rate limiting (max 3 OTPs per hour)
+      // Check rate limiting
+      // ⚠️ RATE LIMIT SETTING - Change this value as needed:
+      // PRODUCTION: 3 OTPs per hour (recommended)
+      // TESTING: 20 OTPs per hour (current setting)
+      const MAX_OTP_PER_HOUR = 20; // TODO: Change back to 3 for production
+      
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
       const recentOTPs = await OTP.countDocuments({
         identifier,
@@ -25,11 +30,14 @@ class OTPService {
         createdAt: { $gte: oneHourAgo },
       });
 
-      if (recentOTPs >= 3) {
-        console.log(`⚠️ [OTP SERVICE] Rate limit exceeded for ${identifier}`);
+      if (recentOTPs >= MAX_OTP_PER_HOUR) {
+        console.log(`⚠️ [OTP SERVICE] Rate limit exceeded for ${identifier} (${recentOTPs}/${MAX_OTP_PER_HOUR})`);
         return {
           success: false,
-          error: 'Too many OTP requests. Please try again in an hour.',
+          error: `Too many OTP requests. You've used ${recentOTPs} of ${MAX_OTP_PER_HOUR} allowed per hour. Please try again later.`,
+          rateLimitExceeded: true,
+          attemptsUsed: recentOTPs,
+          maxAttempts: MAX_OTP_PER_HOUR,
         };
       }
 
