@@ -99,16 +99,30 @@ router.route('/verify-email')
       const User = require('../models/userModel');
       const userId = req.user.userId;
       
-      await User.findByIdAndUpdate(userId, {
-        emailVerified: true
-      });
+      console.log(`✅ [VERIFY EMAIL] Updating verification status for userId: ${userId}`);
       
+      // Use userId field (UUID) instead of _id (ObjectId)
+      const result = await User.findOneAndUpdate(
+        { userId: userId },
+        { emailVerified: true },
+        { new: true }
+      );
+      
+      if (!result) {
+        console.error(`❌ [VERIFY EMAIL] User not found: ${userId}`);
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+      
+      console.log(`✅ [VERIFY EMAIL] Email verified for user: ${result.email}`);
       res.json({
         success: true,
         message: 'Email verified successfully'
       });
     } catch (error) {
-      console.error('Error verifying email:', error);
+      console.error('❌ [VERIFY EMAIL] Error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to update verification status'
