@@ -258,4 +258,52 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/otp/test-email
+ * @desc    Test email service connection
+ * @access  Public (for debugging)
+ */
+router.get('/test-email', async (req, res) => {
+  try {
+    console.log('🔍 [OTP ROUTES] Testing email service...');
+    
+    // Check if email credentials are configured
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+      return res.status(500).json({
+        success: false,
+        message: 'Email credentials not configured in .env file',
+        configured: false,
+      });
+    }
+
+    // Verify SMTP connection
+    const isConnected = await emailService.verifyConnection();
+    
+    if (isConnected) {
+      console.log('✅ [OTP ROUTES] Email service test passed');
+      res.json({
+        success: true,
+        message: 'Email service is working correctly',
+        configured: true,
+        emailUser: process.env.EMAIL_USER,
+      });
+    } else {
+      console.error('❌ [OTP ROUTES] Email service test failed');
+      res.status(500).json({
+        success: false,
+        message: 'Email service connection failed',
+        configured: true,
+        emailUser: process.env.EMAIL_USER,
+      });
+    }
+  } catch (error) {
+    console.error('❌ [OTP ROUTES] Error in /test-email:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      configured: !!process.env.EMAIL_USER,
+    });
+  }
+});
+
 module.exports = router;
