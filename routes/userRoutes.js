@@ -132,10 +132,17 @@ router.route('/verify-email')
 
 router.route('/reset-password-otp')
   .post(async (req, res) => {
+    console.log('🔐 [RESET PASSWORD] Endpoint hit!');
+    console.log('📧 [RESET PASSWORD] Request body:', JSON.stringify(req.body, null, 2));
+    
     try {
       const { email, newPassword } = req.body;
       
+      console.log('📧 [RESET PASSWORD] Email:', email);
+      console.log('🔑 [RESET PASSWORD] New password length:', newPassword?.length);
+      
       if (!email || !newPassword) {
+        console.error('❌ [RESET PASSWORD] Missing email or password');
         return res.status(400).json({
           success: false,
           message: 'Email and new password are required'
@@ -145,34 +152,43 @@ router.route('/reset-password-otp')
       const User = require('../models/userModel');
       const bcrypt = require('bcryptjs');
       
+      console.log('🔍 [RESET PASSWORD] Looking up user by email:', email.toLowerCase());
+      
       // Find user by email
       const user = await User.findOne({ email: email.toLowerCase() });
       
       if (!user) {
+        console.error('❌ [RESET PASSWORD] User not found for email:', email);
         return res.status(404).json({
           success: false,
-          message: 'User not found'
+          message: 'User not found with this email address'
         });
       }
       
+      console.log('✅ [RESET PASSWORD] User found:', user.name, user.userId);
+      console.log('🔐 [RESET PASSWORD] Hashing new password...');
+      
       // Hash new password
       const hashedPassword = await bcrypt.hash(newPassword, 10);
+      
+      console.log('💾 [RESET PASSWORD] Updating password in database...');
       
       // Update password
       user.password = hashedPassword;
       await user.save();
       
-      console.log(`✅ Password reset successful for user: ${email}`);
+      console.log(`✅ [RESET PASSWORD] Password reset successful for user: ${email}`);
       
       res.json({
         success: true,
-        message: 'Password reset successfully'
+        message: 'Password reset successfully. You can now login with your new password.'
       });
     } catch (error) {
-      console.error('Error resetting password:', error);
+      console.error('❌ [RESET PASSWORD] Error:', error);
+      console.error('❌ [RESET PASSWORD] Error stack:', error.stack);
       res.status(500).json({
         success: false,
-        message: 'Failed to reset password'
+        message: 'Failed to reset password. Please try again.'
       });
     }
   });
