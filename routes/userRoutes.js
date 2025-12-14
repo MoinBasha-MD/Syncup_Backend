@@ -130,6 +130,57 @@ router.route('/verify-email')
     }
   });
 
+// Temporary admin endpoint to manually reset password
+router.route('/admin/force-reset-password')
+  .post(async (req, res) => {
+    console.log('🔧 [ADMIN] Force password reset endpoint hit!');
+    try {
+      const { phoneNumber, newPassword } = req.body;
+      
+      if (!phoneNumber || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number and new password required'
+        });
+      }
+      
+      const User = require('../models/userModel');
+      const bcrypt = require('bcryptjs');
+      
+      const user = await User.findOne({ phoneNumber });
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+      
+      console.log('🔧 [ADMIN] Found user:', user.name, user.userId);
+      console.log('🔧 [ADMIN] Old password hash:', user.password);
+      
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      user.password = hashedPassword;
+      await user.save();
+      
+      console.log('🔧 [ADMIN] New password hash:', hashedPassword);
+      console.log('✅ [ADMIN] Password reset successfully');
+      
+      res.json({
+        success: true,
+        message: 'Password reset successfully',
+        userId: user.userId,
+        newHash: hashedPassword
+      });
+    } catch (error) {
+      console.error('❌ [ADMIN] Error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  });
+
 router.route('/reset-password-otp')
   .post(async (req, res) => {
     console.log('🔐 [RESET PASSWORD] Endpoint hit!');
