@@ -269,6 +269,7 @@ const updateUserProfile = async (req, res) => {
       }
 
       // Update password if provided
+      // Note: The pre-save hook in userModel.js will automatically hash the password
       if (req.body.password) {
         user.password = req.body.password;
       }
@@ -800,10 +801,9 @@ const updateUserProfileWithDiscovery = async (req, res) => {
         });
       }
       
-      // Hash the new password
-      const bcrypt = require('bcryptjs');
-      const salt = await bcrypt.genSalt(10);
-      user.password = await bcrypt.hash(password, salt);
+      // Set the new password directly - the pre-save hook will hash it automatically
+      // DO NOT manually hash here to avoid double-hashing
+      user.password = password;
     }
 
     // Handle username update with validation
@@ -932,7 +932,8 @@ const adminResetPassword = async (req, res) => {
 
     console.log('Found user:', { name: user.name, email: user.email, phone: user.phoneNumber });
 
-    // Update password directly
+    // Set the new password directly - the pre-save hook will hash it automatically
+    // DO NOT manually hash here to avoid double-hashing
     user.password = newPassword;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
