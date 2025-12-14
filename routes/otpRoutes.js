@@ -32,7 +32,7 @@ router.post('/send', async (req, res) => {
     }
 
     // Validate type
-    const validTypes = ['registration', 'password_reset', 'email_change', 'phone_change', 'account_deletion', '2fa'];
+    const validTypes = ['registration', 'password_reset', 'email_change', 'password_change', 'phone_change', 'account_deletion', '2fa'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({
         success: false,
