@@ -152,10 +152,12 @@ router.route('/reset-password-otp')
       const User = require('../models/userModel');
       const bcrypt = require('bcryptjs');
       
-      console.log('🔍 [RESET PASSWORD] Looking up user by email:', email.toLowerCase());
+      console.log('🔍 [RESET PASSWORD] Looking up user by email:', email);
       
-      // Find user by email
-      const user = await User.findOne({ email: email.toLowerCase() });
+      // Find user by email (case-insensitive)
+      const user = await User.findOne({ 
+        email: { $regex: new RegExp(`^${email}$`, 'i') } 
+      });
       
       if (!user) {
         console.error('❌ [RESET PASSWORD] User not found for email:', email);
