@@ -164,13 +164,24 @@ router.route('/admin/force-reset-password')
       await user.save();
       
       console.log('🔧 [ADMIN] New password hash:', hashedPassword);
+      
+      // Immediately verify the hash works
+      const testMatch = await bcrypt.compare(newPassword, hashedPassword);
+      console.log('🧪 [ADMIN] Immediate verification test:', testMatch);
+      
+      // Also test with the saved user
+      const savedUser = await User.findOne({ phoneNumber });
+      const savedMatch = await bcrypt.compare(newPassword, savedUser.password);
+      console.log('🧪 [ADMIN] Saved user verification test:', savedMatch);
       console.log('✅ [ADMIN] Password reset successfully');
       
       res.json({
         success: true,
         message: 'Password reset successfully',
         userId: user.userId,
-        newHash: hashedPassword
+        newHash: hashedPassword,
+        immediateTest: testMatch,
+        savedTest: savedMatch
       });
     } catch (error) {
       console.error('❌ [ADMIN] Error:', error);
