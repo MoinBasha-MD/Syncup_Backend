@@ -336,34 +336,54 @@ const loginUser = async (req, res) => {
     console.log('👤 [AUTH CONTROLLER] User found:', !!user);
 
     if (!user) {
+      console.error('❌ [AUTH CONTROLLER] User not found');
       return res.status(401).json({ 
         success: false,
         message: 'Invalid phone number or password' 
       });
     }
 
+    console.log('✅ [AUTH CONTROLLER] User found, checking password...');
+    console.log('👤 [AUTH CONTROLLER] User details:', {
+      userId: user.userId,
+      name: user.name,
+      phoneNumber: user.phoneNumber,
+      hasPassword: !!user.password
+    });
+    
     // Check if password matches
+    console.log('🔐 [AUTH CONTROLLER] Calling matchPassword...');
     const isMatch = await user.matchPassword(password);
+    console.log('🔐 [AUTH CONTROLLER] Password match result:', isMatch);
 
     if (!isMatch) {
+      console.error('❌ [AUTH CONTROLLER] Password does not match');
       return res.status(401).json({ 
         success: false,
         message: 'Invalid phone number or password' 
       });
     }
 
+    console.log('✅ [AUTH CONTROLLER] Password matches!');
+
     // Check if status timer has expired
+    console.log('🔄 [AUTH CONTROLLER] Checking status timer...');
     if (user.statusUntil && new Date() > new Date(user.statusUntil)) {
+      console.log('⏰ [AUTH CONTROLLER] Status timer expired, resetting...');
       user.status = 'available';
       user.customStatus = '';
       user.statusUntil = null;
       await user.save();
+      console.log('✅ [AUTH CONTROLLER] Status reset complete');
     }
 
     // Generate token
+    console.log('🎫 [AUTH CONTROLLER] Generating token...');
     const token = generateToken(user._id, user.userId);
+    console.log('✅ [AUTH CONTROLLER] Token generated');
 
-    res.json({
+    console.log('📤 [AUTH CONTROLLER] Sending success response...');
+    const responseData = {
       success: true,
       data: {
         userId: user.userId,
@@ -377,9 +397,14 @@ const loginUser = async (req, res) => {
         gender: user.gender,
         token
       }
-    });
+    };
+    console.log('📦 [AUTH CONTROLLER] Response data:', JSON.stringify(responseData, null, 2));
+    
+    res.json(responseData);
+    console.log('✅ [AUTH CONTROLLER] Response sent successfully');
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('❌ [AUTH CONTROLLER] Login error:', error);
+    console.error('❌ [AUTH CONTROLLER] Error stack:', error.stack);
     res.status(500).json({ 
       success: false,
       message: 'Server error during login', 
