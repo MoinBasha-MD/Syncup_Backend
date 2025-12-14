@@ -305,11 +305,20 @@ const registerUser = async (req, res) => {
  * @access  Public
  */
 const loginUser = async (req, res) => {
+  console.log('🔐 [AUTH CONTROLLER] ========== LOGIN REQUEST RECEIVED ==========');
+  console.log('📥 [AUTH CONTROLLER] Request body:', JSON.stringify(req.body, null, 2));
+  console.log('📍 [AUTH CONTROLLER] Request IP:', req.ip);
+  console.log('🌐 [AUTH CONTROLLER] Request headers:', JSON.stringify(req.headers, null, 2));
+  
   try {
     const { phoneNumber, password } = req.body;
+    
+    console.log('📞 [AUTH CONTROLLER] Phone number:', phoneNumber);
+    console.log('🔑 [AUTH CONTROLLER] Password length:', password?.length);
 
     // Validate required fields
     if (!phoneNumber || !password) {
+      console.error('❌ [AUTH CONTROLLER] Missing required fields');
       return res.status(400).json({ 
         success: false,
         message: 'Please provide both phoneNumber and password' 
@@ -317,10 +326,14 @@ const loginUser = async (req, res) => {
     }
 
     // Normalize phone number for login lookup using utility function
+    console.log('🔄 [AUTH CONTROLLER] Normalizing phone number...');
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    console.log('📞 [AUTH CONTROLLER] Normalized phone:', normalizedPhone);
 
     // Check for user with normalized phone number
+    console.log('🔍 [AUTH CONTROLLER] Looking up user in database...');
     const user = await User.findOne({ phoneNumber: normalizedPhone }).select('+password');
+    console.log('👤 [AUTH CONTROLLER] User found:', !!user);
 
     if (!user) {
       return res.status(401).json({ 
