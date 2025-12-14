@@ -725,7 +725,7 @@ const getUserByPhone = async (req, res) => {
 // @access  Private
 const updateUserProfileWithDiscovery = async (req, res) => {
   try {
-    const { name, username, bio, isPublic, dateOfBirth, gender } = req.body;
+    const { name, username, bio, isPublic, dateOfBirth, gender, email, phoneNumber, password } = req.body;
     const user = await User.findById(req.user.id);
 
     if (!user) {
@@ -753,6 +753,58 @@ const updateUserProfileWithDiscovery = async (req, res) => {
     if (typeof isPublic === 'boolean') user.isPublic = isPublic;
     if (dateOfBirth) user.dateOfBirth = dateOfBirth;
     if (gender) user.gender = gender;
+    
+    // Handle email update
+    if (email && email !== user.email) {
+      // Check if email is already taken
+      const existingUser = await User.findOne({
+        email: email,
+        _id: { $ne: user._id }
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is already in use'
+        });
+      }
+      
+      user.email = email;
+      // Note: emailVerified should be set via /users/verify-email endpoint
+    }
+    
+    // Handle phone number update
+    if (phoneNumber && phoneNumber !== user.phoneNumber) {
+      // Check if phone number is already taken
+      const existingUser = await User.findOne({
+        phoneNumber: phoneNumber,
+        _id: { $ne: user._id }
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number is already in use'
+        });
+      }
+      
+      user.phoneNumber = phoneNumber;
+    }
+    
+    // Handle password update
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password must be at least 6 characters long'
+        });
+      }
+      
+      // Hash the new password
+      const bcrypt = require('bcryptjs');
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(password, salt);
+    }
 
     // Handle username update with validation
     if (username !== undefined) {
@@ -804,6 +856,7 @@ const updateUserProfileWithDiscovery = async (req, res) => {
         name: user.name,
         phoneNumber: user.phoneNumber,
         email: user.email,
+        emailVerified: user.emailVerified || false,
         profileImage: user.profileImage,
         dateOfBirth: user.dateOfBirth,
         gender: user.gender,
