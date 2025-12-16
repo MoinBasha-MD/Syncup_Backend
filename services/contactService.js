@@ -1,6 +1,7 @@
 const User = require('../models/userModel');
 const StatusPrivacy = require('../models/statusPrivacyModel');
-const { getAsync, setAsync } = require('../config/redis');
+const { createPhoneNumberQuery } = require('../utils/phoneUtils');
+const LogSanitizer = require('../utils/logSanitizer');
 const { createPhoneNumberQuery } = require('../utils/phoneNormalization');
 
 /**
@@ -31,11 +32,11 @@ class ContactService {
       // Apply privacy filtering for each contact
       const filteredContacts = [];
       for (const contact of contacts) {
-        console.log(`🔒 [Privacy] Checking privacy for contact ${contact.name} (${contact._id})`);
+        console.log(`🔒 [Privacy] Checking privacy for contact ${LogSanitizer.maskName(contact.name)} (${contact._id})`);
         
         // Check if the current user can see this contact's status
         const canSeeStatus = await StatusPrivacy.canUserSeeStatus(contact._id, user._id);
-        console.log(`🔒 [Privacy] Can see ${contact.name}'s status: ${canSeeStatus}`);
+        console.log(`🔒 [Privacy] Can see ${LogSanitizer.maskName(contact.name)}'s status: ${canSeeStatus}`);
         
         let statusInfo;
         if (canSeeStatus) {
@@ -47,7 +48,7 @@ class ContactService {
           };
         } else {
           // User cannot see the status - show as "Available" or "Private"
-          console.log(`🔒 [Privacy] Hiding status for ${contact.name} due to privacy settings`);
+          console.log(`🔒 [Privacy] Hiding status for ${LogSanitizer.maskName(contact.name)} due to privacy settings`);
           statusInfo = {
             status: 'available', // Show as available when privacy is restricted
             customStatus: '',
@@ -152,8 +153,7 @@ class ContactService {
         return [];
       }
 
-      console.log(`📞 [CONTACT SERVICE] Filtering ${phoneNumbers.length} phone numbers`);
-      console.log(`📞 [SAMPLE] First 3: ${phoneNumbers.slice(0, 3).join(', ')}`);
+      console.log(`📞 [CONTACT SERVICE] Filtering ${phoneNumbers.length} phone numbers (data sanitized)`);
 
       // Use comprehensive phone number normalization
       const phoneQuery = createPhoneNumberQuery(phoneNumbers);
@@ -176,12 +176,12 @@ class ContactService {
         };
 
         if (requestingUserId) {
-          console.log(`🔒 [Privacy] Checking privacy for filtered contact ${user.name} (${user._id}) by user ${requestingUserId}`);
+          console.log(`🔒 [Privacy] Checking privacy for filtered contact (${user._id})`);
           const canSeeStatus = await StatusPrivacy.canUserSeeStatus(user._id, requestingUserId);
-          console.log(`🔒 [Privacy] Can see ${user.name}'s status: ${canSeeStatus}`);
+          console.log(`🔒 [Privacy] Can see user's status: ${canSeeStatus}`);
 
           if (!canSeeStatus) {
-            console.log(`🔒 [Privacy] Hiding status for ${user.name} due to privacy settings`);
+            console.log(`🔒 [Privacy] Hiding status due to privacy settings`);
             statusInfo = {
               status: 'available',
               customStatus: '',
@@ -224,7 +224,7 @@ class ContactService {
         throw error;
       }
       
-      console.log(`📞 [CONTACT SERVICE] Looking up phone: ${phoneNumber}`);
+      console.log(`📞 [CONTACT SERVICE] Looking up phone: ${LogSanitizer.maskPhoneNumber(phoneNumber)}`);
       
       // Use comprehensive phone number normalization
       const phoneQuery = createPhoneNumberQuery([phoneNumber]);
@@ -235,7 +235,7 @@ class ContactService {
         '_id userId name phoneNumber email profileImage status customStatus statusUntil'
       );
       
-      console.log(`📞 [CONTACT SERVICE] User ${user ? 'found' : 'not found'}: ${user?.name || 'N/A'}`);
+      console.log(`📞 [CONTACT SERVICE] User ${user ? 'found' : 'not found'}`);
       
       if (!user) {
         const error = new Error('User not found');
@@ -243,7 +243,7 @@ class ContactService {
         throw error;
       }
       
-      console.log(`Found user: ${user.name}, current status: ${user.status}, statusUntil: ${user.statusUntil}`);
+      console.log(`Found user, current status: ${user.status}, statusUntil: ${user.statusUntil}`);
       
       // Check if status timer has expired - with more careful date handling
       if (user.statusUntil) {
@@ -280,7 +280,7 @@ class ContactService {
       };
 
       if (requestingUserId) {
-        console.log(`🔒 [Privacy] Checking privacy for phone lookup: ${phoneNumber} by user ${requestingUserId}`);
+        console.log(`🔒 [Privacy] Checking privacy for phone lookup: ${LogSanitizer.maskPhoneNumber(phoneNumber)} by user ${requestingUserId}`);
         const canSeeStatus = await StatusPrivacy.canUserSeeStatus(user._id, requestingUserId);
         console.log(`🔒 [Privacy] Can see user's status: ${canSeeStatus}`);
 
@@ -458,12 +458,12 @@ class ContactService {
       };
 
       if (requestingUserId) {
-        console.log(`🔒 [Privacy] Checking privacy for batch contact ${contact.name} (${contact._id}) by user ${requestingUserId}`);
+        console.log(`🔒 [Privacy] Checking privacy for batch contact (${LogSanitizer.maskName(contact.name)})`);
         const canSeeStatus = await StatusPrivacy.canUserSeeStatus(contact._id, requestingUserId);
-        console.log(`🔒 [Privacy] Can see ${contact.name}'s status: ${canSeeStatus}`);
+        console.log(`🔒 [Privacy] Can see ${LogSanitizer.maskName(contact.name)}'s status: ${canSeeStatus}`);
 
         if (!canSeeStatus) {
-          console.log(`🔒 [Privacy] Hiding status for ${contact.name} due to privacy settings`);
+          console.log(`🔒 [Privacy] Hiding status for ${LogSanitizer.maskName(contact.name)} due to privacy settings`);
           statusInfo = {
             status: 'available',
             customStatus: '',
