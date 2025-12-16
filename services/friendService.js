@@ -46,6 +46,7 @@ class FriendService {
       });
       
       // Return formatted friend list with cached data
+      // CRITICAL FIX: Only expose phone number for device contacts (privacy protection)
       return filteredFriends.map(friend => ({
         friendUserId: friend.friendUserId,
         name: friend.cachedData.name,
@@ -57,7 +58,9 @@ class FriendService {
         status: friend.status,
         addedAt: friend.addedAt,
         isDeviceContact: friend.isDeviceContact,
-        phoneNumber: friend.phoneNumber,
+        // PRIVACY FIX: Only return phone number for device contacts
+        // App connections (friend requests) should NOT see phone numbers
+        phoneNumber: friend.isDeviceContact ? friend.phoneNumber : undefined,
         settings: friend.settings,
         interactions: friend.interactions
       }));
