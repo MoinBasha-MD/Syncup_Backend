@@ -68,6 +68,7 @@ const docSpaceAccessRequestRoutes = require('./routes/docSpaceAccessRequestRoute
 const categoryRoutes = require('./routes/categoryRoutes');
 const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
 const otpRoutes = require('./routes/otpRoutes');
+const cryptoRoutes = require('./routes/cryptoRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
@@ -272,6 +273,7 @@ app.use('/api/categories', apiLimiter, categoryRoutes); // Document categories
 app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
 app.use('/api/sos', apiLimiter, require('./routes/sosRoutes')); // SOS emergency alert routes
 app.use('/api/otp', apiLimiter, otpRoutes); // OTP verification routes (email verification)
+app.use('/api/crypto', apiLimiter, cryptoRoutes); // E2EE key exchange routes (Phase 1)
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Serve static files from the uploads directory

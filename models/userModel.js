@@ -160,6 +160,14 @@ const userSchema = mongoose.Schema(
       type: String,
       default: ''
     },
+    // E2EE Device Public Keys (Phase 1)
+    devicePublicKeys: [{
+      deviceId: String,
+      publicKey: String,        // Ed25519 public key (base64)
+      x25519PublicKey: String,  // X25519 public key (base64)
+      addedAt: { type: Date, default: Date.now },
+      lastUsed: Date,
+    }],
     // Email verification status
     emailVerified: {
       type: Boolean,
