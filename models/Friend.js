@@ -287,20 +287,21 @@ friendSchema.statics.areFriends = async function(userId, friendUserId) {
 
 // Static method: Get mutual friends
 friendSchema.statics.getMutualFriends = async function(userId1, userId2) {
-  const user1Friends = await this.find({
-    userId: userId1,
-    status: 'accepted',
-    isDeleted: false
-  }).distinct('friendUserId');
+  // CRITICAL FIX: Get friends using the proper getFriends method which handles bidirectional friendships
+  // This prevents counting the same friend twice (once for each direction)
   
-  const user2Friends = await this.find({
-    userId: userId2,
-    status: 'accepted',
-    isDeleted: false
-  }).distinct('friendUserId');
+  // Get User 1's friends (already deduplicated by getFriends)
+  const user1FriendsData = await this.getFriends(userId1);
+  const user1Friends = user1FriendsData.map(f => f.friendUserId);
   
-  // Find intersection
+  // Get User 2's friends (already deduplicated by getFriends)
+  const user2FriendsData = await this.getFriends(userId2);
+  const user2Friends = user2FriendsData.map(f => f.friendUserId);
+  
+  // Find intersection - friends that both users have
   const mutualFriendIds = user1Friends.filter(id => user2Friends.includes(id));
+  
+  console.log(`🤝 [MUTUAL FRIENDS] User1 has ${user1Friends.length} friends, User2 has ${user2Friends.length} friends, ${mutualFriendIds.length} mutual`);
   
   return mutualFriendIds;
 };

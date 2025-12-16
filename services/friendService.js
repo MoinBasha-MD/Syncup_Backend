@@ -155,13 +155,22 @@ class FriendService {
         throw new Error('Friend user not found');
       }
       
-      // Check if friendship already exists (sender → recipient)
-      const existingFriendship = await Friend.findOne({
-        userId,
-        friendUserId,
-        isDeleted: false
-      });
+      // CRITICAL FIX: Check BOTH directions in a single query to prevent race conditions
+      const [existingFriendship, reverseRequest] = await Promise.all([
+        Friend.findOne({
+          userId,
+          friendUserId,
+          isDeleted: false
+        }),
+        Friend.findOne({
+          userId: friendUserId,
+          friendUserId: userId,
+          status: 'pending',
+          isDeleted: false
+        })
+      ]);
       
+      // Check existing friendship (sender → recipient)
       if (existingFriendship) {
         if (existingFriendship.status === 'accepted') {
           throw new Error('Already friends');
@@ -172,13 +181,7 @@ class FriendService {
         }
       }
       
-      // CRITICAL: Check if recipient already sent a request to sender (reverse direction)
-      const reverseRequest = await Friend.findOne({
-        userId: friendUserId,
-        friendUserId: userId,
-        status: 'pending',
-        isDeleted: false
-      });
+      // Check reverse request (recipient → sender)
       
       if (reverseRequest) {
         console.log(`🔄 [FRIEND SERVICE] Found reverse pending request - auto-accepting!`);
