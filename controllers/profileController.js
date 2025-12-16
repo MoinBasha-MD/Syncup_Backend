@@ -69,32 +69,16 @@ exports.getPublicProfile = async (req, res) => {
 
     const followingCount = user.following ? user.following.length : 0;
 
-    // Get mutual friends count
-    const currentUserFriends = await Friend.find({
-      $or: [
-        { userId: currentUserId, status: 'accepted' },
-        { friendUserId: currentUserId, status: 'accepted' }
-      ]
-    }).select('userId friendUserId');
+    // CRITICAL FIX: Get friends count for the target user
+    // Use Friend.getFriends which properly handles bidirectional friendships
+    const targetUserFriendsData = await Friend.getFriends(userId);
+    const friendsCount = targetUserFriendsData.length;
 
-    const currentUserFriendIds = currentUserFriends.map(f => 
-      f.userId === currentUserId ? f.friendUserId : f.userId
-    );
-
-    const targetUserFriends = await Friend.find({
-      $or: [
-        { userId: userId, status: 'accepted' },
-        { friendUserId: userId, status: 'accepted' }
-      ]
-    }).select('userId friendUserId');
-
-    const targetUserFriendIds = targetUserFriends.map(f => 
-      f.userId === userId ? f.friendUserId : f.userId
-    );
-
-    const mutualCount = currentUserFriendIds.filter(id => 
-      targetUserFriendIds.includes(id)
-    ).length;
+    // CRITICAL FIX: Get mutual friends count using the fixed getMutualFriends method
+    const mutualFriendIds = await Friend.getMutualFriends(currentUserId, userId);
+    const mutualCount = mutualFriendIds.length;
+    
+    console.log(`📊 [PROFILE] Target user ${userId} has ${friendsCount} friends, ${mutualCount} mutual with current user`);
 
     // Build response
     const profileData = {
@@ -104,6 +88,7 @@ exports.getPublicProfile = async (req, res) => {
       profileImage: user.profileImage,
       bio: user.bio,
       postsCount,
+      friendsCount,  // ✅ ADDED: Now includes friends count
       followersCount,
       followingCount,
       mutualCount,
@@ -195,45 +180,20 @@ exports.getFriendProfile = async (req, res) => {
       userId: userId
     });
 
-    // Get friends count
-    const friendsCount = await Friend.countDocuments({
-      $or: [
-        { userId: userId, status: 'accepted' },
-        { friendUserId: userId, status: 'accepted' }
-      ]
-    });
+    // CRITICAL FIX: Get friends count using proper method
+    const targetUserFriendsData = await Friend.getFriends(userId);
+    const friendsCount = targetUserFriendsData.length;
 
     // Get followers count
     const followersCount = await User.countDocuments({
       following: userId
     });
 
-    // Get mutual friends count
-    const currentUserFriends = await Friend.find({
-      $or: [
-        { userId: currentUserId, status: 'accepted' },
-        { friendUserId: currentUserId, status: 'accepted' }
-      ]
-    }).select('userId friendUserId');
-
-    const currentUserFriendIds = currentUserFriends.map(f => 
-      f.userId === currentUserId ? f.friendUserId : f.userId
-    );
-
-    const targetUserFriends = await Friend.find({
-      $or: [
-        { userId: userId, status: 'accepted' },
-        { friendUserId: userId, status: 'accepted' }
-      ]
-    }).select('userId friendUserId');
-
-    const targetUserFriendIds = targetUserFriends.map(f => 
-      f.userId === userId ? f.friendUserId : f.userId
-    );
-
-    const mutualCount = currentUserFriendIds.filter(id => 
-      targetUserFriendIds.includes(id)
-    ).length;
+    // CRITICAL FIX: Get mutual friends count using the fixed getMutualFriends method
+    const mutualFriendIds = await Friend.getMutualFriends(currentUserId, userId);
+    const mutualCount = mutualFriendIds.length;
+    
+    console.log(`📊 [FRIEND PROFILE] Target user ${userId} has ${friendsCount} friends, ${mutualCount} mutual with current user`);
 
     // Build response
     const profileData = {
