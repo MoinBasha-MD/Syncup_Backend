@@ -99,6 +99,12 @@ const errorHandler = (err, req, res, next) => {
 
 // Not found middleware
 const notFound = (req, res, next) => {
+  // Ignore common bot/scanner requests to reduce noise in logs
+  const ignoredPaths = ['/index.htm', '/index.html', '/.env', '/wp-admin', '/phpMyAdmin', '/admin'];
+  if (ignoredPaths.some(path => req.originalUrl.includes(path))) {
+    return res.status(404).end(); // Silent 404 for bots
+  }
+  
   const error = new ApiError(`Not Found - ${req.originalUrl}`, 404);
   next(error);
 };

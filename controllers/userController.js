@@ -3,6 +3,7 @@ const StatusHistory = require('../models/statusHistoryModel');
 const { broadcastStatusUpdate } = require('../socketManager');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const LogSanitizer = require('../utils/logSanitizer');
 
 // @desc    Register a new user
 // @route   POST /api/users

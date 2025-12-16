@@ -6,6 +6,7 @@
 const User = require('../models/userModel');
 const Friend = require('../models/Friend');
 const FeedPost = require('../models/FeedPost');
+const LogSanitizer = require('../utils/logSanitizer');
 
 /**
  * Get public profile with posts

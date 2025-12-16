@@ -2,6 +2,7 @@ const User = require('../models/userModel');
 const AIInstance = require('../models/aiInstanceModel');
 const { generateToken } = require('../utils/generateToken');
 const { normalizePhoneNumber, isValidPhoneNumber } = require('../utils/phoneUtils');
+const LogSanitizer = require('../utils/logSanitizer');
 
 /**
  * @desc    Register a new user
@@ -11,15 +12,7 @@ const { normalizePhoneNumber, isValidPhoneNumber } = require('../utils/phoneUtil
 const registerUser = async (req, res) => {
   try {
     console.log('🔵 [REGISTER] Registration request received');
-    console.log('📥 [REGISTER] Request body:', {
-      name: req.body.name,
-      email: req.body.email,
-      phoneNumber: req.body.phoneNumber,
-      dateOfBirth: req.body.dateOfBirth,
-      gender: req.body.gender,
-      passwordProvided: !!req.body.password,
-      passwordLength: req.body.password?.length
-    });
+    console.log('📥 [REGISTER] Request body:', LogSanitizer.sanitizeRequestBody(req.body));
     
     const { name, phoneNumber, email, password, dateOfBirth, gender } = req.body;
 
@@ -84,7 +77,7 @@ const registerUser = async (req, res) => {
     // Normalize phone number using utility function
     console.log('🔍 [REGISTER] Validating phone number...');
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
-    console.log('📞 [REGISTER] Normalized phone:', normalizedPhone);
+    console.log('📞 [REGISTER] Normalized phone:', LogSanitizer.maskPhoneNumber(normalizedPhone));
     
     // Validate phone number format
     if (!isValidPhoneNumber(phoneNumber)) {
@@ -154,7 +147,7 @@ const registerUser = async (req, res) => {
     console.log('🔍 [REGISTER] Checking for existing users...');
     const userExistsWithEmail = await User.findOne({ email });
     if (userExistsWithEmail) {
-      console.log('❌ [REGISTER] Email already exists:', email);
+      console.log('❌ [REGISTER] Email already exists:', LogSanitizer.maskEmail(email));
       return res.status(400).json({ 
         success: false,
         message: 'User with this email already exists' 
@@ -163,7 +156,7 @@ const registerUser = async (req, res) => {
 
     const userExistsWithPhone = await User.findOne({ phoneNumber: normalizedPhone });
     if (userExistsWithPhone) {
-      console.log('❌ [REGISTER] Phone number already exists:', normalizedPhone);
+      console.log('❌ [REGISTER] Phone number already exists:', LogSanitizer.maskPhoneNumber(normalizedPhone));
       return res.status(400).json({ 
         success: false,
         message: 'User with this phone number already exists' 
@@ -194,17 +187,12 @@ const registerUser = async (req, res) => {
     }
 
     const user = await User.create(userData);
-    console.log('✅ [REGISTER] User created successfully:', {
-      userId: user.userId,
-      name: user.name,
-      email: user.email,
-      phoneNumber: user.phoneNumber
-    });
+    console.log('✅ [REGISTER] User created successfully:', LogSanitizer.sanitizeUser(user));
 
     if (user) {
       // Create AI instance for the new user with timeout
       try {
-        console.log(`🤖 [REGISTER] Creating AI instance for new user: ${user.name} (${user._id})`);
+        console.log(`🤖 [REGISTER] Creating AI instance for new user: ${LogSanitizer.maskName(user.name)} (${user._id})`);
         
         // ✅ FIX: Add timeout to prevent hanging
         const aiInstancePromise = AIInstance.create({
@@ -251,10 +239,10 @@ const registerUser = async (req, res) => {
         );
 
         const aiInstance = await Promise.race([aiInstancePromise, timeoutPromise]);
-        console.log(`✅ AI instance created successfully: ${aiInstance.aiId} for user ${user.name}`);
+        console.log(`✅ AI instance created successfully: ${aiInstance.aiId} for user ${LogSanitizer.maskName(user.name)}`);
         
       } catch (aiError) {
-        console.error(`❌ Failed to create AI instance for user ${user.name}:`, aiError.message);
+        console.error(`❌ Failed to create AI instance for user ${LogSanitizer.maskName(user.name)}:`, aiError.message);
         console.log('⚠️ [REGISTER] Continuing registration without AI instance');
         // Don't fail the registration if AI creation fails, just log it
         // The user can still use the app, and AI instance can be created later
@@ -306,15 +294,13 @@ const registerUser = async (req, res) => {
  */
 const loginUser = async (req, res) => {
   console.log('🔐 [AUTH CONTROLLER] ========== LOGIN REQUEST RECEIVED ==========');
-  console.log('📥 [AUTH CONTROLLER] Request body:', JSON.stringify(req.body, null, 2));
+  console.log('📥 [AUTH CONTROLLER] Request body:', LogSanitizer.sanitizeRequestBody(req.body));
   console.log('📍 [AUTH CONTROLLER] Request IP:', req.ip);
-  console.log('🌐 [AUTH CONTROLLER] Request headers:', JSON.stringify(req.headers, null, 2));
   
   try {
     const { phoneNumber, password } = req.body;
     
-    console.log('📞 [AUTH CONTROLLER] Phone number:', phoneNumber);
-    console.log('🔑 [AUTH CONTROLLER] Password length:', password?.length);
+    console.log('📞 [AUTH CONTROLLER] Phone number:', LogSanitizer.maskPhoneNumber(phoneNumber));
 
     // Validate required fields
     if (!phoneNumber || !password) {

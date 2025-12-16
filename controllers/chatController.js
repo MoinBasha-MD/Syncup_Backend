@@ -4,6 +4,7 @@ const Block = require('../models/blockModel');
 // const ContinuousTimerState = require('../models/ContinuousTimerState'); // ⚠️ DISABLED: File not on server
 const { broadcastToUser } = require('../socketManager');
 const enhancedNotificationService = require('../services/enhancedNotificationService');
+const LogSanitizer = require('../utils/logSanitizer');
 
 // Send a message
 const sendMessage = async (req, res) => {
@@ -98,12 +99,7 @@ const sendMessage = async (req, res) => {
     
     // First, let's see all users with similar names for debugging
     const allUsers = await User.find({}).select('_id userId name phoneNumber').lean();
-    console.log('📊 All users in database:', allUsers.map(u => ({
-      mongoId: u._id.toString(),
-      userId: u.userId,
-      name: u.name,
-      phone: u.phoneNumber
-    })));
+    console.log('📊 All users in database:', allUsers.length, '(data sanitized)');
     
     const receiver = await User.findOne({ userId: receiverId }).select('_id userId name phoneNumber');
     if (!receiver) {
@@ -957,8 +953,8 @@ const testNotificationFlow = async (req, res) => {
     const { targetUserId } = req.body;
     
     console.log('🧪 [NOTIFICATION TEST] Testing notification flow...');
-    console.log('🧪 Current user:', { userId: currentUserId, objectId: currentUserObjectId });
-    console.log('🧪 Target user:', targetUserId);
+    console.log('🧪 Current user:', { userId: LogSanitizer.maskUserId(currentUserId), objectId: currentUserObjectId });
+    console.log('🧪 Target user:', LogSanitizer.maskUserId(targetUserId));
     
     if (!targetUserId) {
       return res.status(400).json({
@@ -976,11 +972,7 @@ const testNotificationFlow = async (req, res) => {
       });
     }
     
-    console.log('🧪 Target user found:', {
-      userId: targetUser.userId,
-      objectId: targetUser._id.toString(),
-      name: targetUser.name
-    });
+    console.log('🧪 Target user found:', LogSanitizer.sanitizeUser(targetUser));
     
     // Check WebSocket connections
     const { getUserSockets } = require('../socketManager');

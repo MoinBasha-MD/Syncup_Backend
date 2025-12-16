@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const friendService = require('../services/friendService');
+const LogSanitizer = require('../utils/logSanitizer');
 
 /**
  * FriendController - HTTP handlers for friend management
@@ -14,7 +15,7 @@ class FriendController {
   getFriends = asyncHandler(async (req, res) => {
     try {
       console.log('👥 [FRIEND CONTROLLER] Get friends request received');
-      console.log('User object:', JSON.stringify(req.user, null, 2));
+      console.log('User object:', LogSanitizer.sanitizeUser(req.user)); // ✅ SECURE
       
       const userId = req.user.userId;
       
@@ -36,7 +37,7 @@ class FriendController {
       
       const friends = await friendService.getFriends(userId, options);
       
-      console.log(`✅ [FRIEND CONTROLLER] Retrieved ${friends.length} friends`);
+      console.log(`✅ [FRIEND CONTROLLER] Retrieved ${friends.length} friends (data sanitized for security)`);
       
       res.status(200).json({
         success: true,
@@ -44,7 +45,7 @@ class FriendController {
         count: friends.length
       });
     } catch (error) {
-      console.error('❌ [FRIEND CONTROLLER] Error getting friends:', error);
+      console.error('❌ [FRIEND CONTROLLER] Error getting friends:', LogSanitizer.sanitizeError(error));
       res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to get friends');
     }
@@ -90,7 +91,7 @@ class FriendController {
   sendFriendRequest = asyncHandler(async (req, res) => {
     try {
       console.log('📤 [FRIEND CONTROLLER] Send friend request received');
-      console.log('Request body:', JSON.stringify(req.body, null, 2));
+      console.log('Request body:', LogSanitizer.sanitizeRequestBody(req.body));
       
       const userId = req.user.userId;
       const { friendUserId, username, phoneNumber, message, source } = req.body;
@@ -399,7 +400,7 @@ class FriendController {
   syncDeviceContacts = asyncHandler(async (req, res) => {
     try {
       console.log('📱 [FRIEND CONTROLLER] Sync device contacts request received');
-      console.log('Request body:', JSON.stringify(req.body, null, 2));
+      console.log('Request body:', LogSanitizer.sanitizeRequestBody(req.body));
       
       const userId = req.user.userId;
       const { phoneNumbers } = req.body;
