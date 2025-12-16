@@ -1,6 +1,6 @@
 const User = require('../models/userModel');
 const StatusPrivacy = require('../models/statusPrivacyModel');
-const { createPhoneNumberQuery } = require('../utils/phoneUtils');
+const { createPhoneNumberQuery } = require('../utils/phoneNormalization');
 const LogSanitizer = require('../utils/logSanitizer');
 
 /**
