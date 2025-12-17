@@ -274,6 +274,7 @@ app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // May
 app.use('/api/sos', apiLimiter, require('./routes/sosRoutes')); // SOS emergency alert routes
 app.use('/api/otp', apiLimiter, otpRoutes); // OTP verification routes (email verification)
 app.use('/api/crypto', apiLimiter, cryptoRoutes); // E2EE key exchange routes (Phase 1)
+app.use('/api/hashtags', apiLimiter, require('./routes/hashtagRoutes')); // Hashtag management routes (trending, search, stats)
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Serve static files from the uploads directory
