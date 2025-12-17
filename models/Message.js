@@ -47,6 +47,33 @@ const messageSchema = new mongoose.Schema({
     fileUrl: {
       type: String,
       default: null
+    },
+    // E2EE Phase 4 - Encrypted file/media
+    encrypted: {
+      type: Boolean,
+      default: false
+    },
+    encryptedChunks: [{
+      index: Number,
+      ciphertext: String,
+      iv: String,
+      authTag: String
+    }],
+    encryptedContentKey: {
+      type: String,
+      default: null
+    },
+    keyIv: {
+      type: String,
+      default: null
+    },
+    keyAuthTag: {
+      type: String,
+      default: null
+    },
+    totalChunks: {
+      type: Number,
+      default: null
     }
   },
   // Voice message metadata
@@ -59,6 +86,35 @@ const messageSchema = new mongoose.Schema({
       type: Number
     }],
     fileUrl: {
+      type: String,
+      default: null
+    },
+    // E2EE Phase 3 - Encrypted voice note
+    encrypted: {
+      type: Boolean,
+      default: false
+    },
+    encryptedData: {
+      type: String,
+      default: null
+    },
+    iv: {
+      type: String,
+      default: null
+    },
+    authTag: {
+      type: String,
+      default: null
+    },
+    encryptedContentKey: {
+      type: String,
+      default: null
+    },
+    keyIv: {
+      type: String,
+      default: null
+    },
+    keyAuthTag: {
       type: String,
       default: null
     }
@@ -211,6 +267,48 @@ const messageSchema = new mongoose.Schema({
     messageHash: {
       type: String,
       default: null
+    }
+  },
+  // E2EE Phase 2 - End-to-End Encrypted Payload
+  e2ee: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    // Encrypted message content
+    ciphertext: {
+      type: String,
+      default: null
+    },
+    iv: {
+      type: String,
+      default: null
+    },
+    authTag: {
+      type: String,
+      default: null
+    },
+    // Encrypted content key (encrypted with session key)
+    encryptedContentKey: {
+      type: String,
+      default: null
+    },
+    keyIv: {
+      type: String,
+      default: null
+    },
+    keyAuthTag: {
+      type: String,
+      default: null
+    },
+    // Metadata
+    version: {
+      type: String,
+      default: '1.0'
+    },
+    algorithm: {
+      type: String,
+      default: 'AES-256-GCM'
     }
   },
   // Search optimization

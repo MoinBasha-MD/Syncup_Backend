@@ -30,7 +30,9 @@ const sendMessage = async (req, res) => {
       expiresAt,       // Date
       burnViewTime,    // seconds
       isGhost,         // boolean
-      ghostSessionId   // string
+      ghostSessionId,  // string
+      // E2EE Phase 2 - Encrypted payload
+      e2ee             // Encrypted message payload
     } = req.body;
     const senderId = req.user.userId;
     const senderObjectId = req.user.id; // MongoDB _id of sender
@@ -46,8 +48,21 @@ const sendMessage = async (req, res) => {
       messageLength: message?.length,
       hasSharedPost: !!sharedPost,
       hasImageUrl: !!imageUrl,
-      hasFileMetadata: !!fileMetadata
+      hasFileMetadata: !!fileMetadata,
+      hasE2EE: !!e2ee
     });
+    
+    // E2EE Phase 2 - Log encrypted message info
+    if (e2ee && e2ee.enabled) {
+      console.log('🔐 [E2EE] Encrypted message received:', {
+        hasCiphertext: !!e2ee.ciphertext,
+        hasIV: !!e2ee.iv,
+        hasAuthTag: !!e2ee.authTag,
+        hasEncryptedKey: !!e2ee.encryptedContentKey,
+        version: e2ee.version,
+        algorithm: e2ee.algorithm
+      });
+    }
     
     // Debug and fix sharedPost data
     if (sharedPost) {
@@ -133,8 +148,15 @@ const sendMessage = async (req, res) => {
       status: 'sent',
       sharedPost,      // ✅ Include shared post data
       imageUrl,        // ✅ Include image URL
-      fileMetadata     // ✅ Include file metadata
+      fileMetadata,    // ✅ Include file metadata
+      // E2EE Phase 2 - Include encrypted payload if present
+      e2ee: e2ee || { enabled: false }
     };
+    
+    // E2EE Phase 2 - Log if message is encrypted
+    if (e2ee && e2ee.enabled) {
+      console.log('🔐 [E2EE] Storing encrypted message (server cannot read plaintext)');
+    }
 
     // ⚠️ DISABLED: Continuous timer check (model file not on server)
     // const continuousTimer = await ContinuousTimerState.findOne({
@@ -208,8 +230,15 @@ const sendMessage = async (req, res) => {
         // ✅ FIX: Include ghost mode fields
         isGhost: savedMessage.isGhost,
         ghostSessionId: savedMessage.ghostSessionId,
-        viewedBy: savedMessage.viewedBy || []
+        viewedBy: savedMessage.viewedBy || [],
+        // E2EE Phase 2 - Include encrypted payload
+        e2ee: savedMessage.e2ee || { enabled: false }
       };
+      
+      // E2EE Phase 2 - Log encrypted message relay
+      if (savedMessage.e2ee && savedMessage.e2ee.enabled) {
+        console.log('🔐 [E2EE] Relaying encrypted message (server cannot decrypt)');
+      }
       
       // Strategy 1: Primary WebSocket broadcast
       const broadcastSuccess = broadcastToUser(receiverId, 'message:new', messageData);

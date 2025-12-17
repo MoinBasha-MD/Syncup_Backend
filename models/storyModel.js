@@ -49,6 +49,45 @@ const storyItemSchema = new mongoose.Schema({
   durationMs: {
     type: Number,
     default: 5000
+  },
+  // E2EE Phase 5: Encrypted story support
+  encrypted: {
+    type: Boolean,
+    default: false
+  },
+  encryptedChunks: [{
+    index: Number,
+    ciphertext: String,
+    iv: String,
+    authTag: String
+  }],
+  encryptedContentKey: {
+    type: String,
+    default: null
+  },
+  keyIv: {
+    type: String,
+    default: null
+  },
+  keyAuthTag: {
+    type: String,
+    default: null
+  },
+  totalChunks: {
+    type: Number,
+    default: null
+  },
+  originalSize: {
+    type: Number,
+    default: null
+  },
+  mimeType: {
+    type: String,
+    default: null
+  },
+  fileName: {
+    type: String,
+    default: null
   }
 }, { _id: false });
 
