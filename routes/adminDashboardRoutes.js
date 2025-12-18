@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/userModel');
+const Post = require('../models/FeedPost');
 const Message = require('../models/Message');
-const Post = require('../models/postModel');
+const Broadcast = require('../models/Broadcast');
 
 // Get dashboard stats
 router.get('/dashboard/stats', async (req, res) => {
@@ -273,7 +274,6 @@ router.get('/posts', async (req, res) => {
 
     const [posts, total] = await Promise.all([
       Post.find()
-        .populate('userId', 'name profileImage')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -281,10 +281,32 @@ router.get('/posts', async (req, res) => {
       Post.countDocuments()
     ]);
 
+    // Manually fetch user data for each post since userId is String, not ObjectId
+    const postsWithUsers = await Promise.all(
+      posts.map(async (post) => {
+        const user = await User.findOne({ userId: post.userId })
+          .select('name profileImage userId')
+          .lean();
+        
+        return {
+          ...post,
+          userId: user ? {
+            name: user.name,
+            profileImage: user.profileImage,
+            userId: user.userId
+          } : {
+            name: 'Unknown User',
+            profileImage: null,
+            userId: post.userId
+          }
+        };
+      })
+    );
+
     console.log(`✅ [ADMIN] Found ${posts.length} posts (${total} total)`);
 
     res.json({
-      posts,
+      posts: postsWithUsers,
       total,
       page,
       totalPages: Math.ceil(total / limit)
@@ -415,6 +437,483 @@ router.get('/analytics/message-stats', async (req, res) => {
   } catch (error) {
     console.error('❌ [ADMIN] Error fetching message stats:', error);
     res.status(500).json({ error: 'Failed to fetch message stats' });
+  }
+});
+
+// Get user statistics
+router.get('/users/:id/stats', async (req, res) => {
+  try {
+    console.log(`📊 [ADMIN] Fetching stats for user: ${req.params.id}`);
+    
+    const user = await User.findById(req.params.id).lean();
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const [messagesSent, postsCreated, friendsCount] = await Promise.all([
+      Message.countDocuments({ senderId: user.userId }),
+      Post.countDocuments({ userId: user.userId }),
+      require('../models/Friend').countDocuments({ 
+        userId: user.userId, 
+        status: 'accepted',
+        isDeleted: false 
+      })
+    ]);
+
+    console.log(`✅ [ADMIN] User stats: messages=${messagesSent}, posts=${postsCreated}, friends=${friendsCount}`);
+
+    res.json({
+      messagesSent,
+      postsCreated,
+      friendsCount
+    });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching user stats:', error);
+    res.status(500).json({ error: 'Failed to fetch user stats' });
+  }
+});
+
+// Get all active statuses
+router.get('/statuses', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+
+    console.log(`📊 [ADMIN] Fetching active statuses - page: ${page}, limit: ${limit}`);
+
+    // Find users with active statuses
+    const users = await User.find({
+      $or: [
+        { mainStatus: { $exists: true, $ne: 'Available' } },
+        { subStatus: { $exists: true, $ne: null } },
+        { customStatus: { $exists: true, $ne: '' } }
+      ]
+    })
+    .select('userId name profileImage mainStatus subStatus customStatus mainEndTime subEndTime statusUntil isOnline')
+    .sort({ mainStartTime: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+    const total = await User.countDocuments({
+      $or: [
+        { mainStatus: { $exists: true, $ne: 'Available' } },
+        { subStatus: { $exists: true, $ne: null } },
+        { customStatus: { $exists: true, $ne: '' } }
+      ]
+    });
+
+    // Format statuses
+    const statuses = users.map(user => ({
+      _id: user._id,
+      userId: user.userId,
+      userName: user.name,
+      profileImage: user.profileImage,
+      mainStatus: user.mainStatus,
+      subStatus: user.subStatus,
+      customStatus: user.customStatus,
+      expiresAt: user.mainEndTime || user.subEndTime || user.statusUntil,
+      isOnline: user.isOnline,
+      isActive: true
+    }));
+
+    console.log(`✅ [ADMIN] Found ${statuses.length} active statuses (${total} total)`);
+
+    res.json({
+      statuses,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching statuses:', error);
+    res.status(500).json({ error: 'Failed to fetch statuses' });
+  }
+});
+
+// Get status statistics
+router.get('/statuses/stats', async (req, res) => {
+  try {
+    console.log(`📊 [ADMIN] Fetching status statistics`);
+
+    const [
+      totalOnline,
+      available,
+      busy,
+      inMeeting,
+      doNotDisturb,
+      away,
+      broadcasting,
+      withCustomStatus
+    ] = await Promise.all([
+      User.countDocuments({ isOnline: true }),
+      User.countDocuments({ mainStatus: 'Available', isOnline: true }),
+      User.countDocuments({ mainStatus: 'Busy' }),
+      User.countDocuments({ mainStatus: 'In a meeting' }),
+      User.countDocuments({ mainStatus: 'Do not disturb' }),
+      User.countDocuments({ mainStatus: 'Away' }),
+      User.countDocuments({ subStatus: { $exists: true, $ne: null } }),
+      User.countDocuments({ customStatus: { $exists: true, $ne: '' } })
+    ]);
+
+    const stats = {
+      totalOnline,
+      available,
+      busy,
+      inMeeting,
+      doNotDisturb,
+      away,
+      broadcasting,
+      withCustomStatus
+    };
+
+    console.log(`✅ [ADMIN] Status stats:`, stats);
+
+    res.json(stats);
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching status stats:', error);
+    res.status(500).json({ error: 'Failed to fetch status stats' });
+  }
+});
+
+// Delete user status
+router.delete('/statuses/:userId', async (req, res) => {
+  try {
+    console.log(`🗑️ [ADMIN] Clearing status for user: ${req.params.userId}`);
+
+    const user = await User.findOne({ userId: req.params.userId });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Clear all status fields
+    user.mainStatus = 'Available';
+    user.subStatus = null;
+    user.customStatus = '';
+    user.mainEndTime = null;
+    user.subEndTime = null;
+    user.statusUntil = null;
+    
+    await user.save();
+
+    console.log(`✅ [ADMIN] Status cleared for user: ${req.params.userId}`);
+
+    res.json({ message: 'Status cleared successfully' });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error clearing status:', error);
+    res.status(500).json({ error: 'Failed to clear status' });
+  }
+});
+
+// ==================== BROADCAST MESSAGING ====================
+
+// Get all broadcasts
+router.get('/broadcasts', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    console.log(`📢 [ADMIN] Fetching broadcasts - page: ${page}`);
+
+    const broadcasts = await Broadcast.find()
+      .sort({ sentAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Broadcast.countDocuments();
+
+    console.log(`✅ [ADMIN] Found ${broadcasts.length} broadcasts (${total} total)`);
+
+    res.json({
+      broadcasts,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching broadcasts:', error);
+    res.status(500).json({ error: 'Failed to fetch broadcasts' });
+  }
+});
+
+// Send broadcast message
+router.post('/broadcasts', async (req, res) => {
+  try {
+    const { title, message, type, priority, targetAudience, link, imageUrl, expiresAt } = req.body;
+
+    console.log(`📢 [ADMIN] Creating broadcast: ${title}`);
+
+    // Get recipient count based on target audience
+    let recipientCount = 0;
+    switch (targetAudience) {
+      case 'all':
+        recipientCount = await User.countDocuments();
+        break;
+      case 'active':
+        recipientCount = await User.countDocuments({ isOnline: true });
+        break;
+      case 'inactive':
+        recipientCount = await User.countDocuments({ isOnline: false });
+        break;
+      case 'premium':
+        recipientCount = await User.countDocuments({ isPremium: true });
+        break;
+    }
+
+    const broadcast = await Broadcast.create({
+      title,
+      message,
+      type: type || 'announcement',
+      priority: priority || 'medium',
+      targetAudience: targetAudience || 'all',
+      sentBy: 'admin',
+      sentByName: 'System Admin',
+      recipientCount,
+      link,
+      imageUrl,
+      expiresAt: expiresAt ? new Date(expiresAt) : null
+    });
+
+    console.log(`✅ [ADMIN] Broadcast created: ${broadcast._id} - Sent to ${recipientCount} users`);
+
+    // Emit socket event to all users
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('admin:broadcast', {
+          id: broadcast._id,
+          title: broadcast.title,
+          message: broadcast.message,
+          type: broadcast.type,
+          priority: broadcast.priority,
+          link: broadcast.link,
+          imageUrl: broadcast.imageUrl,
+          sentAt: broadcast.sentAt,
+          expiresAt: broadcast.expiresAt
+        });
+        console.log(`📢 [ADMIN] Broadcast notification sent to all connected users via socket`);
+      } else {
+        console.warn('⚠️ [ADMIN] Socket.IO instance not found, broadcast saved but not sent via socket');
+      }
+    } catch (socketError) {
+      console.error('❌ [ADMIN] Error emitting broadcast via socket:', socketError);
+    }
+
+    res.json({
+      message: 'Broadcast sent successfully',
+      broadcast,
+      recipientCount
+    });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error creating broadcast:', error);
+    res.status(500).json({ error: 'Failed to send broadcast' });
+  }
+});
+
+// Get broadcast statistics
+router.get('/broadcasts/stats', async (req, res) => {
+  try {
+    console.log(`📊 [ADMIN] Fetching broadcast statistics`);
+
+    const [totalBroadcasts, totalRecipients, totalReads, recentBroadcasts] = await Promise.all([
+      Broadcast.countDocuments(),
+      Broadcast.aggregate([{ $group: { _id: null, total: { $sum: '$recipientCount' } } }]),
+      Broadcast.aggregate([{ $group: { _id: null, total: { $sum: '$readCount' } } }]),
+      Broadcast.countDocuments({ sentAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } })
+    ]);
+
+    const stats = {
+      totalBroadcasts,
+      totalRecipients: totalRecipients[0]?.total || 0,
+      totalReads: totalReads[0]?.total || 0,
+      recentBroadcasts
+    };
+
+    console.log(`✅ [ADMIN] Broadcast stats:`, stats);
+
+    res.json(stats);
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching broadcast stats:', error);
+    res.status(500).json({ error: 'Failed to fetch broadcast stats' });
+  }
+});
+
+// Delete broadcast
+router.delete('/broadcasts/:id', async (req, res) => {
+  try {
+    console.log(`🗑️ [ADMIN] Deleting broadcast: ${req.params.id}`);
+
+    const broadcast = await Broadcast.findByIdAndDelete(req.params.id);
+
+    if (!broadcast) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+
+    console.log(`✅ [ADMIN] Broadcast deleted: ${req.params.id}`);
+
+    res.json({ message: 'Broadcast deleted successfully' });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error deleting broadcast:', error);
+    res.status(500).json({ error: 'Failed to delete broadcast' });
+  }
+});
+
+// ==================== HASHTAG MANAGEMENT ====================
+
+// Get trending hashtags
+router.get('/hashtags/trending', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const days = parseInt(req.query.days) || 7;
+
+    console.log(`#️⃣ [ADMIN] Fetching trending hashtags (last ${days} days)`);
+
+    const dateFilter = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const trending = await Post.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: dateFilter },
+          hashtags: { $exists: true, $ne: [] }
+        }
+      },
+      { $unwind: '$hashtags' },
+      {
+        $group: {
+          _id: '$hashtags',
+          count: { $sum: 1 },
+          totalLikes: { $sum: '$likesCount' },
+          totalComments: { $sum: '$commentsCount' },
+          totalShares: { $sum: '$sharesCount' },
+          recentPosts: { $push: { postId: '$_id', createdAt: '$createdAt' } }
+        }
+      },
+      {
+        $project: {
+          hashtag: '$_id',
+          count: 1,
+          totalLikes: 1,
+          totalComments: 1,
+          totalShares: 1,
+          engagement: { $add: ['$totalLikes', '$totalComments', { $multiply: ['$totalShares', 2] }] },
+          recentPosts: { $slice: ['$recentPosts', 5] }
+        }
+      },
+      { $sort: { engagement: -1, count: -1 } },
+      { $limit: limit }
+    ]);
+
+    console.log(`✅ [ADMIN] Found ${trending.length} trending hashtags`);
+
+    res.json({
+      hashtags: trending,
+      total: trending.length,
+      period: `${days} days`
+    });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching trending hashtags:', error);
+    res.status(500).json({ error: 'Failed to fetch trending hashtags' });
+  }
+});
+
+// Get hashtag details
+router.get('/hashtags/:hashtag', async (req, res) => {
+  try {
+    const hashtag = req.params.hashtag.replace('#', '');
+    const days = parseInt(req.query.days) || 30;
+
+    console.log(`#️⃣ [ADMIN] Fetching details for hashtag: ${hashtag}`);
+
+    const dateFilter = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const [posts, stats] = await Promise.all([
+      Post.find({
+        hashtags: hashtag,
+        createdAt: { $gte: dateFilter }
+      })
+        .select('userId userName userProfileImage caption media likesCount commentsCount sharesCount createdAt')
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean(),
+      Post.aggregate([
+        {
+          $match: {
+            hashtags: hashtag,
+            createdAt: { $gte: dateFilter }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalPosts: { $sum: 1 },
+            totalLikes: { $sum: '$likesCount' },
+            totalComments: { $sum: '$commentsCount' },
+            totalShares: { $sum: '$sharesCount' },
+            uniqueUsers: { $addToSet: '$userId' }
+          }
+        },
+        {
+          $project: {
+            totalPosts: 1,
+            totalLikes: 1,
+            totalComments: 1,
+            totalShares: 1,
+            uniqueUsers: { $size: '$uniqueUsers' }
+          }
+        }
+      ])
+    ]);
+
+    console.log(`✅ [ADMIN] Found ${posts.length} posts for #${hashtag}`);
+
+    res.json({
+      hashtag,
+      stats: stats[0] || { totalPosts: 0, totalLikes: 0, totalComments: 0, totalShares: 0, uniqueUsers: 0 },
+      posts
+    });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching hashtag details:', error);
+    res.status(500).json({ error: 'Failed to fetch hashtag details' });
+  }
+});
+
+// Get hashtag statistics
+router.get('/hashtags/stats', async (req, res) => {
+  try {
+    console.log(`📊 [ADMIN] Fetching hashtag statistics`);
+
+    const [totalHashtags, postsWithHashtags, avgHashtagsPerPost] = await Promise.all([
+      Post.aggregate([
+        { $match: { hashtags: { $exists: true, $ne: [] } } },
+        { $unwind: '$hashtags' },
+        { $group: { _id: '$hashtags' } },
+        { $count: 'total' }
+      ]),
+      Post.countDocuments({ hashtags: { $exists: true, $ne: [] } }),
+      Post.aggregate([
+        { $match: { hashtags: { $exists: true, $ne: [] } } },
+        { $project: { hashtagCount: { $size: '$hashtags' } } },
+        { $group: { _id: null, avgCount: { $avg: '$hashtagCount' } } }
+      ])
+    ]);
+
+    const stats = {
+      totalHashtags: totalHashtags[0]?.total || 0,
+      postsWithHashtags,
+      avgHashtagsPerPost: Math.round((avgHashtagsPerPost[0]?.avgCount || 0) * 10) / 10
+    };
+
+    console.log(`✅ [ADMIN] Hashtag stats:`, stats);
+
+    res.json(stats);
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching hashtag stats:', error);
+    res.status(500).json({ error: 'Failed to fetch hashtag stats' });
   }
 });
 
