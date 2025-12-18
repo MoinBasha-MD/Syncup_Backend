@@ -6,11 +6,17 @@ const path = require('path');
 const isInScriptsFolder = __dirname.endsWith('scripts');
 const rootPath = isInScriptsFolder ? path.join(__dirname, '..') : __dirname;
 
+// Load environment variables from the correct location
+dotenv.config({ path: path.join(rootPath, '.env') });
+
+// Hardcoded encryption key as fallback (TEMPORARY - for migration only)
+if (!process.env.USER_ENCRYPTION_KEY) {
+  console.log('⚠️  Using hardcoded encryption key for migration...');
+  process.env.USER_ENCRYPTION_KEY = '1d33d1e3b2a8c30f61f0a24291e4e91710406b280ad06065fbbbbb67c86b4c88';
+}
+
 const User = require(path.join(rootPath, 'models', 'userModel'));
 const { encryptUserData, isUserDataEncrypted } = require(path.join(rootPath, 'utils', 'userEncryption'));
-
-// Load environment variables
-dotenv.config();
 
 /**
  * Migration Script: Encrypt Existing User Data
