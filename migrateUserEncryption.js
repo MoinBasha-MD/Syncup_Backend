@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
-const User = require('../models/userModel');
-const { encryptUserData, isUserDataEncrypted } = require('../utils/userEncryption');
+const User = require('./models/userModel');
+const { encryptUserData, isUserDataEncrypted } = require('./utils/userEncryption');
 
 // Load environment variables
 dotenv.config();
