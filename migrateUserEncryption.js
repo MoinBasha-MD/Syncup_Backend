@@ -1,7 +1,13 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
-const User = require('./models/userModel');
-const { encryptUserData, isUserDataEncrypted } = require('./utils/userEncryption');
+const path = require('path');
+
+// Determine if running from scripts folder or root
+const isInScriptsFolder = __dirname.endsWith('scripts');
+const rootPath = isInScriptsFolder ? path.join(__dirname, '..') : __dirname;
+
+const User = require(path.join(rootPath, 'models', 'userModel'));
+const { encryptUserData, isUserDataEncrypted } = require(path.join(rootPath, 'utils', 'userEncryption'));
 
 // Load environment variables
 dotenv.config();
