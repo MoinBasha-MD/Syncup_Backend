@@ -4,6 +4,7 @@ const { broadcastStatusUpdate } = require('../socketManager');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const LogSanitizer = require('../utils/logSanitizer');
+const { encryptUserData, isUserDataEncrypted } = require('../utils/userEncryption');
 
 // @desc    Register a new user
 // @route   POST /api/users
@@ -12,7 +13,10 @@ const registerUser = async (req, res) => {
   try {
     const { name, phoneNumber, email, password } = req.body;
 
+    console.log(' [REGISTRATION] New user registration with encryption');
+
     // Check if user already exists with this email or phone
+    // Note: After migration, we need to check encrypted fields too
     const userExistsWithEmail = await User.findOne({ email });
     if (userExistsWithEmail) {
       return res.status(400).json({ message: 'User with this email already exists' });
@@ -23,12 +27,30 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'User with this phone number already exists' });
     }
 
-    // Create user
+    // Encrypt sensitive user data
+    const encryptedData = encryptUserData({
+      email,
+      phoneNumber,
+      password
+    });
+
+    console.log(' [REGISTRATION] User data encrypted successfully');
+
+    // Generate username from name (lowercase, no spaces)
+    const username = name.toLowerCase().replace(/\s+/g, '');
+
+    // Create user with encrypted data
     const user = await User.create({
       name,
-      phoneNumber,
-      email,
-      password,
+      username, // Keep visible for admin
+      // Encrypted fields
+      encryptedEmail: encryptedData.encryptedEmail,
+      encryptedPhone: encryptedData.encryptedPhone,
+      encryptedPassword: encryptedData.encryptedPassword,
+      // Placeholder values for plain text fields (for schema compatibility)
+      email: `encrypted_${Date.now()}@encrypted.local`,
+      phoneNumber: `encrypted_${Date.now()}`,
+      // Other fields
       status: 'available',
       customStatus: '',
       statusUntil: null,
@@ -36,12 +58,15 @@ const registerUser = async (req, res) => {
     });
 
     if (user) {
+      console.log(' [REGISTRATION] User created with encrypted data:', user.userId);
+      
       res.status(201).json({
         _id: user._id,
         userId: user.userId,
         name: user.name,
-        phoneNumber: user.phoneNumber,
-        email: user.email,
+        username: user.username,
+        phoneNumber: phoneNumber, // Send original phone to client
+        email: email, // Send original email to client
         emailVerified: user.emailVerified || false,
         status: user.status,
         customStatus: user.customStatus,
@@ -52,7 +77,7 @@ const registerUser = async (req, res) => {
       res.status(400).json({ message: 'Invalid user data' });
     }
   } catch (error) {
-    console.error(error);
+    console.error(' [REGISTRATION] Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -64,17 +89,55 @@ const loginUser = async (req, res) => {
   try {
     const { phoneNumber, password } = req.body;
 
-    // Check for user with phone number
-    const user = await User.findOne({ phoneNumber }).select('+password');
+    console.log('🔐 [LOGIN] Login attempt for phone:', phoneNumber);
+
+    // Try to find user by plain text phone (for old users) or by searching all users
+    let user = await User.findOne({ phoneNumber }).select('+password +encryptedPassword +encryptedPhone +encryptedEmail');
+
+    // If not found by plain text phone, search through encrypted users
+    if (!user) {
+      const { decryptField, verifyPassword } = require('../utils/userEncryption');
+      const allUsers = await User.find({}).select('+password +encryptedPassword +encryptedPhone +encryptedEmail');
+      
+      // Try to find user by decrypting phone numbers
+      for (const u of allUsers) {
+        if (u.encryptedPhone) {
+          try {
+            const decryptedPhone = decryptField(u.encryptedPhone);
+            if (decryptedPhone === phoneNumber) {
+              user = u;
+              console.log('✅ [LOGIN] Found user by encrypted phone');
+              break;
+            }
+          } catch (err) {
+            // Skip this user if decryption fails
+            continue;
+          }
+        }
+      }
+    }
 
     if (!user) {
+      console.log('❌ [LOGIN] User not found');
       return res.status(401).json({ message: 'Invalid phone number or password' });
     }
 
-    // Check if password matches
-    const isMatch = await user.matchPassword(password);
+    // Check if password matches (handle both encrypted and hashed passwords)
+    let isMatch = false;
+    
+    if (user.encryptedPassword) {
+      // New encrypted password
+      const { verifyPassword } = require('../utils/userEncryption');
+      isMatch = verifyPassword(password, user.encryptedPassword);
+      console.log('🔐 [LOGIN] Verified encrypted password:', isMatch);
+    } else if (user.password) {
+      // Old hashed password (for backward compatibility)
+      isMatch = await user.matchPassword(password);
+      console.log('🔐 [LOGIN] Verified hashed password:', isMatch);
+    }
 
     if (!isMatch) {
+      console.log('❌ [LOGIN] Invalid password');
       return res.status(401).json({ message: 'Invalid phone number or password' });
     }
 
@@ -86,12 +149,20 @@ const loginUser = async (req, res) => {
       await user.save();
     }
 
+    // Decrypt user data for response
+    const { decryptField } = require('../utils/userEncryption');
+    const responseEmail = user.encryptedEmail ? decryptField(user.encryptedEmail) : user.email;
+    const responsePhone = user.encryptedPhone ? decryptField(user.encryptedPhone) : user.phoneNumber;
+
+    console.log('✅ [LOGIN] Login successful for user:', user.userId);
+
     res.json({
       _id: user._id,
       userId: user.userId,
       name: user.name,
-      phoneNumber: user.phoneNumber,
-      email: user.email,
+      username: user.username,
+      phoneNumber: responsePhone,
+      email: responseEmail,
       emailVerified: user.emailVerified || false,
       status: user.status,
       customStatus: user.customStatus,
@@ -99,7 +170,7 @@ const loginUser = async (req, res) => {
       token: user.getSignedJwtToken(),
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LOGIN] Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -968,42 +1039,77 @@ const adminResetPassword = async (req, res) => {
 // @access  Admin
 const getAllUsersForAdmin = async (req, res) => {
   try {
-    console.log('Admin get all users request received');
+    console.log('🔐 [ADMIN] Get all users request with decryption');
     const { page = 1, limit = 20, search = '' } = req.query;
     
     let query = {};
     if (search) {
+      // Search by username (visible) or name
       query = {
         $or: [
           { name: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { phoneNumber: { $regex: search, $options: 'i' } },
+          { username: { $regex: search, $options: 'i' } },
           { userId: { $regex: search, $options: 'i' } }
         ]
       };
     }
 
     const users = await User.find(query)
-      .select('userId name phoneNumber email status createdAt')
+      .select('userId name username phoneNumber email status createdAt encryptedEmail encryptedPhone encryptedPassword')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
     const total = await User.countDocuments(query);
 
-    console.log(`Found ${users.length} users for admin panel`);
+    console.log(`✅ [ADMIN] Found ${users.length} users, decrypting data...`);
+
+    // Decrypt user data for admin view
+    const { decryptField } = require('../utils/userEncryption');
+    const decryptedUsers = users.map(user => {
+      const userData = user.toObject();
+      
+      try {
+        // Decrypt email if encrypted
+        if (userData.encryptedEmail) {
+          userData.email = decryptField(userData.encryptedEmail);
+          delete userData.encryptedEmail; // Remove encrypted data from response
+        }
+        
+        // Decrypt phone if encrypted
+        if (userData.encryptedPhone) {
+          userData.phoneNumber = decryptField(userData.encryptedPhone);
+          delete userData.encryptedPhone; // Remove encrypted data from response
+        }
+        
+        // Don't send password to admin (even encrypted)
+        if (userData.encryptedPassword) {
+          userData.password = '[ENCRYPTED]';
+          delete userData.encryptedPassword; // Remove encrypted data from response
+        }
+      } catch (error) {
+        console.error(`❌ [ADMIN] Error decrypting user ${userData.userId}:`, error.message);
+        // If decryption fails, show placeholder
+        userData.email = userData.email || '[DECRYPTION ERROR]';
+        userData.phoneNumber = userData.phoneNumber || '[DECRYPTION ERROR]';
+      }
+      
+      return userData;
+    });
+
+    console.log(`✅ [ADMIN] Decrypted ${decryptedUsers.length} users successfully`);
 
     res.json({
       success: true,
       data: {
-        users,
+        users: decryptedUsers,
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         total
       }
     });
   } catch (error) {
-    console.error('Get all users error:', error);
+    console.error('❌ [ADMIN] Get all users error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',

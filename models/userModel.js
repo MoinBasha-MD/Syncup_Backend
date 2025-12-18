@@ -20,14 +20,16 @@ const userSchema = mongoose.Schema(
     },
     phoneNumber: {
       type: String,
-      required: [true, 'Please add a phone number'],
+      required: false, // Made optional for encrypted users
       unique: true,
+      sparse: true, // Allow null values for unique index
       match: [/^(\+?[1-9]\d{1,14}|\d{10})$/, 'Please enter a valid phone number'],
     },
     email: {
       type: String,
-      required: [true, 'Please add an email'],
+      required: false, // Made optional for encrypted users
       unique: true,
+      sparse: true, // Allow null values for unique index
       match: [
         /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
         'Please add a valid email',
@@ -35,9 +37,25 @@ const userSchema = mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, 'Please add a password'],
+      required: false, // Made optional for encrypted users
       minlength: 6,
       select: false,
+    },
+    // Encrypted user data fields
+    encryptedEmail: {
+      encrypted: String,
+      iv: String,
+      authTag: String
+    },
+    encryptedPhone: {
+      encrypted: String,
+      iv: String,
+      authTag: String
+    },
+    encryptedPassword: {
+      encrypted: String,
+      iv: String,
+      authTag: String
     },
     // BACKWARD COMPATIBILITY - Keep old fields
     status: {
