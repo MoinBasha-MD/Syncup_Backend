@@ -277,6 +277,10 @@ app.use('/api/crypto', apiLimiter, cryptoRoutes); // E2EE key exchange routes (P
 app.use('/api/hashtags', apiLimiter, require('./routes/hashtagRoutes')); // Hashtag management routes (trending, search, stats)
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
+// Admin Dashboard Routes (for admin panel at localhost:3001)
+const adminDashboardRoutes = require('./routes/adminDashboardRoutes');
+app.use('/api/admin', adminDashboardRoutes); // Admin panel API endpoints
+
 // Serve static files from the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Serve static files from public directory (for JS, CSS, images)

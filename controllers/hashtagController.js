@@ -1,4 +1,5 @@
 const FeedPost = require('../models/FeedPost');
+const User = require('../models/userModel');
 
 /**
  * Validate and clean hashtag
@@ -281,6 +282,240 @@ exports.getHashtagStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch hashtag statistics',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Auto-complete hashtags while typing
+ */
+exports.autocompleteHashtags = async (req, res) => {
+  try {
+    const { q } = req.query;
+    const limit = parseInt(req.query.limit) || 10;
+
+    if (!q || q.length < 2) {
+      return res.json({
+        success: true,
+        data: [],
+      });
+    }
+
+    const cleanQuery = q.toLowerCase().replace(/^#/, '');
+
+    // Find hashtags that match the query
+    const matchingHashtags = await FeedPost.aggregate([
+      {
+        $match: {
+          privacy: 'public',
+          hashtags: { $regex: `^${cleanQuery}`, $options: 'i' },
+        },
+      },
+      { $unwind: '$hashtags' },
+      {
+        $match: {
+          hashtags: { $regex: `^${cleanQuery}`, $options: 'i' },
+        },
+      },
+      {
+        $group: {
+          _id: '$hashtags',
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+      {
+        $project: {
+          tag: '$_id',
+          count: 1,
+          _id: 0,
+        },
+      },
+    ]);
+
+    res.json({
+      success: true,
+      data: matchingHashtags,
+    });
+  } catch (error) {
+    console.error('Error in autocomplete:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to autocomplete hashtags',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Follow a hashtag
+ */
+exports.followHashtag = async (req, res) => {
+  try {
+    const { tag } = req.params;
+    const userId = req.user._id;
+
+    // Validate hashtag format
+    const cleanTag = validateHashtag(tag);
+
+    // Check if already following
+    const user = await User.findById(userId);
+    const alreadyFollowing = user.followedHashtags.some(
+      (h) => h.tag.toLowerCase() === cleanTag
+    );
+
+    if (alreadyFollowing) {
+      return res.json({
+        success: true,
+        message: 'Already following this hashtag',
+        isFollowing: true,
+      });
+    }
+
+    // Add to followed hashtags
+    user.followedHashtags.push({
+      tag: cleanTag,
+      followedAt: new Date(),
+    });
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Hashtag followed successfully',
+      isFollowing: true,
+      tag: cleanTag,
+    });
+  } catch (error) {
+    console.error('Error following hashtag:', error);
+    if (error.message === 'Invalid hashtag format') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid hashtag format. Use only letters and numbers (2-30 characters).',
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to follow hashtag',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Unfollow a hashtag
+ */
+exports.unfollowHashtag = async (req, res) => {
+  try {
+    const { tag } = req.params;
+    const userId = req.user._id;
+
+    // Validate hashtag format
+    const cleanTag = validateHashtag(tag);
+
+    // Remove from followed hashtags
+    const user = await User.findById(userId);
+    user.followedHashtags = user.followedHashtags.filter(
+      (h) => h.tag.toLowerCase() !== cleanTag
+    );
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Hashtag unfollowed successfully',
+      isFollowing: false,
+      tag: cleanTag,
+    });
+  } catch (error) {
+    console.error('Error unfollowing hashtag:', error);
+    if (error.message === 'Invalid hashtag format') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid hashtag format. Use only letters and numbers (2-30 characters).',
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to unfollow hashtag',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get user's followed hashtags
+ */
+exports.getFollowedHashtags = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId).select('followedHashtags');
+
+    // Get post counts for each followed hashtag
+    const hashtagsWithCounts = await Promise.all(
+      user.followedHashtags.map(async (h) => {
+        const count = await FeedPost.countDocuments({
+          hashtags: h.tag,
+          privacy: 'public',
+        });
+
+        return {
+          tag: h.tag,
+          followedAt: h.followedAt,
+          postCount: count,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: hashtagsWithCounts,
+    });
+  } catch (error) {
+    console.error('Error fetching followed hashtags:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch followed hashtags',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Check if user is following a hashtag
+ */
+exports.isFollowingHashtag = async (req, res) => {
+  try {
+    const { tag } = req.params;
+    const userId = req.user._id;
+
+    // Validate hashtag format
+    const cleanTag = validateHashtag(tag);
+
+    const user = await User.findById(userId).select('followedHashtags');
+    const isFollowing = user.followedHashtags.some(
+      (h) => h.tag.toLowerCase() === cleanTag
+    );
+
+    res.json({
+      success: true,
+      isFollowing,
+      tag: cleanTag,
+    });
+  } catch (error) {
+    console.error('Error checking follow status:', error);
+    if (error.message === 'Invalid hashtag format') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid hashtag format. Use only letters and numbers (2-30 characters).',
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check follow status',
       error: error.message,
     });
   }

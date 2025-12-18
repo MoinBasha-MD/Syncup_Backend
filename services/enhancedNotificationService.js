@@ -34,6 +34,11 @@ class EnhancedNotificationService {
         console.log('❌ Sender or receiver not found');
         return false;
       }
+      
+      // Log sender profile image for debugging
+      console.log('👤 [NOTIFICATION] Sender profile image from DB:', sender.profileImage);
+      console.log('👤 [NOTIFICATION] Profile image type:', typeof sender.profileImage);
+      console.log('👤 [NOTIFICATION] Profile image length:', sender.profileImage?.length);
 
       // Check notification preferences
       if (!this.shouldSendNotification(receiver, 'chat_messages')) {

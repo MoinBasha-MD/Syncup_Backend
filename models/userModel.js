@@ -308,6 +308,17 @@ const userSchema = mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'FeedPost'
     }],
+    // Followed hashtags
+    followedHashtags: [{
+      tag: {
+        type: String,
+        required: true
+      },
+      followedAt: {
+        type: Date,
+        default: Date.now
+      }
+    }],
     // SOS History
     sosHistory: [{
       timestamp: {

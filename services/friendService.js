@@ -87,6 +87,13 @@ class FriendService {
         requests.map(async (request) => {
           const targetUserId = type === 'received' ? request.userId : request.friendUserId;
           
+          console.log(`🔍 [FRIEND SERVICE] Processing ${type} request:`);
+          console.log(`  - Request ID: ${request._id}`);
+          console.log(`  - request.userId (sender): ${request.userId}`);
+          console.log(`  - request.friendUserId (recipient): ${request.friendUserId}`);
+          console.log(`  - targetUserId (should be sender for received): ${targetUserId}`);
+          console.log(`  - cachedData.name: ${request.cachedData?.name}`);
+          
           // If cache is stale or missing, refresh it
           if (!request.cachedData.name || this.isCacheStale(request.cachedData.lastCacheUpdate)) {
             const user = await User.findOne({ userId: targetUserId }).select('name profileImage username').lean();
@@ -106,7 +113,7 @@ class FriendService {
             }
           }
           
-          return {
+          const result = {
             requestId: request._id.toString(),
             userId: request.userId,
             friendUserId: request.friendUserId,
@@ -118,6 +125,13 @@ class FriendService {
             addedAt: request.addedAt,
             source: request.source
           };
+          
+          console.log(`✅ [FRIEND SERVICE] Returning request data:`);
+          console.log(`  - name: ${result.name}`);
+          console.log(`  - userId: ${result.userId}`);
+          console.log(`  - friendUserId: ${result.friendUserId}`);
+          
+          return result;
         })
       );
       
@@ -156,7 +170,8 @@ class FriendService {
       }
       
       // CRITICAL FIX: Check BOTH directions in a single query to prevent race conditions
-      const [existingFriendship, reverseRequest] = await Promise.all([
+      // Also check for removed friendships to allow re-adding
+      const [existingFriendship, reverseRequest, removedFriendship] = await Promise.all([
         Friend.findOne({
           userId,
           friendUserId,
@@ -167,6 +182,12 @@ class FriendService {
           friendUserId: userId,
           status: 'pending',
           isDeleted: false
+        }),
+        Friend.findOne({
+          userId,
+          friendUserId,
+          status: 'removed',
+          isDeleted: true
         })
       ]);
       
@@ -179,6 +200,44 @@ class FriendService {
         } else if (existingFriendship.status === 'blocked') {
           throw new Error('Cannot send friend request to blocked user');
         }
+      }
+      
+      // Handle removed friendship - reactivate it as pending
+      if (removedFriendship) {
+        console.log(`🔄 [FRIEND SERVICE] Found removed friendship - reactivating as pending request`);
+        
+        // Reactivate the removed friendship as a new pending request
+        removedFriendship.status = 'pending';
+        removedFriendship.isDeleted = false;
+        removedFriendship.addedAt = new Date();
+        removedFriendship.acceptedAt = null;
+        removedFriendship.removedAt = null;
+        removedFriendship.requestMetadata = {
+          requestedBy: userId,
+          requestMessage: metadata.message || '',
+          mutualFriends: await Friend.getMutualFriends(userId, friendUserId)
+        };
+        
+        // Update cached data with fresh user info
+        removedFriendship.cachedData = {
+          name: friendUser.name,
+          profileImage: friendUser.profileImage || '',
+          username: friendUser.username || '',
+          lastCacheUpdate: new Date()
+        };
+        
+        await removedFriendship.save();
+        
+        console.log(`✅ [FRIEND SERVICE] Reactivated removed friendship as pending request`);
+        
+        return {
+          requestId: removedFriendship._id.toString(),
+          userId,
+          friendUserId,
+          status: 'pending',
+          message: 'Friend request sent successfully',
+          reactivated: true
+        };
       }
       
       // Check reverse request (recipient → sender)
