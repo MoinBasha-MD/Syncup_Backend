@@ -158,20 +158,30 @@ if (!fs.existsSync(chatImagesDir)) {
 // Enhanced CORS configuration for better network accessibility
 app.use(cors({
   origin: function(origin, callback) {
+    console.log('🔍 CORS Request from origin:', origin);
+    console.log('🔍 NODE_ENV:', process.env.NODE_ENV);
+    
     // Allow requests with no origin (like mobile apps, curl, etc.)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log('✅ CORS: Allowing request with no origin');
+      return callback(null, true);
+    }
     
     // Allow all origins in development mode
     if (process.env.NODE_ENV !== 'production') {
+      console.log('✅ CORS: Allowing all origins (development mode)');
       return callback(null, true);
     }
     
     // In production, check allowed origins
     const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
+    console.log('🔍 Allowed origins:', allowedOrigins);
     if (allowedOrigins.includes(origin)) {
+      console.log('✅ CORS: Origin allowed');
       return callback(null, true);
     }
     
+    console.log('❌ CORS: Origin not allowed');
     return callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
