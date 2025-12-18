@@ -641,29 +641,78 @@ router.get('/broadcasts', async (req, res) => {
   }
 });
 
-// Send broadcast message
+// Send broadcast message (enhanced with scheduling and advanced targeting)
 router.post('/broadcasts', async (req, res) => {
   try {
-    const { title, message, type, priority, targetAudience, link, imageUrl, expiresAt } = req.body;
+    const { 
+      title, message, type, priority, targetAudience, link, imageUrl, expiresAt,
+      scheduledFor, buttons, customTargeting, saveAsTemplate, templateName
+    } = req.body;
 
     console.log(`📢 [ADMIN] Creating broadcast: ${title}`);
 
     // Get recipient count based on target audience
     let recipientCount = 0;
+    let targetQuery = {};
+    
     switch (targetAudience) {
       case 'all':
         recipientCount = await User.countDocuments();
         break;
       case 'active':
-        recipientCount = await User.countDocuments({ isOnline: true });
+        targetQuery = { isOnline: true };
+        recipientCount = await User.countDocuments(targetQuery);
         break;
       case 'inactive':
-        recipientCount = await User.countDocuments({ isOnline: false });
+        targetQuery = { isOnline: false };
+        recipientCount = await User.countDocuments(targetQuery);
         break;
       case 'premium':
-        recipientCount = await User.countDocuments({ isPremium: true });
+        targetQuery = { isPremium: true };
+        recipientCount = await User.countDocuments(targetQuery);
+        break;
+      case 'new_users':
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        targetQuery = { createdAt: { $gte: thirtyDaysAgo } };
+        recipientCount = await User.countDocuments(targetQuery);
+        break;
+      case 'custom':
+        // Build custom query from customTargeting
+        if (customTargeting) {
+          if (customTargeting.userIds && customTargeting.userIds.length > 0) {
+            targetQuery.userId = { $in: customTargeting.userIds };
+          }
+          if (customTargeting.minAge || customTargeting.maxAge) {
+            const now = new Date();
+            if (customTargeting.maxAge) {
+              const minBirthDate = new Date(now.getFullYear() - customTargeting.maxAge, now.getMonth(), now.getDate());
+              targetQuery.dateOfBirth = { $gte: minBirthDate };
+            }
+            if (customTargeting.minAge) {
+              const maxBirthDate = new Date(now.getFullYear() - customTargeting.minAge, now.getMonth(), now.getDate());
+              targetQuery.dateOfBirth = { ...targetQuery.dateOfBirth, $lte: maxBirthDate };
+            }
+          }
+          if (customTargeting.lastActiveWithin) {
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - customTargeting.lastActiveWithin);
+            targetQuery.lastSeen = { $gte: cutoffDate };
+          }
+          if (customTargeting.registeredAfter) {
+            targetQuery.createdAt = { ...targetQuery.createdAt, $gte: new Date(customTargeting.registeredAfter) };
+          }
+          if (customTargeting.registeredBefore) {
+            targetQuery.createdAt = { ...targetQuery.createdAt, $lte: new Date(customTargeting.registeredBefore) };
+          }
+        }
+        recipientCount = await User.countDocuments(targetQuery);
         break;
     }
+
+    // Determine status based on scheduling
+    const isScheduled = scheduledFor && new Date(scheduledFor) > new Date();
+    const status = isScheduled ? 'scheduled' : 'sent';
 
     const broadcast = await Broadcast.create({
       title,
@@ -671,43 +720,54 @@ router.post('/broadcasts', async (req, res) => {
       type: type || 'announcement',
       priority: priority || 'medium',
       targetAudience: targetAudience || 'all',
+      customTargeting: targetAudience === 'custom' ? customTargeting : undefined,
       sentBy: 'admin',
       sentByName: 'System Admin',
       recipientCount,
       link,
       imageUrl,
-      expiresAt: expiresAt ? new Date(expiresAt) : null
+      buttons: buttons || [],
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
+      scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
+      status,
+      isTemplate: saveAsTemplate || false,
+      templateName: saveAsTemplate ? templateName : undefined,
+      sentAt: isScheduled ? null : new Date()
     });
 
-    console.log(`✅ [ADMIN] Broadcast created: ${broadcast._id} - Sent to ${recipientCount} users`);
+    console.log(`✅ [ADMIN] Broadcast created: ${broadcast._id} - ${isScheduled ? 'Scheduled for' : 'Sent to'} ${recipientCount} users`);
 
-    // Emit socket event to all users
-    try {
-      const io = req.app.get('io');
-      if (io) {
-        io.emit('admin:broadcast', {
-          id: broadcast._id,
-          title: broadcast.title,
-          message: broadcast.message,
-          type: broadcast.type,
-          priority: broadcast.priority,
-          link: broadcast.link,
-          imageUrl: broadcast.imageUrl,
-          sentAt: broadcast.sentAt,
-          expiresAt: broadcast.expiresAt
-        });
-        console.log(`📢 [ADMIN] Broadcast notification sent to all connected users via socket`);
-      } else {
-        console.warn('⚠️ [ADMIN] Socket.IO instance not found, broadcast saved but not sent via socket');
+    // Only emit socket event if sending immediately (not scheduled)
+    if (!isScheduled) {
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('admin:broadcast', {
+            id: broadcast._id,
+            title: broadcast.title,
+            message: broadcast.message,
+            type: broadcast.type,
+            priority: broadcast.priority,
+            link: broadcast.link,
+            imageUrl: broadcast.imageUrl,
+            buttons: broadcast.buttons,
+            sentAt: broadcast.sentAt,
+            expiresAt: broadcast.expiresAt
+          });
+          console.log(`📢 [ADMIN] Broadcast notification sent to all connected users via socket`);
+        } else {
+          console.warn('⚠️ [ADMIN] Socket.IO instance not found, broadcast saved but not sent via socket');
+        }
+      } catch (socketError) {
+        console.error('❌ [ADMIN] Error emitting broadcast via socket:', socketError);
       }
-    } catch (socketError) {
-      console.error('❌ [ADMIN] Error emitting broadcast via socket:', socketError);
     }
 
     res.json({
-      message: 'Broadcast sent successfully',
+      message: isScheduled ? 'Broadcast scheduled successfully' : 'Broadcast sent successfully',
       broadcast,
-      recipientCount
+      recipientCount,
+      scheduled: isScheduled
     });
   } catch (error) {
     console.error('❌ [ADMIN] Error creating broadcast:', error);
@@ -740,6 +800,145 @@ router.get('/broadcasts/stats', async (req, res) => {
   } catch (error) {
     console.error('❌ [ADMIN] Error fetching broadcast stats:', error);
     res.status(500).json({ error: 'Failed to fetch broadcast stats' });
+  }
+});
+
+// Get broadcast templates
+router.get('/broadcasts/templates', async (req, res) => {
+  try {
+    console.log(`📋 [ADMIN] Fetching broadcast templates`);
+
+    const templates = await Broadcast.find({ isTemplate: true })
+      .select('title message type priority targetAudience link imageUrl buttons templateName')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    console.log(`✅ [ADMIN] Found ${templates.length} templates`);
+
+    res.json({ templates });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching templates:', error);
+    res.status(500).json({ error: 'Failed to fetch templates' });
+  }
+});
+
+// Get scheduled broadcasts
+router.get('/broadcasts/scheduled', async (req, res) => {
+  try {
+    console.log(`📅 [ADMIN] Fetching scheduled broadcasts`);
+
+    const scheduled = await Broadcast.find({ 
+      status: 'scheduled',
+      scheduledFor: { $gt: new Date() }
+    })
+      .sort({ scheduledFor: 1 })
+      .lean();
+
+    console.log(`✅ [ADMIN] Found ${scheduled.length} scheduled broadcasts`);
+
+    res.json({ scheduled });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching scheduled broadcasts:', error);
+    res.status(500).json({ error: 'Failed to fetch scheduled broadcasts' });
+  }
+});
+
+// Cancel scheduled broadcast
+router.patch('/broadcasts/:id/cancel', async (req, res) => {
+  try {
+    console.log(`❌ [ADMIN] Cancelling broadcast: ${req.params.id}`);
+
+    const broadcast = await Broadcast.findByIdAndUpdate(
+      req.params.id,
+      { status: 'cancelled' },
+      { new: true }
+    );
+
+    if (!broadcast) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+
+    console.log(`✅ [ADMIN] Broadcast cancelled: ${req.params.id}`);
+
+    res.json({ message: 'Broadcast cancelled successfully', broadcast });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error cancelling broadcast:', error);
+    res.status(500).json({ error: 'Failed to cancel broadcast' });
+  }
+});
+
+// Get broadcast analytics
+router.get('/broadcasts/:id/analytics', async (req, res) => {
+  try {
+    console.log(`📊 [ADMIN] Fetching analytics for broadcast: ${req.params.id}`);
+
+    const broadcast = await Broadcast.findById(req.params.id).lean();
+
+    if (!broadcast) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+
+    // Calculate analytics
+    const deliveryRate = broadcast.recipientCount > 0 
+      ? ((broadcast.recipientCount - (broadcast.dismissCount || 0)) / broadcast.recipientCount * 100).toFixed(2)
+      : 0;
+    
+    const readRate = broadcast.recipientCount > 0
+      ? (broadcast.readCount / broadcast.recipientCount * 100).toFixed(2)
+      : 0;
+    
+    const clickRate = broadcast.readCount > 0
+      ? (broadcast.clickCount / broadcast.readCount * 100).toFixed(2)
+      : 0;
+
+    const analytics = {
+      ...broadcast,
+      analytics: {
+        deliveryRate: parseFloat(deliveryRate),
+        readRate: parseFloat(readRate),
+        clickRate: parseFloat(clickRate),
+        totalEngagement: broadcast.readCount + broadcast.clickCount,
+        dismissRate: broadcast.recipientCount > 0
+          ? ((broadcast.dismissCount || 0) / broadcast.recipientCount * 100).toFixed(2)
+          : 0
+      }
+    };
+
+    console.log(`✅ [ADMIN] Analytics calculated for broadcast: ${req.params.id}`);
+
+    res.json(analytics);
+  } catch (error) {
+    console.error('❌ [ADMIN] Error fetching broadcast analytics:', error);
+    res.status(500).json({ error: 'Failed to fetch broadcast analytics' });
+  }
+});
+
+// Update broadcast (for editing drafts or scheduled)
+router.patch('/broadcasts/:id', async (req, res) => {
+  try {
+    console.log(`✏️ [ADMIN] Updating broadcast: ${req.params.id}`);
+
+    const broadcast = await Broadcast.findById(req.params.id);
+
+    if (!broadcast) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+
+    // Only allow editing drafts or scheduled broadcasts
+    if (broadcast.status !== 'draft' && broadcast.status !== 'scheduled') {
+      return res.status(400).json({ error: 'Cannot edit sent broadcasts' });
+    }
+
+    const updates = req.body;
+    Object.assign(broadcast, updates);
+    await broadcast.save();
+
+    console.log(`✅ [ADMIN] Broadcast updated: ${req.params.id}`);
+
+    res.json({ message: 'Broadcast updated successfully', broadcast });
+  } catch (error) {
+    console.error('❌ [ADMIN] Error updating broadcast:', error);
+    res.status(500).json({ error: 'Failed to update broadcast' });
   }
 });
 

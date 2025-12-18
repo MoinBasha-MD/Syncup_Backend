@@ -279,7 +279,13 @@ app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashbo
 
 // Admin Dashboard Routes (for admin panel at localhost:3001)
 const adminDashboardRoutes = require('./routes/adminDashboardRoutes');
-app.use('/api/admin', adminDashboardRoutes); // Admin panel API endpoints
+const { router: adminAuthRoutes, verifyToken: adminAuthMiddleware } = require('./routes/adminAuthRoutes');
+
+// Admin authentication routes (public)
+app.use('/api/admin/auth', adminAuthRoutes);
+
+// Admin dashboard routes (protected)
+app.use('/api/admin', adminAuthMiddleware, adminDashboardRoutes); // Admin panel API endpoints
 
 // Serve static files from the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

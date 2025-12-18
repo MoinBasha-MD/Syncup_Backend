@@ -12,7 +12,7 @@ const broadcastSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['announcement', 'update', 'alert', 'maintenance', 'promotion'],
+    enum: ['announcement', 'update', 'alert', 'maintenance', 'promotion', 'event', 'survey'],
     default: 'announcement'
   },
   priority: {
@@ -22,8 +22,18 @@ const broadcastSchema = new mongoose.Schema({
   },
   targetAudience: {
     type: String,
-    enum: ['all', 'active', 'inactive', 'premium'],
+    enum: ['all', 'active', 'inactive', 'premium', 'new_users', 'custom'],
     default: 'all'
+  },
+  // Advanced targeting
+  customTargeting: {
+    userIds: [String],
+    minAge: Number,
+    maxAge: Number,
+    locations: [String],
+    lastActiveWithin: Number, // days
+    registeredAfter: Date,
+    registeredBefore: Date
   },
   sentBy: {
     type: String,
@@ -35,7 +45,7 @@ const broadcastSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['draft', 'sent', 'scheduled'],
+    enum: ['draft', 'sent', 'scheduled', 'cancelled'],
     default: 'sent'
   },
   scheduledFor: {
@@ -57,14 +67,51 @@ const broadcastSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  dismissCount: {
+    type: Number,
+    default: 0
+  },
+  // Rich media
   link: {
     type: String
   },
   imageUrl: {
     type: String
   },
+  buttons: [{
+    text: String,
+    action: String, // 'link', 'dismiss', 'custom'
+    url: String,
+    data: mongoose.Schema.Types.Mixed
+  }],
+  // Template
+  templateId: {
+    type: String
+  },
+  isTemplate: {
+    type: Boolean,
+    default: false
+  },
+  templateName: {
+    type: String
+  },
+  // Analytics
+  analytics: {
+    deliveryRate: Number,
+    readRate: Number,
+    clickRate: Number,
+    avgTimeToRead: Number, // seconds
+    peakReadTime: Date
+  },
+  // Expiration
   expiresAt: {
     type: Date
+  },
+  // A/B Testing
+  abTest: {
+    enabled: Boolean,
+    variant: String, // 'A' or 'B'
+    testId: String
   }
 }, {
   timestamps: true
