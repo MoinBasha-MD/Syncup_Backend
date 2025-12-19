@@ -114,4 +114,78 @@ router.post('/remove-fcm-token', protect, async (req, res) => {
   }
 });
 
+/**
+ * Test FCM notification - Send test notification to yourself
+ * POST /api/notifications/test-fcm
+ */
+router.post('/test-fcm', protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { title, body, testType } = req.body;
+
+    console.log('🧪 [FCM TEST] Sending test notification to user:', userId);
+
+    const fcmNotificationService = require('../services/fcmNotificationService');
+
+    // Get user's FCM tokens
+    const user = await User.findOne({ userId }).select('fcmTokens name');
+    
+    if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No FCM tokens registered for this user. Please register a token first.'
+      });
+    }
+
+    // Send test notification based on type
+    let result;
+    if (testType === 'wakeup') {
+      // Test wakeup notification (what happens when app is closed)
+      result = await fcmNotificationService.sendWakeupNotification(userId, {
+        senderId: 'test-sender',
+        senderName: 'Test User',
+        messageId: 'test-message-123'
+      });
+    } else {
+      // Send custom test notification
+      result = await fcmNotificationService.sendTestNotification(userId, {
+        title: title || '🧪 FCM Test Notification',
+        body: body || 'This is a test notification from Syncup Backend!',
+        data: {
+          type: 'test',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Test notification sent successfully',
+        details: {
+          userId,
+          userName: user.name,
+          tokensCount: user.fcmTokens.length,
+          sentCount: result.sentCount || 1,
+          testType: testType || 'custom'
+        }
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send test notification',
+        error: result.error
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ [FCM TEST] Error sending test notification:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send test notification',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;

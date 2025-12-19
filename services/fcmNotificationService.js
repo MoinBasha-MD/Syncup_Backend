@@ -172,6 +172,83 @@ class FCMNotificationService {
   }
 
   /**
+   * Send test notification (for testing FCM functionality)
+   */
+  async sendTestNotification(userId, notification) {
+    if (!this.fcmEnabled) {
+      console.log('⚠️ [FCM] FCM is disabled - skipping test notification');
+      return { success: false, reason: 'FCM disabled' };
+    }
+
+    try {
+      const user = await User.findOne({ userId }).select('fcmTokens name');
+      
+      if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
+        console.log(`⚠️ [FCM] No FCM tokens found for user: ${userId}`);
+        return { success: false, reason: 'No FCM tokens' };
+      }
+
+      const tokens = user.fcmTokens.map(t => t.token);
+
+      console.log(`🧪 [FCM TEST] Sending test notification to ${user.name} (${tokens.length} tokens)`);
+
+      const message = {
+        notification: {
+          title: notification.title || '🧪 Test Notification',
+          body: notification.body || 'This is a test notification from Syncup!'
+        },
+        data: {
+          type: 'test',
+          userId: userId,
+          timestamp: new Date().toISOString(),
+          ...(notification.data || {})
+        },
+        tokens: tokens,
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            channelId: 'chat_messages',
+            color: '#007AFF'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              badge: 1
+            }
+          }
+        }
+      };
+
+      const response = await admin.messaging().sendEachForMulticast(message);
+
+      console.log(`✅ [FCM TEST] Notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+      // Log individual results
+      response.responses.forEach((resp, idx) => {
+        if (resp.success) {
+          console.log(`  ✅ Token ${idx + 1}: Delivered`);
+        } else {
+          console.log(`  ❌ Token ${idx + 1}: Failed - ${resp.error?.message}`);
+        }
+      });
+
+      return {
+        success: response.successCount > 0,
+        sentCount: response.successCount,
+        failedCount: response.failureCount,
+        totalTokens: tokens.length
+      };
+
+    } catch (error) {
+      console.error('❌ [FCM TEST] Error sending test notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Check if FCM is enabled and ready
    */
   isEnabled() {
