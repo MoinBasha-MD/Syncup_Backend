@@ -1,9 +1,10 @@
 const User = require('../models/userModel');
 const { broadcastToUser } = require('../socketManager');
+const fcmNotificationService = require('./fcmNotificationService');
 
 /**
- * Enhanced Backend Notification Service (NO FIREBASE)
- * Handles WebSocket events and notification analytics only
+ * Enhanced Backend Notification Service (WebSocket + FCM)
+ * Handles WebSocket events with FCM fallback for offline users
  */
 class EnhancedNotificationService {
   constructor() {
@@ -14,7 +15,7 @@ class EnhancedNotificationService {
       totalFailed: 0
     };
     
-    console.log('🔔 Enhanced Notification Service initialized (Local notifications only - NO FIREBASE)');
+    console.log('🔔 Enhanced Notification Service initialized (WebSocket + FCM)');
   }
 
   /**
@@ -80,7 +81,7 @@ class EnhancedNotificationService {
         }
       };
 
-      // Send real-time WebSocket notification only (NO PUSH NOTIFICATIONS)
+      // Try WebSocket first
       const socketSuccess = broadcastToUser(receiverId, 'notification:new', {
         type: 'chat_message',
         title: sender.name || 'New Message',
@@ -92,27 +93,39 @@ class EnhancedNotificationService {
           messageId: message._id,
           chatId: senderId,
           senderName: sender.name,
-          senderProfileImage: sender.profileImage, // Add profile image
+          senderProfileImage: sender.profileImage,
           timestamp: new Date().toISOString()
         },
-        senderProfileImage: sender.profileImage, // Add at root level too
+        senderProfileImage: sender.profileImage,
         timestamp: new Date().toISOString()
       });
 
       // Update statistics
       this.notificationStats.totalSent++;
+      
       if (socketSuccess) {
         this.notificationStats.totalDelivered++;
+        console.log('✅ Chat message notification sent via WebSocket');
       } else {
-        this.notificationStats.totalFailed++;
+        // WebSocket failed - user is offline, send FCM wakeup notification
+        console.log('⚠️ WebSocket failed - sending FCM wakeup notification');
+        
+        const fcmResult = await fcmNotificationService.sendWakeupNotification(receiverId, {
+          senderId,
+          senderName: sender.name,
+          messageId: message._id
+        });
+        
+        if (fcmResult.success) {
+          this.notificationStats.totalDelivered++;
+          console.log('✅ FCM wakeup notification sent - app will wake and reconnect');
+        } else {
+          this.notificationStats.totalFailed++;
+          console.log('❌ Both WebSocket and FCM failed');
+        }
       }
 
-      console.log('✅ Chat message notification sent via WebSocket:', {
-        webSocket: socketSuccess,
-        receiverOnline: socketSuccess
-      });
-
-      return socketSuccess;
+      return socketSuccess || (await fcmNotificationService.isEnabled());
 
     } catch (error) {
       console.error('❌ Error sending chat message notification:', error);
