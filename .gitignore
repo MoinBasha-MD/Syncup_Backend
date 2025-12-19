@@ -3,3 +3,16 @@ logs/
 scripts/
 components.zip
 *.md
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+
+# Firebase service account
+config/firebase-service-account.json
+
+# SSL certificates
+*.pem
+*.key
+*.crt
