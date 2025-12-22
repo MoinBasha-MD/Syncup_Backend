@@ -286,6 +286,8 @@ app.use('/api/otp', apiLimiter, otpRoutes); // OTP verification routes (email ve
 app.use('/api/crypto', apiLimiter, cryptoRoutes); // E2EE key exchange routes (Phase 1)
 app.use('/api/hashtags', apiLimiter, require('./routes/hashtagRoutes')); // Hashtag management routes (trending, search, stats)
 app.use('/api/notifications', apiLimiter, require('./routes/fcmRoutes')); // FCM token registration routes
+app.use('/api', apiLimiter, require('./routes/savedVibesRoutes')); // Saved vibes and collections routes (Feature 1)
+app.use('/api', apiLimiter, require('./routes/commentMentionsRoutes')); // Comment mentions/tagging routes (Feature 2)
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Admin Dashboard Routes (for admin panel at localhost:3001)
