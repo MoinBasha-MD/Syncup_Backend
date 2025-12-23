@@ -14,7 +14,7 @@ const savedVibeSchema = new mongoose.Schema({
   },
   vibeId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Post',
+    ref: 'FeedPost',
     required: true,
     index: true
   },
