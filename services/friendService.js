@@ -82,62 +82,60 @@ class FriendService {
       
       const requests = await Friend.getFriendRequests(userId, type);
       
-      // Populate cached data if missing
+      // CRITICAL FIX: For received requests, show SENDER's data
+      // For sent requests, show RECIPIENT's data
       const populatedRequests = await Promise.all(
         requests.map(async (request) => {
+          // IMPORTANT: targetUserId is the person whose info we want to display
+          // - For RECEIVED requests: show the SENDER (request.userId)
+          // - For SENT requests: show the RECIPIENT (request.friendUserId)
           const targetUserId = type === 'received' ? request.userId : request.friendUserId;
           
           console.log(`🔍 [FRIEND SERVICE] Processing ${type} request:`);
           console.log(`  - Request ID: ${request._id}`);
           console.log(`  - request.userId (sender): ${request.userId}`);
           console.log(`  - request.friendUserId (recipient): ${request.friendUserId}`);
-          console.log(`  - targetUserId (should be sender for received): ${targetUserId}`);
-          console.log(`  - cachedData.name: ${request.cachedData?.name}`);
+          console.log(`  - targetUserId (person to display): ${targetUserId}`);
+          console.log(`  - Current cachedData.name: ${request.cachedData?.name}`);
+          console.log(`  - Current cachedData.username: ${request.cachedData?.username}`);
           
-          // If cache is stale or missing, refresh it
-          if (!request.cachedData.name || this.isCacheStale(request.cachedData.lastCacheUpdate)) {
-            const user = await User.findOne({ userId: targetUserId }).select('name profileImage username').lean();
-            if (user) {
-              request.cachedData = {
-                name: user.name,
-                profileImage: user.profileImage || '',
-                username: user.username || '',
-                lastCacheUpdate: new Date()
-              };
-              
-              // Update in database
-              await Friend.updateOne(
-                { _id: request._id },
-                { $set: { cachedData: request.cachedData } }
-              );
-            }
+          // ALWAYS fetch fresh data for the target user to ensure correct display
+          const user = await User.findOne({ userId: targetUserId }).select('name profileImage username').lean();
+          
+          if (!user) {
+            console.error(`❌ [FRIEND SERVICE] Target user not found: ${targetUserId}`);
+            return null;
           }
           
+          // Use fresh user data (not cached data which might be for wrong user)
           const result = {
             requestId: request._id.toString(),
             userId: request.userId,
             friendUserId: request.friendUserId,
-            name: request.cachedData.name,
-            profileImage: request.cachedData.profileImage,
-            username: request.cachedData.username,
+            name: user.name,  // Fresh data from target user
+            profileImage: user.profileImage || '',
+            username: user.username || '',
             requestMessage: request.requestMetadata?.requestMessage || '',
             mutualFriends: request.requestMetadata?.mutualFriends || [],
             addedAt: request.addedAt,
             source: request.source
           };
           
-          console.log(`✅ [FRIEND SERVICE] Returning request data:`);
-          console.log(`  - name: ${result.name}`);
-          console.log(`  - userId: ${result.userId}`);
-          console.log(`  - friendUserId: ${result.friendUserId}`);
+          console.log(`✅ [FRIEND SERVICE] Returning ${type} request data:`);
+          console.log(`  - Displaying user: ${result.name} (@${result.username})`);
+          console.log(`  - Sender: ${result.userId}`);
+          console.log(`  - Recipient: ${result.friendUserId}`);
           
           return result;
         })
       );
       
-      console.log(`✅ [FRIEND SERVICE] Found ${populatedRequests.length} ${type} requests`);
+      // Filter out any null results
+      const validRequests = populatedRequests.filter(r => r !== null);
       
-      return populatedRequests;
+      console.log(`✅ [FRIEND SERVICE] Found ${validRequests.length} ${type} requests`);
+      
+      return validRequests;
     } catch (error) {
       console.error('❌ [FRIEND SERVICE] Error getting friend requests:', error);
       throw new Error(`Failed to get friend requests: ${error.message}`);
@@ -262,7 +260,9 @@ class FriendService {
       // Check for mutual friends
       const mutualFriends = await Friend.getMutualFriends(userId, friendUserId);
       
-      // Create friend request
+      // CRITICAL FIX: Cache the TARGET user's data (the recipient)
+      // This is what will be shown when the SENDER views their "sent requests"
+      // For received requests, the backend will fetch the SENDER's data separately
       const friendRequest = new Friend({
         userId,
         friendUserId,
@@ -270,7 +270,7 @@ class FriendService {
         status: 'pending',
         isDeviceContact: false,
         cachedData: {
-          name: friendUser.name,
+          name: friendUser.name,  // Target user (recipient)
           profileImage: friendUser.profileImage || '',
           username: friendUser.username || '',
           lastCacheUpdate: new Date()
@@ -280,6 +280,13 @@ class FriendService {
           requestMessage: metadata.message || '',
           mutualFriends
         }
+      });
+      
+      console.log(`📊 [FRIEND SERVICE] Friend request created with cached data:`, {
+        cachedName: friendUser.name,
+        cachedUsername: friendUser.username,
+        sender: userId,
+        recipient: friendUserId
       });
       
       await friendRequest.save();
@@ -350,23 +357,11 @@ class FriendService {
         throw new Error('Friend request is not pending');
       }
       
-      // Get accepter's data to update cache in original request
-      const accepter = await User.findOne({ userId: friendRequest.friendUserId })
-        .select('name profileImage username');
+      // CRITICAL: DO NOT overwrite cached data in original request
+      // The original request (sender → recipient) should keep the RECIPIENT's data in cache
+      // This is what the SENDER sees when viewing their sent requests
       
-      if (!accepter) {
-        throw new Error('Accepter user not found');
-      }
-      
-      // Update cached data in the original request with fresh accepter info
-      friendRequest.cachedData = {
-        name: accepter.name,
-        profileImage: accepter.profileImage || '',
-        username: accepter.username || '',
-        lastCacheUpdate: new Date()
-      };
-      
-      // Accept the request
+      // Just accept the request without modifying cache
       await friendRequest.accept();
       
       console.log(`✅ [FRIEND SERVICE] Original request updated: userId=${friendRequest.userId}, friendUserId=${friendRequest.friendUserId}, status=${friendRequest.status}`);
