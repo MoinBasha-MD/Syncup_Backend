@@ -348,9 +348,10 @@ exports.stopSession = async (req, res) => {
       const userSockets = req.app.get('userSockets');
       
       if (io && userSockets) {
-        const friendSocketId = userSockets.get(friendId);
-        if (friendSocketId) {
-          io.to(friendSocketId).emit('location_sharing_stopped', {
+        // userSockets is a Map<userId, socketObject>
+        const friendSocket = userSockets.get(friendId);
+        if (friendSocket) {
+          friendSocket.emit('location_sharing_stopped', {
             userId: req.user.userId,
             userName: req.user.name,
             timestamp: new Date().toISOString()

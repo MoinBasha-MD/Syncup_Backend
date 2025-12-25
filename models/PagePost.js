@@ -80,6 +80,10 @@ const pagePostSchema = new mongoose.Schema({
   
   // Hashtags and mentions
   hashtags: [String],
+  showHashtags: {
+    type: Boolean,
+    default: false // Default: hide hashtags (used for discovery only)
+  },
   mentions: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

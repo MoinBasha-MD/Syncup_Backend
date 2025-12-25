@@ -965,6 +965,7 @@ const getExplorePosts = async (req, res) => {
     const userId = req.user.userId;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
+    const usePersonalization = req.query.personalized !== 'false'; // Default to personalized
 
     // Use Friend model to get accepted friends to exclude from explore
     const Friend = require('../models/Friend');
@@ -999,15 +1000,31 @@ const getExplorePosts = async (req, res) => {
     console.log(`🔍 Getting EXPLORE feed for user ${userId}:`);
     console.log(`  👥 Excluding friends (from Friend model): ${friendUserIds.length}`);
     console.log(`  📄 Excluding followed/owned pages: ${allPageIds.length}`);
+    console.log(`  🎯 Personalization: ${usePersonalization ? 'ENABLED' : 'DISABLED'}`);
 
-    // Get explore posts (public posts from non-friends)
-    const posts = await FeedPost.getExplorePosts(userId, page, limit, friendUserIds, allPageIds);
+    let posts;
+    
+    if (usePersonalization) {
+      // Use personalized recommendation algorithm
+      const recommendationService = require('../services/recommendationService');
+      posts = await recommendationService.getPersonalizedExploreFeed(
+        userId,
+        page,
+        limit,
+        friendUserIds,
+        allPageIds
+      );
+    } else {
+      // Fallback to basic chronological feed
+      posts = await FeedPost.getExplorePosts(userId, page, limit, friendUserIds, allPageIds);
+    }
 
-    console.log(`✅ Returning ${posts.length} EXPLORE posts (public from non-friends)`);
+    console.log(`✅ Returning ${posts.length} EXPLORE posts (${usePersonalization ? 'personalized' : 'chronological'})`);
 
     res.status(200).json({
       success: true,
       data: posts,
+      personalized: usePersonalization,
       pagination: {
         page,
         limit,
@@ -1020,6 +1037,94 @@ const getExplorePosts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get explore posts',
+      error: error.message
+    });
+  }
+};
+
+// Track user interaction with post (for recommendation algorithm)
+const trackInteraction = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { interactionType, watchTime } = req.body;
+    const userId = req.user._id;
+
+    // Validate interaction type
+    const validTypes = ['view', 'like', 'comment', 'share', 'save', 'skip'];
+    if (!validTypes.includes(interactionType)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid interaction type. Must be one of: ${validTypes.join(', ')}`
+      });
+    }
+
+    const recommendationService = require('../services/recommendationService');
+    const interaction = await recommendationService.trackInteraction(
+      userId,
+      postId,
+      interactionType,
+      { watchTime: watchTime || 0 }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Interaction tracked successfully',
+      data: interaction
+    });
+
+  } catch (error) {
+    console.error('❌ Track interaction error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to track interaction',
+      error: error.message
+    });
+  }
+};
+
+// Get user's interests (top hashtags)
+const getUserInterests = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const recommendationService = require('../services/recommendationService');
+    const interests = await recommendationService.getUserInterests(userId, limit);
+
+    res.status(200).json({
+      success: true,
+      data: interests
+    });
+
+  } catch (error) {
+    console.error('❌ Get user interests error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user interests',
+      error: error.message
+    });
+  }
+};
+
+// Get trending hashtags
+const getTrendingHashtags = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const days = parseInt(req.query.days) || 7;
+
+    const recommendationService = require('../services/recommendationService');
+    const trending = await recommendationService.getTrendingHashtags(limit, days);
+
+    res.status(200).json({
+      success: true,
+      data: trending
+    });
+
+  } catch (error) {
+    console.error('❌ Get trending hashtags error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get trending hashtags',
       error: error.message
     });
   }
@@ -1040,5 +1145,8 @@ module.exports = {
   getLikedPosts,
   getCommentedPosts,
   getPostViewStats,
-  getPagePosts  // Phase 2
+  getPagePosts,  // Phase 2
+  trackInteraction,  // NEW: Track user interactions
+  getUserInterests,  // NEW: Get user's learned interests
+  getTrendingHashtags  // NEW: Get trending hashtags
 };

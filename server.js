@@ -427,6 +427,10 @@ app.set('io', io);
 
 // Start the scheduler for automatic status updates
 const schedulerRunner = require('./utils/schedulerRunner');
+
+// Start recommendation algorithm background jobs
+const recommendationJobs = require('./services/recommendationJobs');
+recommendationJobs.start();
 schedulerRunner.start();
 console.log('✅ Status scheduler started');
 
@@ -462,6 +466,13 @@ setInterval(() => {
   otpService.cleanExpiredOTPs();
 }, 60 * 60 * 1000); // 1 hour
 console.log('✅ OTP cleanup scheduler started (runs every hour)');
+
+// Start location sharing cleanup scheduler (runs every 1 minute)
+const locationSharingCleanupScheduler = require('./services/locationSharingCleanupScheduler');
+// Make userSockets available globally for the scheduler
+global.userSockets = require('./socketManager').getUserSockets();
+locationSharingCleanupScheduler.start();
+console.log('✅ Location sharing cleanup scheduler started (runs every 1 minute)');
 
 // Initialize Agent System
 (async () => {
@@ -524,6 +535,10 @@ process.on('SIGTERM', () => {
     messageCleanupScheduler.stop();
     console.log('✅ Message cleanup scheduler stopped');
   }
+  if (locationSharingCleanupScheduler) {
+    locationSharingCleanupScheduler.stop();
+    console.log('✅ Location sharing cleanup scheduler stopped');
+  }
   if (autoStatusService) {
     autoStatusService.stop();
     console.log('✅ Auto-status service stopped');
@@ -578,6 +593,10 @@ process.on('SIGINT', () => {
   if (storyCleanupScheduler) {
     storyCleanupScheduler.stop();
     console.log('✅ Story cleanup scheduler stopped');
+  }
+  if (locationSharingCleanupScheduler) {
+    locationSharingCleanupScheduler.stop();
+    console.log('✅ Location sharing cleanup scheduler stopped');
   }
   // Shutdown agent system
   if (agentIntegrationService) {

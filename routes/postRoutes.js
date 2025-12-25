@@ -24,7 +24,10 @@ const {
   getLikedPosts,
   getCommentedPosts,
   getPostViewStats,
-  getPagePosts
+  getPagePosts,
+  trackInteraction,
+  getUserInterests,
+  getTrendingHashtags
 } = require('../controllers/feedPostController');
 
 const {
@@ -180,5 +183,21 @@ router.post('/comments/:commentId/replies/:replyId/like', protect, toggleReplyLi
 // @desc    Delete reply
 // @access  Private
 router.delete('/comments/:commentId/replies/:replyId', protect, deleteReply);
+
+// ===== RECOMMENDATION ALGORITHM ROUTES =====
+// @route   POST /api/posts/:postId/interaction
+// @desc    Track user interaction with post (for recommendation algorithm)
+// @access  Private
+router.post('/:postId/interaction', protect, trackInteraction);
+
+// @route   GET /api/posts/interests
+// @desc    Get user's learned interests (top hashtags)
+// @access  Private
+router.get('/interests', protect, getUserInterests);
+
+// @route   GET /api/posts/trending/hashtags
+// @desc    Get trending hashtags globally
+// @access  Private
+router.get('/trending/hashtags', protect, getTrendingHashtags);
 
 module.exports = router;

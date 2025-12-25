@@ -5,9 +5,11 @@ const Page = require('../models/Page');
 const createPagePost = async (req, res) => {
   try {
     const { pageId } = req.params;
-    const { content, media, scheduledFor } = req.body;
+    const { content, media, scheduledFor, hashtags, showHashtags } = req.body;
 
-    console.log('📝 [PAGE POST] Creating post for page:', pageId);
+    console.log('📝 [PAGE POST] Creating vibe for page:', pageId);
+    console.log('📝 [PAGE POST] Hashtags:', hashtags);
+    console.log('📝 [PAGE POST] Show hashtags:', showHashtags);
 
     // Find page
     const page = await Page.findById(pageId);
@@ -32,8 +34,10 @@ const createPagePost = async (req, res) => {
       author: req.user._id,
       content,
       media: media || [],
+      hashtags: hashtags || [],
+      showHashtags: showHashtags !== undefined ? showHashtags : false,
       scheduledFor: scheduledFor || null,
-      isPublished: !scheduledFor, // If scheduled, don't publish yet
+      isPublished: !scheduledFor,
       publishedAt: scheduledFor ? null : new Date()
     });
 
@@ -43,11 +47,11 @@ const createPagePost = async (req, res) => {
     page.postCount += 1;
     await page.save();
 
-    console.log('✅ [PAGE POST] Post created successfully:', post._id);
+    console.log('✅ [PAGE POST] Vibe created successfully:', post._id);
 
     res.status(201).json({
       success: true,
-      message: 'Post created successfully',
+      message: 'Vibe created successfully',
       post
     });
   } catch (error) {
