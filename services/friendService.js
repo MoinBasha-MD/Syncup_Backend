@@ -370,6 +370,7 @@ class FriendService {
       await friendRequest.accept();
       
       console.log(`✅ [FRIEND SERVICE] Original request updated: userId=${friendRequest.userId}, friendUserId=${friendRequest.friendUserId}, status=${friendRequest.status}`);
+      console.log(`📊 [FRIEND SERVICE] This means: ${friendRequest.userId} → ${friendRequest.friendUserId} is now ACCEPTED`);
       
       // Create reciprocal friendship (both users are now friends)
       const reciprocalFriendship = await Friend.findOne({
@@ -379,6 +380,9 @@ class FriendService {
       });
       
       if (!reciprocalFriendship) {
+        console.log(`🔄 [FRIEND SERVICE] No reciprocal friendship found, creating new one...`);
+        console.log(`📊 [FRIEND SERVICE] Creating: ${friendRequest.friendUserId} → ${friendRequest.userId}`);
+        
         // Get requester data for cache
         const requester = await User.findOne({ userId: friendRequest.userId })
           .select('name profileImage username');
@@ -404,34 +408,72 @@ class FriendService {
         
         await newReciprocal.save();
         console.log(`✅ [FRIEND SERVICE] Created reciprocal friendship for user: ${friendRequest.friendUserId}`);
+        console.log(`📊 [FRIEND SERVICE] Reciprocal details:`, {
+          _id: newReciprocal._id,
+          userId: newReciprocal.userId,
+          friendUserId: newReciprocal.friendUserId,
+          status: newReciprocal.status,
+          source: newReciprocal.source
+        });
       } else {
+        console.log(`🔄 [FRIEND SERVICE] Found existing reciprocal friendship, updating status...`);
         reciprocalFriendship.status = 'accepted';
         reciprocalFriendship.acceptedAt = new Date();
         await reciprocalFriendship.save();
         console.log(`✅ [FRIEND SERVICE] Updated existing reciprocal friendship`);
+        console.log(`📊 [FRIEND SERVICE] Reciprocal details:`, {
+          _id: reciprocalFriendship._id,
+          userId: reciprocalFriendship.userId,
+          friendUserId: reciprocalFriendship.friendUserId,
+          status: reciprocalFriendship.status
+        });
       }
       
       console.log(`✅ [FRIEND SERVICE] Friend request accepted successfully`);
+      console.log(`📊 [FRIEND SERVICE] FINAL STATE: Both friendships created`);
+      console.log(`   - ${friendRequest.userId} → ${friendRequest.friendUserId} (original request)`);
+      console.log(`   - ${friendRequest.friendUserId} → ${friendRequest.userId} (reciprocal)`);
       
       // Broadcast to requester via WebSocket
+      console.log(`📡 [FRIEND SERVICE] Broadcasting acceptance to requester: ${friendRequest.userId}`);
       friendWebSocketService.broadcastFriendAccepted(friendRequest.userId, friendRequest);
       
       // Broadcast friend list updated to both users
+      console.log(`📡 [FRIEND SERVICE] Broadcasting friend list update to requester: ${friendRequest.userId}`);
       friendWebSocketService.broadcastFriendListUpdated(friendRequest.userId, {
         action: 'added',
         count: 1
       });
+      console.log(`📡 [FRIEND SERVICE] Broadcasting friend list update to accepter: ${friendRequest.friendUserId}`);
       friendWebSocketService.broadcastFriendListUpdated(friendRequest.friendUserId, {
         action: 'added',
         count: 1
       });
+      
+      // Verify both friendships exist in database
+      const verifyOriginal = await Friend.findById(friendRequest._id);
+      const verifyReciprocal = await Friend.findOne({
+        userId: friendRequest.friendUserId,
+        friendUserId: friendRequest.userId,
+        status: 'accepted',
+        isDeleted: false
+      });
+      
+      console.log(`🔍 [FRIEND SERVICE] VERIFICATION:`);
+      console.log(`   - Original friendship exists: ${!!verifyOriginal}, status: ${verifyOriginal?.status}`);
+      console.log(`   - Reciprocal friendship exists: ${!!verifyReciprocal}, status: ${verifyReciprocal?.status}`);
+      
+      if (!verifyReciprocal) {
+        console.error(`❌ [FRIEND SERVICE] CRITICAL: Reciprocal friendship not found in database!`);
+      }
       
       return {
         requestId: friendRequest._id.toString(),
         userId: friendRequest.userId,
         friendUserId: friendRequest.friendUserId,
         status: 'accepted',
-        acceptedAt: friendRequest.acceptedAt
+        acceptedAt: friendRequest.acceptedAt,
+        reciprocalCreated: !!verifyReciprocal
       };
     } catch (error) {
       console.error('❌ [FRIEND SERVICE] Error accepting friend request:', error);
