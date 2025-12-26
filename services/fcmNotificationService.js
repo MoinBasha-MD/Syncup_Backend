@@ -47,7 +47,7 @@ class FCMNotificationService {
 
   /**
    * Send wakeup notification to user's device(s)
-   * This is a silent notification that wakes the app to reconnect WebSocket
+   * CRITICAL: Includes BOTH notification AND data payloads for proper display
    */
   async sendWakeupNotification(userId, messageData) {
     if (!this.fcmEnabled) {
@@ -65,29 +65,50 @@ class FCMNotificationService {
       }
 
       const tokens = user.fcmTokens.map(t => t.token);
-      console.log(`📱 [FCM] Sending wakeup notification to ${tokens.length} device(s)`);
+      console.log(`📱 [FCM] Sending notification to ${tokens.length} device(s)`);
 
-      // Create silent notification payload
+      // CRITICAL: Include BOTH notification AND data payloads
       const message = {
-        data: {
-          type: 'wakeup',
-          action: 'reconnect_websocket',
+        notification: {  // ✅ NOTIFICATION PAYLOAD - Shows to user
+          title: messageData.senderName || 'New Message',
+          body: messageData.message || 'You have a new message'
+        },
+        data: {  // ✅ DATA PAYLOAD - For app processing
+          type: 'chat_message',
           senderId: messageData.senderId || '',
           senderName: messageData.senderName || '',
           messageId: messageData.messageId || '',
+          message: messageData.message || '',
           timestamp: new Date().toISOString()
         },
         tokens: tokens,
         android: {
           priority: 'high',
-          ttl: 60000 // 1 minute
+          notification: {
+            sound: 'default',
+            channelId: 'syncup-chat-channel',
+            priority: 'high',
+            visibility: 'public'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: messageData.senderName || 'New Message',
+                body: messageData.message || 'You have a new message'
+              },
+              sound: 'default',
+              badge: 1
+            }
+          }
         }
       };
 
       // Send notification
       const response = await admin.messaging().sendEachForMulticast(message);
 
-      console.log(`✅ [FCM] Wakeup notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
+      console.log(`✅ [FCM] Notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
 
       // Remove invalid tokens
       if (response.failureCount > 0) {
@@ -115,7 +136,7 @@ class FCMNotificationService {
       };
 
     } catch (error) {
-      console.error('❌ [FCM] Error sending wakeup notification:', error);
+      console.error('❌ [FCM] Error sending notification:', error);
       return { success: false, error: error.message };
     }
   }

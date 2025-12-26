@@ -23,9 +23,17 @@ const createStatusTemplate = asyncHandler(async (req, res) => {
     location
   } = req.body;
 
-  if (!name || (!status && !mainStatus) || (!duration && !mainDuration)) {
+  // FIXED: Allow custom status without duration (for status templates)
+  // Allow custom duration without status (for duration templates)
+  if (!name) {
     res.status(400);
-    throw new Error('Please provide all required fields');
+    throw new Error('Name is required');
+  }
+
+  // At least one of status or duration must be provided
+  if (!status && !mainStatus && !duration && !mainDuration) {
+    res.status(400);
+    throw new Error('Please provide either status or duration');
   }
 
   const user = await User.findById(req.user._id);
