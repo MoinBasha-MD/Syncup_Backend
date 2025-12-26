@@ -361,11 +361,23 @@ class FriendService {
       // The original request (sender → recipient) should keep the RECIPIENT's data in cache
       // This is what the SENDER sees when viewing their sent requests
       
-      // Just accept the request without modifying cache
-      await friendRequest.accept();
+      // ✅ FIX: Add error handling for original request acceptance
+      try {
+        await friendRequest.accept();
+        console.log(`✅ [FRIEND SERVICE] Original request updated: userId=${friendRequest.userId}, friendUserId=${friendRequest.friendUserId}, status=${friendRequest.status}`);
+        console.log(`📊 [FRIEND SERVICE] This means: ${friendRequest.userId} → ${friendRequest.friendUserId} is now ACCEPTED`);
+      } catch (acceptError) {
+        console.error(`❌ [FRIEND SERVICE] Failed to accept original request:`, acceptError);
+        throw new Error(`Failed to accept friend request: ${acceptError.message}`);
+      }
       
-      console.log(`✅ [FRIEND SERVICE] Original request updated: userId=${friendRequest.userId}, friendUserId=${friendRequest.friendUserId}, status=${friendRequest.status}`);
-      console.log(`📊 [FRIEND SERVICE] This means: ${friendRequest.userId} → ${friendRequest.friendUserId} is now ACCEPTED`);
+      // Verify original request was saved
+      const verifyOriginalAccept = await Friend.findById(requestId);
+      if (!verifyOriginalAccept || verifyOriginalAccept.status !== 'accepted') {
+        console.error(`❌ [FRIEND SERVICE] Original request not properly saved!`);
+        throw new Error('Original friend request acceptance failed to save');
+      }
+      console.log(`✅ [FRIEND SERVICE] Original request verified in database`);
       
       // Create reciprocal friendship (both users are now friends)
       const reciprocalFriendship = await Friend.findOne({
@@ -409,15 +421,23 @@ class FriendService {
           status: 'accepted'
         });
         
-        await newReciprocal.save();
-        console.log(`✅ [FRIEND SERVICE] Created reciprocal friendship for user: ${friendRequest.friendUserId}`);
-        console.log(`📊 [FRIEND SERVICE] Reciprocal details:`, {
-          _id: newReciprocal._id,
-          userId: newReciprocal.userId,
-          friendUserId: newReciprocal.friendUserId,
-          status: newReciprocal.status,
-          source: newReciprocal.source
-        });
+        // ✅ FIX: Add try-catch for reciprocal save with detailed error logging
+        try {
+          await newReciprocal.save();
+          console.log(`✅ [FRIEND SERVICE] Created reciprocal friendship for user: ${friendRequest.friendUserId}`);
+          console.log(`📊 [FRIEND SERVICE] Reciprocal details:`, {
+            _id: newReciprocal._id,
+            userId: newReciprocal.userId,
+            friendUserId: newReciprocal.friendUserId,
+            status: newReciprocal.status,
+            source: newReciprocal.source,
+            isDeviceContact: newReciprocal.isDeviceContact
+          });
+        } catch (saveError) {
+          console.error(`❌ [FRIEND SERVICE] CRITICAL: Failed to save reciprocal friendship!`);
+          console.error(`❌ [FRIEND SERVICE] Error:`, saveError);
+          throw new Error(`Failed to create reciprocal friendship: ${saveError.message}`);
+        }
       } else {
         console.log(`🔄 [FRIEND SERVICE] Found existing reciprocal friendship, updating status...`);
         reciprocalFriendship.status = 'accepted';
@@ -477,6 +497,42 @@ class FriendService {
       
       if (!verifyReciprocal) {
         console.error(`❌ [FRIEND SERVICE] CRITICAL: Reciprocal friendship not found in database!`);
+        console.error(`❌ [FRIEND SERVICE] This means the save operation failed silently!`);
+        console.error(`❌ [FRIEND SERVICE] Attempting to create reciprocal again...`);
+        
+        // ✅ FIX: Retry reciprocal creation if verification fails
+        try {
+          const requester = await User.findOne({ userId: friendRequest.userId })
+            .select('name profileImage username');
+          
+          if (!requester) {
+            throw new Error('Requester user not found for retry');
+          }
+          
+          const retryReciprocal = new Friend({
+            userId: friendRequest.friendUserId,
+            friendUserId: friendRequest.userId,
+            source: friendRequest.source || 'app_search',
+            status: 'accepted',
+            acceptedAt: new Date(),
+            isDeviceContact: false,
+            cachedData: {
+              name: requester.name,
+              profileImage: requester.profileImage || '',
+              username: requester.username || '',
+              lastCacheUpdate: new Date()
+            }
+          });
+          
+          await retryReciprocal.save();
+          console.log(`✅ [FRIEND SERVICE] RETRY: Reciprocal friendship created successfully`);
+          
+          // Update verification
+          verifyReciprocal = await Friend.findById(retryReciprocal._id);
+        } catch (retryError) {
+          console.error(`❌ [FRIEND SERVICE] RETRY FAILED:`, retryError);
+          throw new Error(`Failed to create reciprocal friendship after retry: ${retryError.message}`);
+        }
       }
       
       return {
