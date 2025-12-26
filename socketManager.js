@@ -1209,10 +1209,21 @@ const initializeSocketIO = (server) => {
     
     // Call answer
     socket.on('call:answer', async (data) => {
-      console.log(`📞 Call answered: ${data.callId}`);
+      console.log(`📞 [CALL] ===== CALL ANSWER RECEIVED =====`);
+      console.log(`📞 [CALL] Call ID: ${data.callId}`);
+      console.log(`📞 [CALL] From User: ${userId}`);
+      console.log(`📞 [CALL] Answer type: ${data.answer?.type}`);
+      console.log(`📞 [CALL] Answer SDP length: ${data.answer?.sdp?.length || 0}`);
       
       try {
         const { callId, answer } = data;
+        
+        // Validate answer
+        if (!answer || !answer.sdp || !answer.type) {
+          console.error(`❌ [CALL] Invalid answer received for ${callId}`);
+          socket.emit('call:failed', { reason: 'Invalid answer SDP' });
+          return;
+        }
         
         // Find call record
         const call = await Call.findOne({ callId });
