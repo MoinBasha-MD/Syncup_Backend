@@ -47,52 +47,85 @@ class EnhancedNotificationService {
         return false;
       }
 
-      // CRITICAL: Try BOTH WebSocket AND FCM in parallel
-      // Don't trust WebSocket status - always send FCM as backup
-      
+      // Prepare notification data
       const notificationData = {
-        type: 'chat_message',
-        senderId,
-        receiverId,
-        messageId: message._id,
-        chatId: senderId,
-        senderName: sender.name,
-        senderProfileImage: sender.profileImage,
-        message: this.formatMessagePreview(message),
-        timestamp: new Date().toISOString()
-      };
-
-      // Send WebSocket notification (for online users)
-      const socketSuccess = broadcastToUser(receiverId, 'notification:new', {
         title: sender.name || 'New Message',
         body: this.formatMessagePreview(message),
-        data: notificationData,
+        data: {
+          type: 'chat_message',
+          senderId,
+          receiverId,
+          messageId: message._id,
+          chatId: senderId,
+          senderName: sender.name,
+          timestamp: new Date().toISOString()
+        },
+        android: {
+          channelId: 'chat_messages',
+          priority: 'high',
+          notification: {
+            icon: 'ic_notification',
+            color: '#007AFF',
+            sound: 'message_sound',
+            clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'message_sound.caf',
+              badge: 1,
+              category: 'MESSAGE_CATEGORY'
+            }
+          }
+        }
+      };
+
+      // Try WebSocket first
+      const socketSuccess = broadcastToUser(receiverId, 'notification:new', {
+        type: 'chat_message',
+        title: sender.name || 'New Message',
+        body: this.formatMessagePreview(message),
+        data: {
+          type: 'chat_message',
+          senderId,
+          receiverId,
+          messageId: message._id,
+          chatId: senderId,
+          senderName: sender.name,
+          senderProfileImage: sender.profileImage,
+          timestamp: new Date().toISOString()
+        },
+        senderProfileImage: sender.profileImage,
         timestamp: new Date().toISOString()
       });
 
-      console.log(`📡 WebSocket notification: ${socketSuccess ? 'sent' : 'failed'}`);
-
-      // ALWAYS send FCM as well (for offline/background users)
-      // FCM is smart - it won't duplicate if user is online
-      const fcmResult = await fcmNotificationService.sendWakeupNotification(receiverId, {
-        senderId,
-        senderName: sender.name,
-        messageId: message._id,
-        message: this.formatMessagePreview(message)
-      });
-
-      console.log(`🔔 FCM notification: ${fcmResult.success ? 'sent' : 'failed'} (${fcmResult.reason || 'ok'})`);
-
-      // Success if either WebSocket OR FCM worked
-      const success = socketSuccess || fcmResult.success;
+      // Update statistics
+      this.notificationStats.totalSent++;
       
-      if (success) {
+      if (socketSuccess) {
         this.notificationStats.totalDelivered++;
+        console.log('✅ Chat message notification sent via WebSocket');
       } else {
-        this.notificationStats.totalFailed++;
+        // WebSocket failed - user is offline, send FCM wakeup notification
+        console.log('⚠️ WebSocket failed - sending FCM wakeup notification');
+        
+        const fcmResult = await fcmNotificationService.sendWakeupNotification(receiverId, {
+          senderId,
+          senderName: sender.name,
+          messageId: message._id
+        });
+        
+        if (fcmResult.success) {
+          this.notificationStats.totalDelivered++;
+          console.log('✅ FCM wakeup notification sent - app will wake and reconnect');
+        } else {
+          this.notificationStats.totalFailed++;
+          console.log('❌ Both WebSocket and FCM failed');
+        }
       }
 
-      return success;
+      return socketSuccess || (await fcmNotificationService.isEnabled());
 
     } catch (error) {
       console.error('❌ Error sending chat message notification:', error);
