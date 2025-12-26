@@ -1228,10 +1228,16 @@ const initializeSocketIO = (server) => {
             callId,
             answer
           });
+          
+          // CRITICAL FIX: Also notify caller that call is connected
+          // This allows caller to transition from "connecting" to "connected" state
+          callerSocket.emit('call:connected', { callId });
+          console.log(`✅ Sent call:connected to caller ${call.callerId}`);
         }
         
         // Confirm to receiver
         socket.emit('call:connected', { callId });
+        console.log(`✅ Sent call:connected to receiver ${userId}`);
         
       } catch (error) {
         console.error('❌ Error answering call:', error);
