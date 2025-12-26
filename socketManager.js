@@ -1131,9 +1131,25 @@ const initializeSocketIO = (server) => {
         // Strategy 1: Primary WebSocket (if online)
         if (isReceiverOnline) {
           console.log(`📱 [CALL] Strategy 1: Sending via primary WebSocket`);
+          console.log(`📱 [CALL] Receiver socket details:`, {
+            socketId: receiverSocket.id,
+            connected: receiverSocket.connected,
+            userId: receiver.userId,
+            eventName: 'call:incoming'
+          });
+          console.log(`📱 [CALL] Call data being sent:`, {
+            callId: callNotificationData.callId,
+            callerId: callNotificationData.callerId,
+            callerName: callNotificationData.callerName,
+            callType: callNotificationData.callType,
+            hasOffer: !!callNotificationData.offer
+          });
+          
           receiverSocket.emit('call:incoming', callNotificationData);
           notificationSent = true;
-          console.log(`✅ [CALL] Notification sent via WebSocket`);
+          
+          console.log(`✅ [CALL] call:incoming event emitted to socket ${receiverSocket.id}`);
+          console.log(`✅ [CALL] Notification sent via WebSocket to user ${receiver.userId}`);
         }
         
         // Strategy 2: Fallback to all registered devices (if WebSocket failed or as backup)
