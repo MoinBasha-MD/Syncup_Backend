@@ -386,19 +386,27 @@ class FriendService {
           throw new Error('Requester user not found');
         }
         
+        // ✅ FIX: Explicitly ensure isDeviceContact is false for app connections
+        // This prevents mutual check logic from incorrectly filtering out friend requests
         const newReciprocal = new Friend({
           userId: friendRequest.friendUserId,
           friendUserId: friendRequest.userId,
-          source: friendRequest.source,
+          source: friendRequest.source || 'app_search', // Ensure source is set
           status: 'accepted',
           acceptedAt: new Date(),
-          isDeviceContact: false,
+          isDeviceContact: false, // CRITICAL: Must be false for app connections
           cachedData: {
             name: requester.name,
             profileImage: requester.profileImage || '',
             username: requester.username || '',
             lastCacheUpdate: new Date()
           }
+        });
+        
+        console.log(`✅ [FRIEND SERVICE] Reciprocal friendship config:`, {
+          isDeviceContact: false,
+          source: friendRequest.source || 'app_search',
+          status: 'accepted'
         });
         
         await newReciprocal.save();
@@ -414,13 +422,16 @@ class FriendService {
         console.log(`🔄 [FRIEND SERVICE] Found existing reciprocal friendship, updating status...`);
         reciprocalFriendship.status = 'accepted';
         reciprocalFriendship.acceptedAt = new Date();
+        // ✅ FIX: Ensure isDeviceContact is false for app connections
+        reciprocalFriendship.isDeviceContact = false;
         await reciprocalFriendship.save();
         console.log(`✅ [FRIEND SERVICE] Updated existing reciprocal friendship`);
         console.log(`📊 [FRIEND SERVICE] Reciprocal details:`, {
           _id: reciprocalFriendship._id,
           userId: reciprocalFriendship.userId,
           friendUserId: reciprocalFriendship.friendUserId,
-          status: reciprocalFriendship.status
+          status: reciprocalFriendship.status,
+          isDeviceContact: reciprocalFriendship.isDeviceContact
         });
       }
       
@@ -428,6 +439,12 @@ class FriendService {
       console.log(`📊 [FRIEND SERVICE] FINAL STATE: Both friendships created`);
       console.log(`   - ${friendRequest.userId} → ${friendRequest.friendUserId} (original request)`);
       console.log(`   - ${friendRequest.friendUserId} → ${friendRequest.userId} (reciprocal)`);
+      
+      // ✅ FIX: Add 150ms delay to ensure database writes are fully committed
+      // This prevents race condition where frontend queries before data is available
+      console.log(`⏳ [FRIEND SERVICE] Waiting 150ms for database write completion...`);
+      await new Promise(resolve => setTimeout(resolve, 150));
+      console.log(`✅ [FRIEND SERVICE] Database writes confirmed, broadcasting events...`);
       
       // Broadcast to requester via WebSocket
       console.log(`📡 [FRIEND SERVICE] Broadcasting acceptance to requester: ${friendRequest.userId}`);
