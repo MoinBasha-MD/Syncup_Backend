@@ -14,7 +14,16 @@ const TESTERONE_USER_ID = '38283786-efcf-45bf-9f8b-42c3122857b5';
 async function checkFriendship() {
   try {
     console.log('🔍 [CHECK] Connecting to database...');
-    await mongoose.connect(process.env.MONGODB_URI);
+    
+    // Try MONGO_URI first (standard), then MONGODB_URI as fallback
+    const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+    
+    if (!mongoUri) {
+      throw new Error('MongoDB URI not found in environment variables. Please set MONGO_URI in .env file');
+    }
+    
+    console.log('📡 [CHECK] Using MongoDB URI from environment');
+    await mongoose.connect(mongoUri);
     console.log('✅ [CHECK] Connected to database\n');
 
     // Check TesterOne → Moin
