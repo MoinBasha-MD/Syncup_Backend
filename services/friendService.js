@@ -380,10 +380,10 @@ class FriendService {
       console.log(`✅ [FRIEND SERVICE] Original request verified in database`);
       
       // Create reciprocal friendship (both users are now friends)
+      // ✅ FIX: Don't filter by isDeleted - we need to find deleted records too!
       const reciprocalFriendship = await Friend.findOne({
         userId: friendRequest.friendUserId,
-        friendUserId: friendRequest.userId,
-        isDeleted: false
+        friendUserId: friendRequest.userId
       });
       
       if (!reciprocalFriendship) {
@@ -439,18 +439,41 @@ class FriendService {
           throw new Error(`Failed to create reciprocal friendship: ${saveError.message}`);
         }
       } else {
-        console.log(`🔄 [FRIEND SERVICE] Found existing reciprocal friendship, updating status...`);
+        console.log(`🔄 [FRIEND SERVICE] Found existing reciprocal friendship (may be deleted), restoring...`);
+        console.log(`📊 [FRIEND SERVICE] Current state:`, {
+          _id: reciprocalFriendship._id,
+          status: reciprocalFriendship.status,
+          isDeleted: reciprocalFriendship.isDeleted
+        });
+        
+        // ✅ FIX: Restore deleted friendship by updating all fields
         reciprocalFriendship.status = 'accepted';
         reciprocalFriendship.acceptedAt = new Date();
-        // ✅ FIX: Ensure isDeviceContact is false for app connections
-        reciprocalFriendship.isDeviceContact = false;
+        reciprocalFriendship.isDeleted = false; // CRITICAL: Restore deleted record
+        reciprocalFriendship.isDeviceContact = false; // Ensure correct for app connections
+        reciprocalFriendship.source = friendRequest.source || 'app_search'; // Update source
+        
+        // Update cached data
+        const requester = await User.findOne({ userId: friendRequest.userId })
+          .select('name profileImage username');
+        
+        if (requester) {
+          reciprocalFriendship.cachedData = {
+            name: requester.name,
+            profileImage: requester.profileImage || '',
+            username: requester.username || '',
+            lastCacheUpdate: new Date()
+          };
+        }
+        
         await reciprocalFriendship.save();
-        console.log(`✅ [FRIEND SERVICE] Updated existing reciprocal friendship`);
+        console.log(`✅ [FRIEND SERVICE] Restored and updated existing reciprocal friendship`);
         console.log(`📊 [FRIEND SERVICE] Reciprocal details:`, {
           _id: reciprocalFriendship._id,
           userId: reciprocalFriendship.userId,
           friendUserId: reciprocalFriendship.friendUserId,
           status: reciprocalFriendship.status,
+          isDeleted: reciprocalFriendship.isDeleted,
           isDeviceContact: reciprocalFriendship.isDeviceContact
         });
       }
