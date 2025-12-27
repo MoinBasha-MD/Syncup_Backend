@@ -67,8 +67,13 @@ class FCMNotificationService {
       const tokens = user.fcmTokens.map(t => t.token);
       console.log(`📱 [FCM] Sending wakeup notification to ${tokens.length} device(s)`);
 
-      // Create silent notification payload
+      // Create notification payload with both notification and data
+      // CRITICAL: notification field required for Android 12+ to wake app when closed
       const message = {
+        notification: {
+          title: messageData.senderName || 'New Message',
+          body: 'You have a new message'
+        },
         data: {
           type: 'wakeup',
           action: 'reconnect_websocket',
@@ -80,7 +85,21 @@ class FCMNotificationService {
         tokens: tokens,
         android: {
           priority: 'high',
-          ttl: 60000 // 1 minute
+          ttl: 60000, // 1 minute
+          notification: {
+            channelId: 'chat_messages',
+            sound: 'default',
+            priority: 'high'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              badge: 1,
+              contentAvailable: true
+            }
+          }
         }
       };
 
