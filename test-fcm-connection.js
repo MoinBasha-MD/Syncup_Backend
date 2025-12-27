@@ -41,15 +41,23 @@ async function testFCMConnection(userId) {
     await mongoose.connect(process.env.MONGO_URI);
     log.success('Connected to MongoDB');
 
-    // Step 2: Check FCM Service Initialization
-    log.step('\nStep 2: Checking FCM Service...');
+    // Step 2: Initialize FCM Service (if not already initialized)
+    log.step('\nStep 2: Initializing FCM Service...');
+    
+    // Call initialize to ensure FCM is ready
+    fcmNotificationService.initialize();
+    
+    // Small delay to allow initialization
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
     const isEnabled = fcmNotificationService.isEnabled();
     
     if (isEnabled) {
       log.success('FCM Service is initialized and enabled');
     } else {
-      log.error('FCM Service is NOT initialized');
+      log.error('FCM Service failed to initialize');
       log.warning('Check if firebase-service-account.json exists in config folder');
+      log.warning('Run: node initialize-fcm.js for detailed error messages');
       process.exit(1);
     }
 
