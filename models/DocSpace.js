@@ -70,37 +70,7 @@ const docSpaceSchema = new mongoose.Schema(
         default: Date.now
       },
       
-      // Enhanced Access Control
-      accessControl: {
-        enabled: {
-          type: Boolean,
-          default: false
-        },
-        expiryDate: {
-          type: Date,
-          default: null
-        },
-        viewLimit: {
-          type: Number,
-          default: null // null = unlimited
-        },
-        viewCount: {
-          type: Number,
-          default: 0
-        },
-        downloadLimit: {
-          type: Number,
-          default: null // null = unlimited
-        },
-        downloadCount: {
-          type: Number,
-          default: 0
-        },
-        autoRevoke: {
-          type: Boolean,
-          default: false
-        }
-      },
+      // Simplified: No access control needed
       
       // Document Category & Tags
       category: {
@@ -119,34 +89,7 @@ const docSpaceSchema = new mongoose.Schema(
         default: false
       },
       
-      // Track who accessed this document
-      accessLog: [{
-        userId: {
-          type: String,
-          required: true
-        },
-        userName: {
-          type: String,
-          required: true
-        },
-        accessedAt: {
-          type: Date,
-          default: Date.now
-        },
-        accessType: {
-          type: String,
-          enum: ['view', 'download', 'share'],
-          default: 'view'
-        },
-        ipAddress: {
-          type: String,
-          default: null
-        },
-        deviceInfo: {
-          type: String,
-          default: null
-        }
-      }]
+      // Simplified: No access logging needed
     }],
     
     // Users with access to ALL documents
@@ -170,6 +113,7 @@ const docSpaceSchema = new mongoose.Schema(
     }],
     
     // Document-specific access (per-document permissions)
+    // Simplified: Users get both view and download permissions
     documentSpecificAccess: [{
       documentId: {
         type: String,
@@ -186,54 +130,6 @@ const docSpaceSchema = new mongoose.Schema(
       grantedAt: {
         type: Date,
         default: Date.now
-      },
-      // Permission Level
-      permissionType: {
-        type: String,
-        enum: ['view', 'download', 'share'],
-        default: 'download'
-      },
-      // Access Duration
-      accessType: {
-        type: String,
-        enum: ['one-time', 'limited', 'permanent'],
-        default: 'permanent'
-      },
-      expiryDate: {
-        type: Date,
-        default: null
-      },
-      viewLimit: {
-        type: Number,
-        default: null // null = unlimited
-      },
-      viewCount: {
-        type: Number,
-        default: 0
-      },
-      downloadLimit: {
-        type: Number,
-        default: null // null = unlimited
-      },
-      downloadCount: {
-        type: Number,
-        default: 0
-      },
-      usedAt: {
-        type: Date, // For one-time access tracking
-        default: null
-      },
-      lastAccessedAt: {
-        type: Date, // Last time this access was used
-        default: null
-      },
-      isRevoked: {
-        type: Boolean,
-        default: false
-      },
-      revokedAt: {
-        type: Date,
-        default: null
       }
     }],
     
@@ -349,6 +245,7 @@ docSpaceSchema.statics.getOrCreate = async function(userId) {
 };
 
 // Static method: Check if user has access to a document
+// Simplified: Just check if user exists in access lists
 docSpaceSchema.statics.hasAccess = async function(ownerId, requesterId, documentId = null) {
   const docSpace = await this.findOne({ userId: ownerId });
   
@@ -372,26 +269,6 @@ docSpaceSchema.statics.hasAccess = async function(ownerId, requesterId, document
     );
     
     if (specificAccess) {
-      // Check if revoked
-      if (specificAccess.isRevoked) {
-        return { hasAccess: false, accessType: null, reason: 'Access revoked' };
-      }
-      
-      // Check if expired
-      if (specificAccess.expiryDate && new Date() > new Date(specificAccess.expiryDate)) {
-        return { hasAccess: false, accessType: null, reason: 'Access expired' };
-      }
-      
-      // Check if one-time access was already used
-      if (specificAccess.accessType === 'one-time' && specificAccess.usedAt) {
-        return { hasAccess: false, accessType: null, reason: 'One-time access already used' };
-      }
-      
-      // Check view limit
-      if (specificAccess.viewLimit && specificAccess.viewCount >= specificAccess.viewLimit) {
-        return { hasAccess: false, accessType: null, reason: 'View limit reached' };
-      }
-      
       return { hasAccess: true, accessType: 'document-specific', accessDetails: specificAccess };
     }
   }
@@ -450,7 +327,8 @@ docSpaceSchema.methods.revokeGeneralAccess = async function(userId) {
 };
 
 // Instance method: Grant document-specific access
-docSpaceSchema.methods.grantDocumentAccess = async function(documentId, userId, userName, accessType = 'permanent') {
+// Simplified: Just add user to access list with basic info
+docSpaceSchema.methods.grantDocumentAccess = async function(documentId, userId, userName) {
   // Check if document exists
   const document = this.documents.find(doc => doc.documentId === documentId);
   if (!document) {
@@ -467,9 +345,7 @@ docSpaceSchema.methods.grantDocumentAccess = async function(documentId, userId, 
       documentId,
       userId,
       userName,
-      grantedAt: new Date(),
-      accessType,
-      usedAt: null
+      grantedAt: new Date()
     });
     
     return await this.save();
@@ -488,33 +364,11 @@ docSpaceSchema.methods.revokeDocumentAccess = async function(documentId, userId)
 };
 
 // Instance method: Log document access
+// Simplified: Just update stats, no detailed logging
 docSpaceSchema.methods.logAccess = async function(documentId, userId, userName, accessType = 'view') {
-  const document = this.documents.find(doc => doc.documentId === documentId);
-  
-  if (document) {
-    document.accessLog.push({
-      userId,
-      userName,
-      accessedAt: new Date(),
-      accessType
-    });
-    
-    this.stats.totalAccesses += 1;
-    this.stats.lastAccessedAt = new Date();
-    
-    // Mark one-time access as used
-    const specificAccess = this.documentSpecificAccess.find(
-      access => access.documentId === documentId && access.userId === userId
-    );
-    
-    if (specificAccess && specificAccess.accessType === 'one-time' && !specificAccess.usedAt) {
-      specificAccess.usedAt = new Date();
-    }
-    
-    return await this.save();
-  }
-  
-  return this;
+  this.stats.totalAccesses += 1;
+  this.stats.lastAccessedAt = new Date();
+  return await this.save();
 };
 
 // Instance method: Get document by type

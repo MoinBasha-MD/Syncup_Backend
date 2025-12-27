@@ -693,20 +693,13 @@ exports.shareDocumentEnhanced = async (req, res) => {
     const ownerId = req.user.userId;
     const {
       documentId,
-      recipientUserId,
-      permissionType = 'download',
-      accessType = 'permanent',
-      expiryDate = null,
-      viewLimit = null,
-      downloadLimit = null
+      recipientUserId
     } = req.body;
 
-    console.log('📤 [SHARE ENHANCED] Request:', {
+    console.log('📤 [SHARE] Simplified sharing request:', {
       ownerId,
       documentId,
-      recipientUserId,
-      permissionType,
-      accessType
+      recipientUserId
     });
 
     const docSpace = await DocSpace.findOne({ userId: ownerId });
@@ -731,55 +724,42 @@ exports.shareDocumentEnhanced = async (req, res) => {
     console.log('✅ [SHARE ENHANCED] Found recipient:', recipient.name);
     console.log('📊 [SHARE ENHANCED] Recipient userId:', recipientUserId, 'Type:', typeof recipientUserId);
 
+    // Simplified: Check if already has access
     const existingAccess = docSpace.documentSpecificAccess.find(
       access => access.documentId === documentId && access.userId === recipientUserId
     );
 
     if (existingAccess) {
-      console.log('📝 [SHARE ENHANCED] Updating existing access');
-      existingAccess.permissionType = permissionType;
-      existingAccess.accessType = accessType;
-      existingAccess.expiryDate = expiryDate;
-      existingAccess.viewLimit = viewLimit;
-      existingAccess.viewCount = 0;
-      existingAccess.downloadLimit = downloadLimit;
-      existingAccess.downloadCount = 0;
-      existingAccess.isRevoked = false;
+      console.log('ℹ️ [SHARE] User already has access');
     } else {
-      console.log('📝 [SHARE ENHANCED] Creating new access entry');
+      console.log('📝 [SHARE] Granting access (view + download)');
       const newAccess = {
         documentId,
         userId: recipientUserId,
         userName: recipient.name,
-        permissionType,
-        accessType,
-        expiryDate,
-        viewLimit,
-        viewCount: 0,
-        downloadLimit,
-        downloadCount: 0,
         grantedAt: new Date()
       };
-      console.log('📝 [SHARE ENHANCED] New access object:', newAccess);
       docSpace.documentSpecificAccess.push(newAccess);
     }
 
     await docSpace.save();
 
-    console.log('✅ [SHARE ENHANCED] Document shared successfully');
-    console.log('📊 [SHARE ENHANCED] Total documentSpecificAccess entries:', docSpace.documentSpecificAccess.length);
-    console.log('📊 [SHARE ENHANCED] All access entries:', docSpace.documentSpecificAccess.map(a => ({
-      documentId: a.documentId,
-      userId: a.userId,
-      userIdType: typeof a.userId,
-      userName: a.userName,
-      isRevoked: a.isRevoked
-    })));
+    console.log('✅ [SHARE] Document shared successfully');
+    console.log('📊 [SHARE] Total access entries:', docSpace.documentSpecificAccess.length);
+
+    // Send notification to recipient
+    await sendNotification({
+      recipientId: recipientUserId,
+      type: 'document_shared',
+      title: 'Document Shared',
+      message: `${req.user.name} shared a document with you`,
+      data: { documentId, ownerId }
+    });
 
     res.json({
       success: true,
-      message: 'Document shared successfully',
-      access: { documentId, recipientUserId, permissionType, accessType, expiryDate, viewLimit }
+      message: 'Document shared successfully (view + download permissions)',
+      access: { documentId, recipientUserId, permissions: ['view', 'download'] }
     });
   } catch (error) {
     console.error('❌ [DOC SHARE ENHANCED] Error:', error);
