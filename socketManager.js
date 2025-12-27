@@ -1212,6 +1212,8 @@ const initializeSocketIO = (server) => {
       console.log(`📞 [CALL] ===== CALL ANSWER RECEIVED =====`);
       console.log(`📞 [CALL] Call ID: ${data.callId}`);
       console.log(`📞 [CALL] From User: ${userId}`);
+      console.log(`📞 [CALL] Socket ID: ${socket.id}`);
+      console.log(`📞 [CALL] Socket connected: ${socket.connected}`);
       console.log(`📞 [CALL] Answer type: ${data.answer?.type}`);
       console.log(`📞 [CALL] Answer SDP length: ${data.answer?.sdp?.length || 0}`);
       
