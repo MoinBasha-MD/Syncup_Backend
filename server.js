@@ -93,6 +93,9 @@ connectDB(optimizeConnectionPool());
 // Initialize express
 const app = express();
 
+// Trust proxy - Required for rate limiting behind Nginx reverse proxy
+app.set('trust proxy', 1);
+
 // Start memory monitoring
 memoryMonitor();
 
