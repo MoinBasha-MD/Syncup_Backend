@@ -385,6 +385,22 @@ const userSchema = mongoose.Schema(
         default: Date.now
       }
     }],
+    // FCM tokens for Firebase Cloud Messaging
+    fcmTokens: [{
+      token: {
+        type: String,
+        required: true
+      },
+      platform: {
+        type: String,
+        enum: ['android', 'ios'],
+        default: 'android'
+      },
+      addedAt: {
+        type: Date,
+        default: Date.now
+      }
+    }],
     // Chat encryption settings
     encryptionSettings: {
       isEnabled: {
