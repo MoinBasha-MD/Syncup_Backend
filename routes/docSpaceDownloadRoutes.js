@@ -127,63 +127,32 @@ router.get('/:filename', protect, async (req, res) => {
     const isOwner = docSpace.userId === userId;
 
     if (!isOwner) {
-      // Check if user has download permission
-      const accessEntry = docSpace.documentSpecificAccess.find(access => 
-        access.documentId === document.documentId && 
-        access.userId === userId &&
-        !access.isRevoked
+      // Check if user has general access (access to all documents)
+      const hasGeneralAccess = docSpace.generalAccessList.some(
+        access => access.userId === userId
       );
 
-      if (!accessEntry) {
+      // Check if user has document-specific access
+      const hasDocumentAccess = docSpace.documentSpecificAccess.some(
+        access => access.documentId === document.documentId && access.userId === userId
+      );
+
+      if (!hasGeneralAccess && !hasDocumentAccess) {
         console.error('❌ [DOWNLOAD] No access permission');
+        console.log('📋 [DOWNLOAD] User ID:', userId);
+        console.log('📋 [DOWNLOAD] Document ID:', document.documentId);
+        console.log('📋 [DOWNLOAD] General Access List:', docSpace.generalAccessList.map(a => a.userId));
+        console.log('📋 [DOWNLOAD] Document Access List:', docSpace.documentSpecificAccess.filter(a => a.documentId === document.documentId).map(a => a.userId));
         return res.status(403).json({
           success: false,
           message: 'You do not have permission to download this document'
         });
       }
 
-      // Check if access has expired
-      if (accessEntry.expiryDate && new Date() > new Date(accessEntry.expiryDate)) {
-        console.error('❌ [DOWNLOAD] Access expired');
-        return res.status(403).json({
-          success: false,
-          message: 'Access expired'
-        });
-      }
-
-      // Check if user has download permission
-      if (accessEntry.permissionType === 'view') {
-        console.error('❌ [DOWNLOAD] View-only permission');
-        return res.status(403).json({
-          success: false,
-          message: 'You only have view permission. Download not allowed.'
-        });
-      }
-
-      // ⚡ FIX: Check download limit
-      if (accessEntry.downloadLimit && accessEntry.downloadCount >= accessEntry.downloadLimit) {
-        console.error('❌ [DOWNLOAD] Download limit reached');
-        return res.status(403).json({
-          success: false,
-          message: `Download limit reached (${accessEntry.downloadLimit} downloads)`
-        });
-      }
-
-      // ⚡ FIX: Track download
-      accessEntry.downloadCount = (accessEntry.downloadCount || 0) + 1;
-      accessEntry.lastAccessedAt = new Date();
+      // Log the access
+      await docSpace.logAccess(document.documentId, userId, req.user.name || 'Unknown User', 'download');
       
-      // Add to access log
-      document.accessLog.push({
-        userId: userId,
-        userName: req.user.name || 'Unknown User',
-        accessedAt: new Date(),
-        accessType: 'download',
-      });
-
-      await docSpace.save();
-      
-      console.log(`📊 [DOWNLOAD TRACKING] Download count updated: ${accessEntry.downloadCount}/${accessEntry.downloadLimit || 'unlimited'}`);
+      console.log(`✅ [DOWNLOAD] Access granted - ${hasGeneralAccess ? 'General Access' : 'Document-Specific Access'}`);
     } else {
       console.log('✅ [DOWNLOAD] Owner downloading their own document');
     }
