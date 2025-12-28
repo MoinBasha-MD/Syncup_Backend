@@ -1737,6 +1737,67 @@ const initializeSocketIO = (server) => {
       }
     });
 
+    // 📊 STATUS SYNC: Handle request for current contact statuses (when app comes to foreground)
+    socket.on('request_contacts_status', async (data) => {
+      try {
+        console.log(`📊 [STATUS SYNC] Contact status request from ${userName} (${userId})`);
+        
+        // Get user's contacts
+        const user = await User.findById(socket.user.id).select('contacts');
+        
+        if (!user || !user.contacts || user.contacts.length === 0) {
+          console.log(`⚠️ [STATUS SYNC] User has no contacts`);
+          socket.emit('contacts_status_sync', { contacts: [] });
+          return;
+        }
+        
+        // Fetch current status of all contacts
+        const contacts = await User.find(
+          { _id: { $in: user.contacts } },
+          'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
+        );
+        
+        console.log(`📊 [STATUS SYNC] Sending status for ${contacts.length} contacts to ${userName}`);
+        
+        // Send current status of all contacts
+        socket.emit('contacts_status_sync', {
+          contacts: contacts.map(contact => ({
+            contactId: contact._id,
+            userId: contact.userId,
+            phoneNumber: contact.phoneNumber,
+            name: contact.name,
+            status: contact.status,
+            customStatus: contact.customStatus,
+            statusUntil: contact.statusUntil,
+            isOnline: contact.isOnline,
+            lastSeen: contact.lastSeen,
+            statusLocation: contact.statusLocation,
+            // Hierarchical status fields
+            mainStatus: contact.mainStatus,
+            subStatus: contact.subStatus,
+            mainDuration: contact.mainDuration,
+            subDuration: contact.subDuration,
+            mainDurationLabel: contact.mainDurationLabel,
+            subDurationLabel: contact.subDurationLabel,
+            mainStartTime: contact.mainStartTime,
+            mainEndTime: contact.mainEndTime,
+            subStartTime: contact.subStartTime,
+            subEndTime: contact.subEndTime
+          })),
+          timestamp: new Date().toISOString()
+        });
+        
+        console.log(`✅ [STATUS SYNC] Status sync completed for ${userName}`);
+        
+      } catch (error) {
+        console.error(`❌ [STATUS SYNC] Error syncing contact statuses for ${userName}:`, error);
+        socket.emit('contacts_status_sync', { 
+          contacts: [], 
+          error: error.message 
+        });
+      }
+    });
+
     // 📍 LOCATION TRACKING: Handle real-time location updates from Map Tab
     socket.on('location:update', async (locationData) => {
       try {
