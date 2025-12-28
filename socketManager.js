@@ -317,20 +317,37 @@ const initializeSocketIO = (server) => {
       if (user && user.contacts && user.contacts.length > 0) {
         const contacts = await User.find(
           { _id: { $in: user.contacts } },
-          'userId name status customStatus statusUntil isOnline lastSeen'
+          'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
         );
         
         if (contacts.length > 0) {
-          socket.emit('contacts_status_initial', contacts.map(contact => ({
-            contactId: contact._id,
-            userId: contact.userId,
-            name: contact.name,
-            status: contact.status,
-            customStatus: contact.customStatus,
-            statusUntil: contact.statusUntil,
-            isOnline: contact.isOnline,
-            lastSeen: contact.lastSeen
-          })));
+          console.log(`📊 [INITIAL STATUS] Sending initial status for ${contacts.length} contacts to ${userName}`);
+          socket.emit('contacts_status_initial', {
+            contacts: contacts.map(contact => ({
+              contactId: contact._id,
+              userId: contact.userId,
+              phoneNumber: contact.phoneNumber,
+              name: contact.name,
+              status: contact.status,
+              customStatus: contact.customStatus,
+              statusUntil: contact.statusUntil,
+              isOnline: contact.isOnline,
+              lastSeen: contact.lastSeen,
+              statusLocation: contact.statusLocation,
+              // Hierarchical status fields
+              mainStatus: contact.mainStatus,
+              subStatus: contact.subStatus,
+              mainDuration: contact.mainDuration,
+              subDuration: contact.subDuration,
+              mainDurationLabel: contact.mainDurationLabel,
+              subDurationLabel: contact.subDurationLabel,
+              mainStartTime: contact.mainStartTime,
+              mainEndTime: contact.mainEndTime,
+              subStartTime: contact.subStartTime,
+              subEndTime: contact.subEndTime
+            }))
+          });
+          console.log(`✅ [INITIAL STATUS] Initial status sent to ${userName}`);
         }
       }
     } catch (error) {
