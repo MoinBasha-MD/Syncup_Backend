@@ -72,7 +72,7 @@ class FCMNotificationService {
       const message = {
         notification: {
           title: messageData.senderName || 'New Message',
-          body: 'You have a new message'
+          body: messageData.messagePreview || 'You have a new message'
         },
         data: {
           type: 'wakeup',
@@ -80,6 +80,7 @@ class FCMNotificationService {
           senderId: messageData.senderId || '',
           senderName: messageData.senderName || '',
           messageId: messageData.messageId || '',
+          messagePreview: messageData.messagePreview || '',
           timestamp: new Date().toISOString()
         },
         tokens: tokens,

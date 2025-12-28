@@ -107,25 +107,33 @@ class EnhancedNotificationService {
         this.notificationStats.totalDelivered++;
         console.log('✅ Chat message notification sent via WebSocket');
       } else {
-        // WebSocket failed - user is offline, send FCM wakeup notification
-        console.log('⚠️ WebSocket failed - sending FCM wakeup notification');
-        
-        const fcmResult = await fcmNotificationService.sendWakeupNotification(receiverId, {
-          senderId,
-          senderName: sender.name,
-          messageId: message._id
-        });
-        
-        if (fcmResult.success) {
+        console.log('⚠️ WebSocket failed - user may be offline');
+      }
+
+      // CRITICAL FIX: Always send FCM notification regardless of WebSocket status
+      // This ensures notifications work when app is in background or closed
+      console.log('📱 [FCM] Sending push notification to ensure delivery...');
+      
+      const fcmResult = await fcmNotificationService.sendWakeupNotification(receiverId, {
+        senderId,
+        senderName: sender.name,
+        messageId: message._id,
+        messagePreview: this.formatMessagePreview(message)
+      });
+      
+      if (fcmResult.success) {
+        console.log('✅ [FCM] Push notification sent successfully');
+        if (!socketSuccess) {
           this.notificationStats.totalDelivered++;
-          console.log('✅ FCM wakeup notification sent - app will wake and reconnect');
-        } else {
+        }
+      } else {
+        console.log(`⚠️ [FCM] Push notification failed: ${fcmResult.reason || 'Unknown error'}`);
+        if (!socketSuccess) {
           this.notificationStats.totalFailed++;
-          console.log('❌ Both WebSocket and FCM failed');
         }
       }
 
-      return socketSuccess || (await fcmNotificationService.isEnabled());
+      return socketSuccess || fcmResult.success;
 
     } catch (error) {
       console.error('❌ Error sending chat message notification:', error);
