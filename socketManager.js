@@ -313,55 +313,97 @@ const initializeSocketIO = (server) => {
         }
       }
       
-      // Send initial status of all contacts to the user
-      if (user && user.contacts && user.contacts.length > 0) {
-        const contacts = await User.find(
-          { _id: { $in: user.contacts } },
-          'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
-        );
+      // CRITICAL FIX: Send initial status of ALL contacts AND friends to the user
+      try {
+        console.log(`📊 [INITIAL STATUS] Fetching contacts and friends for ${userName} (${userId})`);
         
-        if (contacts.length > 0) {
-          console.log(`📊 [INITIAL STATUS] Sending initial status for ${contacts.length} contacts to ${userName}`);
+        // Get contact IDs from old contacts array
+        const contactIds = user.contacts || [];
+        console.log(`📊 [INITIAL STATUS] Old contacts array: ${contactIds.length} contacts`);
+        
+        // Get friend IDs from NEW Friends collection (bidirectional)
+        const friendDocs1 = await Friend.find({
+          userId: userId,
+          status: 'accepted',
+          isDeleted: false
+        }).select('friendUserId');
+        
+        const friendDocs2 = await Friend.find({
+          friendUserId: userId,
+          status: 'accepted',
+          isDeleted: false
+        }).select('userId');
+        
+        const friendUserIds = [
+          ...friendDocs1.map(f => f.friendUserId),
+          ...friendDocs2.map(f => f.userId)
+        ];
+        
+        console.log(`📊 [INITIAL STATUS] Friends collection: ${friendUserIds.length} friends`);
+        console.log(`📊 [INITIAL STATUS] Friend userIds:`, friendUserIds);
+        
+        // Convert friend userIds to ObjectIds
+        const friendUsers = await User.find({ userId: { $in: friendUserIds } }).select('_id');
+        const friendObjectIds = friendUsers.map(u => u._id);
+        
+        console.log(`📊 [INITIAL STATUS] Converted to ${friendObjectIds.length} ObjectIds`);
+        
+        // Merge contacts and friends (remove duplicates)
+        const allContactIds = [...new Set([...contactIds.map(id => id.toString()), ...friendObjectIds.map(id => id.toString())])];
+        
+        console.log(`📊 [INITIAL STATUS] Total unique contacts+friends: ${allContactIds.length}`);
+        
+        if (allContactIds.length > 0) {
+          const contacts = await User.find(
+            { _id: { $in: allContactIds } },
+            'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
+          );
           
-          const statusData = {
-            contacts: contacts.map(contact => ({
-              contactId: contact._id,
-              userId: contact.userId,
-              phoneNumber: contact.phoneNumber,
-              name: contact.name,
-              status: contact.status,
-              customStatus: contact.customStatus,
-              statusUntil: contact.statusUntil,
-              isOnline: contact.isOnline,
-              lastSeen: contact.lastSeen,
-              statusLocation: contact.statusLocation,
-              // Hierarchical status fields
-              mainStatus: contact.mainStatus,
-              subStatus: contact.subStatus,
-              mainDuration: contact.mainDuration,
-              subDuration: contact.subDuration,
-              mainDurationLabel: contact.mainDurationLabel,
-              subDurationLabel: contact.subDurationLabel,
-              mainStartTime: contact.mainStartTime,
-              mainEndTime: contact.mainEndTime,
-              subStartTime: contact.subStartTime,
-              subEndTime: contact.subEndTime
-            }))
-          };
+          console.log(`📊 [INITIAL STATUS] Fetched ${contacts.length} user records from database`);
           
-          // Log sample status for debugging
-          if (statusData.contacts.length > 0) {
-            console.log(`📊 [INITIAL STATUS] Sample contact status:`, {
-              name: statusData.contacts[0].name,
-              status: statusData.contacts[0].status,
-              mainStatus: statusData.contacts[0].mainStatus,
-              subStatus: statusData.contacts[0].subStatus
-            });
+          if (contacts.length > 0) {
+            const statusData = {
+              contacts: contacts.map(contact => ({
+                contactId: contact._id,
+                userId: contact.userId,
+                phoneNumber: contact.phoneNumber,
+                name: contact.name,
+                status: contact.status,
+                customStatus: contact.customStatus,
+                statusUntil: contact.statusUntil,
+                isOnline: contact.isOnline,
+                lastSeen: contact.lastSeen,
+                statusLocation: contact.statusLocation,
+                // Hierarchical status fields
+                mainStatus: contact.mainStatus,
+                subStatus: contact.subStatus,
+                mainDuration: contact.mainDuration,
+                subDuration: contact.subDuration,
+                mainDurationLabel: contact.mainDurationLabel,
+                subDurationLabel: contact.subDurationLabel,
+                mainStartTime: contact.mainStartTime,
+                mainEndTime: contact.mainEndTime,
+                subStartTime: contact.subStartTime,
+                subEndTime: contact.subEndTime
+              }))
+            };
+            
+            // Log sample status for debugging
+            if (statusData.contacts.length > 0) {
+              console.log(`📊 [INITIAL STATUS] Sample contact statuses:`);
+              statusData.contacts.slice(0, 3).forEach(c => {
+                console.log(`   - ${c.name}: status="${c.status}", mainStatus="${c.mainStatus}"`);
+              });
+            }
+            
+            socket.emit('contacts_status_initial', statusData);
+            console.log(`✅ [INITIAL STATUS] Sent status for ${contacts.length} contacts+friends to ${userName}`);
           }
-          
-          socket.emit('contacts_status_initial', statusData);
-          console.log(`✅ [INITIAL STATUS] Initial status sent to ${userName}`);
+        } else {
+          console.log(`⚠️ [INITIAL STATUS] No contacts or friends found for ${userName}`);
         }
+      } catch (initialStatusError) {
+        console.error(`❌ [INITIAL STATUS] Error sending initial status:`, initialStatusError);
       }
     } catch (error) {
       console.error('Error caching user contacts:', error);
@@ -1771,23 +1813,69 @@ const initializeSocketIO = (server) => {
     socket.on('request_contacts_status', async (data) => {
       try {
         console.log(`📊 [STATUS SYNC] Contact status request from ${userName} (${userId})`);
+        console.log(`📊 [STATUS SYNC] Request reason: ${data?.reason || 'unknown'}`);
         
-        // Get user's contacts
+        // CRITICAL FIX: Get contacts from BOTH old contacts array AND new Friends collection
         const user = await User.findById(socket.user.id).select('contacts');
         
-        if (!user || !user.contacts || user.contacts.length === 0) {
-          console.log(`⚠️ [STATUS SYNC] User has no contacts`);
+        // Get contact IDs from old contacts array
+        const contactIds = user?.contacts || [];
+        console.log(`📊 [STATUS SYNC] Old contacts array: ${contactIds.length} contacts`);
+        
+        // Get friend IDs from NEW Friends collection (bidirectional)
+        const friendDocs1 = await Friend.find({
+          userId: userId,
+          status: 'accepted',
+          isDeleted: false
+        }).select('friendUserId');
+        
+        const friendDocs2 = await Friend.find({
+          friendUserId: userId,
+          status: 'accepted',
+          isDeleted: false
+        }).select('userId');
+        
+        const friendUserIds = [
+          ...friendDocs1.map(f => f.friendUserId),
+          ...friendDocs2.map(f => f.userId)
+        ];
+        
+        console.log(`📊 [STATUS SYNC] Friends collection: ${friendUserIds.length} friends`);
+        console.log(`📊 [STATUS SYNC] Friend userIds:`, friendUserIds);
+        
+        // Convert friend userIds to ObjectIds
+        const friendUsers = await User.find({ userId: { $in: friendUserIds } }).select('_id');
+        const friendObjectIds = friendUsers.map(u => u._id);
+        
+        console.log(`📊 [STATUS SYNC] Converted to ${friendObjectIds.length} ObjectIds`);
+        
+        // Merge contacts and friends (remove duplicates)
+        const allContactIds = [...new Set([...contactIds.map(id => id.toString()), ...friendObjectIds.map(id => id.toString())])];
+        
+        console.log(`📊 [STATUS SYNC] Total unique contacts+friends: ${allContactIds.length}`);
+        
+        if (allContactIds.length === 0) {
+          console.log(`⚠️ [STATUS SYNC] User has no contacts or friends`);
           socket.emit('contacts_status_sync', { contacts: [] });
           return;
         }
         
-        // Fetch current status of all contacts
+        // Fetch current status of all contacts AND friends
         const contacts = await User.find(
-          { _id: { $in: user.contacts } },
+          { _id: { $in: allContactIds } },
           'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
         );
         
-        console.log(`📊 [STATUS SYNC] Sending status for ${contacts.length} contacts to ${userName}`);
+        console.log(`📊 [STATUS SYNC] Fetched ${contacts.length} user records from database`);
+        console.log(`📊 [STATUS SYNC] Sending status for ${contacts.length} contacts+friends to ${userName}`);
+        
+        // Log sample statuses for debugging
+        if (contacts.length > 0) {
+          console.log(`📊 [STATUS SYNC] Sample contact statuses:`);
+          contacts.slice(0, 3).forEach(c => {
+            console.log(`   - ${c.name}: status="${c.status}", mainStatus="${c.mainStatus}"`);
+          });
+        }
         
         // Send current status of all contacts
         socket.emit('contacts_status_sync', {
@@ -1817,7 +1905,7 @@ const initializeSocketIO = (server) => {
           timestamp: new Date().toISOString()
         });
         
-        console.log(`✅ [STATUS SYNC] Status sync completed for ${userName}`);
+        console.log(`✅ [STATUS SYNC] Status sync completed for ${userName} - sent ${contacts.length} statuses`);
         
       } catch (error) {
         console.error(`❌ [STATUS SYNC] Error syncing contact statuses for ${userName}:`, error);
