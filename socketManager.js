@@ -322,7 +322,8 @@ const initializeSocketIO = (server) => {
         
         if (contacts.length > 0) {
           console.log(`📊 [INITIAL STATUS] Sending initial status for ${contacts.length} contacts to ${userName}`);
-          socket.emit('contacts_status_initial', {
+          
+          const statusData = {
             contacts: contacts.map(contact => ({
               contactId: contact._id,
               userId: contact.userId,
@@ -346,7 +347,19 @@ const initializeSocketIO = (server) => {
               subStartTime: contact.subStartTime,
               subEndTime: contact.subEndTime
             }))
-          });
+          };
+          
+          // Log sample status for debugging
+          if (statusData.contacts.length > 0) {
+            console.log(`📊 [INITIAL STATUS] Sample contact status:`, {
+              name: statusData.contacts[0].name,
+              status: statusData.contacts[0].status,
+              mainStatus: statusData.contacts[0].mainStatus,
+              subStatus: statusData.contacts[0].subStatus
+            });
+          }
+          
+          socket.emit('contacts_status_initial', statusData);
           console.log(`✅ [INITIAL STATUS] Initial status sent to ${userName}`);
         }
       }
