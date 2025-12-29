@@ -13,13 +13,72 @@ class StatusExpirationService {
   }
 
   /**
-   * Check and clear expired sub-statuses for all users
+   * Check and clear expired main statuses AND sub-statuses for all users
    */
   async checkExpiredStatuses() {
     try {
       const now = new Date();
       console.log(`\n⏰ [STATUS EXPIRATION] ========== CHECK STARTED ==========`);
       console.log(`🕐 [STATUS EXPIRATION] Time: ${now.toLocaleString()}`);
+
+      // CRITICAL FIX: Check for expired MAIN statuses
+      const usersWithExpiredMainStatus = await User.find({
+        mainStatus: { $ne: null, $ne: 'Available' },
+        mainEndTime: { $lte: now }
+      });
+
+      console.log(`📊 [STATUS EXPIRATION] Found ${usersWithExpiredMainStatus.length} users with expired main statuses`);
+
+      let mainStatusCleared = 0;
+
+      for (const user of usersWithExpiredMainStatus) {
+        const oldMainStatus = user.mainStatus;
+        
+        console.log(`🔍 [STATUS EXPIRATION] User ${user.name} (${user.phoneNumber}):`);
+        console.log(`   - Old main status: "${oldMainStatus}"`);
+        console.log(`   - Main end time: ${user.mainEndTime}`);
+        console.log(`   - Current time: ${now}`);
+        
+        // Clear main status fields
+        user.status = 'Available';
+        user.customStatus = '';
+        user.mainStatus = 'Available';
+        user.mainDuration = 0;
+        user.mainDurationLabel = '';
+        user.mainStartTime = null;
+        user.mainEndTime = null;
+
+        await user.save();
+
+        console.log(`✅ [STATUS EXPIRATION] Cleared main status for ${user.name}: "${oldMainStatus}" → "Available"`);
+
+        // Broadcast the status update to friends
+        const statusData = {
+          userId: user._id.toString(),
+          phoneNumber: user.phoneNumber,
+          name: user.name,
+          status: 'Available', // Cleared!
+          customStatus: '',
+          mainStatus: 'Available', // Cleared!
+          mainDuration: 0,
+          mainDurationLabel: '',
+          mainStartTime: null,
+          mainEndTime: null,
+          subStatus: user.subStatus, // Keep sub-status if exists
+          subDuration: user.subDuration,
+          subDurationLabel: user.subDurationLabel,
+          subStartTime: user.subStartTime,
+          subEndTime: user.subEndTime,
+          isOnline: user.isOnline,
+          lastSeen: user.lastSeen,
+          timestamp: now
+        };
+
+        console.log(`📡 [STATUS EXPIRATION] Broadcasting cleared main status for ${user.name}`);
+        socketManager.broadcastStatusUpdate(user, statusData);
+
+        mainStatusCleared++;
+      }
 
       // Find users with expired sub-statuses
       const usersWithExpiredSubStatus = await User.find({
@@ -29,10 +88,15 @@ class StatusExpirationService {
 
       console.log(`📊 [STATUS EXPIRATION] Found ${usersWithExpiredSubStatus.length} users with expired sub-statuses`);
 
-      let clearedCount = 0;
+      let subStatusCleared = 0;
 
       for (const user of usersWithExpiredSubStatus) {
         const oldSubStatus = user.subStatus;
+        
+        console.log(`🔍 [STATUS EXPIRATION] User ${user.name} (${user.phoneNumber}):`);
+        console.log(`   - Old sub-status: "${oldSubStatus}"`);
+        console.log(`   - Sub end time: ${user.subEndTime}`);
+        console.log(`   - Current time: ${now}`);
         
         // Clear sub-status fields
         user.subStatus = null;
@@ -43,7 +107,7 @@ class StatusExpirationService {
 
         await user.save();
 
-        console.log(`✅ [STATUS EXPIRATION] Cleared sub-status for ${user.phoneNumber}: "${oldSubStatus}"`);
+        console.log(`✅ [STATUS EXPIRATION] Cleared sub-status for ${user.name}: "${oldSubStatus}"`);
 
         // Broadcast the status update to friends
         const statusData = {
@@ -67,18 +131,19 @@ class StatusExpirationService {
           timestamp: now
         };
 
-        console.log(`📡 [STATUS EXPIRATION] Broadcasting cleared sub-status for ${user.phoneNumber}`);
+        console.log(`📡 [STATUS EXPIRATION] Broadcasting cleared sub-status for ${user.name}`);
         socketManager.broadcastStatusUpdate(user, statusData);
 
-        clearedCount++;
+        subStatusCleared++;
       }
 
       console.log(`\n📈 [STATUS EXPIRATION] Summary:`);
-      console.log(`   • Users checked: ${usersWithExpiredSubStatus.length}`);
-      console.log(`   • Sub-statuses cleared: ${clearedCount}`);
+      console.log(`   • Main statuses cleared: ${mainStatusCleared}`);
+      console.log(`   • Sub-statuses cleared: ${subStatusCleared}`);
+      console.log(`   • Total statuses cleared: ${mainStatusCleared + subStatusCleared}`);
       console.log(`⏰ [STATUS EXPIRATION] ========== CHECK COMPLETED ==========\n`);
 
-      return clearedCount;
+      return mainStatusCleared + subStatusCleared;
     } catch (error) {
       console.error('❌ [STATUS EXPIRATION] Error checking expired statuses:', error);
       return 0;
