@@ -33,12 +33,15 @@ const connectionStats = {
   startTime: Date.now()
 };
 
+// Store io instance globally for access from controllers
+let io = null;
+
 /**
  * Initialize Socket.IO with the HTTP server
  * @param {Object} server - HTTP server instance
  */
 const initializeSocketIO = (server) => {
-  const io = socketIO(server, {
+  io = socketIO(server, {
     // Production-optimized configuration
     cors: {
       origin: process.env.NODE_ENV === 'production' 
@@ -1657,6 +1660,28 @@ const initializeSocketIO = (server) => {
       connectionStats.notificationDismissals = (connectionStats.notificationDismissals || 0) + 1;
     });
 
+    // 🎮 GAME EVENTS: Handle in-chat game interactions (Tic-Tac-Toe)
+    // Note: Game state is managed by backend API, WebSocket only for real-time notifications
+    socket.on('game:create', async (data) => {
+      console.log(`🎮 [GAME] Game creation event from ${userName}:`, data);
+      // Game creation handled by API, this is just for real-time notification
+    });
+
+    socket.on('game:accept', async (data) => {
+      console.log(`🎮 [GAME] Game accept event from ${userName}:`, data);
+      // Game acceptance handled by API, this is just for real-time notification
+    });
+
+    socket.on('game:move', async (data) => {
+      console.log(`🎮 [GAME] Game move event from ${userName}:`, data);
+      // Game moves handled by API, this is just for real-time notification
+    });
+
+    socket.on('game:cancel', async (data) => {
+      console.log(`🎮 [GAME] Game cancel event from ${userName}:`, data);
+      // Game cancellation handled by API, this is just for real-time notification
+    });
+
     // 📡 STATUS BROADCASTING: Handle direct status update events from frontend
     socket.on('status_update', async (statusUpdateData) => {
       try {
@@ -2580,5 +2605,6 @@ module.exports = {
   broadcastSystemAnnouncement,
   getConnectionStats,
   getUserSockets: () => userSockets,
-  getConnectionStats: () => connectionStats
+  getConnectionStats: () => connectionStats,
+  getSocketManager: () => io // Export io instance for game events
 };

@@ -1,5 +1,6 @@
 const PagePost = require('../models/PagePost');
 const Page = require('../models/Page');
+const FeedPost = require('../models/FeedPost');
 
 // ✅ Create a new page post
 const createPagePost = async (req, res) => {
@@ -48,6 +49,33 @@ const createPagePost = async (req, res) => {
     await page.save();
 
     console.log('✅ [PAGE POST] Vibe created successfully:', post._id);
+
+    // ✅ CRITICAL: Also create FeedPost for distribution to followers' feeds and Explore
+    try {
+      const feedPost = new FeedPost({
+        userId: req.user._id,
+        content: content,
+        media: media || [],
+        hashtags: hashtags || [],
+        showHashtags: showHashtags !== undefined ? showHashtags : false,
+        privacy: 'public', // Page posts are always public
+        isPagePost: true,
+        pageId: pageId,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      await feedPost.save();
+      console.log('✅ [PAGE POST] FeedPost created for distribution:', feedPost._id);
+      console.log('📢 [PAGE POST] Page vibe will now appear in:');
+      console.log('   - Followers\' feeds');
+      console.log('   - Explore feed (public discovery)');
+      console.log('   - Page profile');
+    } catch (feedError) {
+      console.error('⚠️ [PAGE POST] Failed to create FeedPost (vibe still saved to PagePost):', feedError);
+      // Don't fail the entire request if FeedPost creation fails
+      // The vibe is still saved to PagePost and visible on page profile
+    }
 
     res.status(201).json({
       success: true,
