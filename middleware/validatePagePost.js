@@ -9,11 +9,12 @@ const { body, param, validationResult } = require('express-validator');
  * Validation rules for creating/updating page posts
  */
 const validatePagePost = [
-  // Content validation
+  // Content validation - Allow empty for media-only posts
   body('content')
+    .optional({ checkFalsy: true })
     .trim()
-    .isLength({ min: 1, max: 5000 })
-    .withMessage('Content must be between 1 and 5000 characters')
+    .isLength({ max: 5000 })
+    .withMessage('Content must not exceed 5000 characters')
     .escape(), // Sanitize HTML to prevent XSS
   
   // Visibility validation
@@ -86,8 +87,8 @@ const validatePagePost = [
   
   body('media.*.type')
     .optional()
-    .isIn(['image', 'video'])
-    .withMessage('Media type must be either image or video'),
+    .isIn(['image', 'photo', 'video'])
+    .withMessage('Media type must be either image, photo, or video'),
   
   body('media.*.url')
     .optional()
@@ -168,6 +169,17 @@ const validatePagePost = [
       return res.status(400).json({
         success: false,
         message: 'targetAudience must be enabled when visibility is set to custom'
+      });
+    }
+    
+    // ✅ FIX: Ensure at least content or media is provided
+    const hasContent = req.body.content && req.body.content.trim().length > 0;
+    const hasMedia = req.body.media && Array.isArray(req.body.media) && req.body.media.length > 0;
+    
+    if (!hasContent && !hasMedia) {
+      return res.status(400).json({
+        success: false,
+        message: 'Post must have either content or media (or both)'
       });
     }
     

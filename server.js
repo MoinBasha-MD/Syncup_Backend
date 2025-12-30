@@ -269,6 +269,7 @@ app.use('/api/ai', apiLimiter, aiMessageRoutes); // AI-to-AI messaging routes (l
 app.use('/api/ai', apiLimiter, aiInstanceRoutes); // AI instance management routes
 app.use('/api/ai', apiLimiter, aiCommunicationRoutes); // AI-to-AI communication routes
 app.use('/api/search', apiLimiter, globalSearchRoutes); // Global user search routes
+app.use('/api/search', apiLimiter, require('./routes/searchRoutes')); // Unified search (people + pages)
 app.use('/api/connections', apiLimiter, connectionRoutes); // Connection request management routes
 app.use('/api/blocks', apiLimiter, blockRoutes); // User blocking management routes
 app.use('/api/calls', apiLimiter, callRoutes); // Call history and management routes

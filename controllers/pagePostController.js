@@ -111,18 +111,31 @@ async function distributePagePost(post, page, visibility, targetAudience) {
       // PUBLIC DISTRIBUTION - Single FeedPost for all users
       console.log('📢 [DISTRIBUTION] Creating public FeedPost (visible to everyone)');
       
+      // ✅ FIX: Normalize media format (convert 'image' to 'photo', add dimensions)
+      const normalizedMedia = (post.media || []).map((item, index) => ({
+        type: item.type === 'image' ? 'photo' : item.type,
+        url: item.url,
+        thumbnail: item.thumbnail,
+        width: item.width || 1080,
+        height: item.height || 1080,
+        duration: item.duration,
+        order: item.order !== undefined ? item.order : index
+      }));
+      
       const feedPost = new FeedPost({
         userId: post.author,
-        content: post.content,
-        media: post.media || [],
+        userName: page.name, // ✅ FIX: Add required userName field
+        userProfileImage: page.profileImage,
+        content: post.content || '', // ✅ FIX: Ensure content is not undefined
+        media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,
         privacy: 'public',
         isPagePost: true,
         pageId: page._id,
         pageVisibility: 'public', // ✅ PHASE 1
-        type: post.media && post.media.length > 0 ? 
-          (post.media.length > 1 ? 'carousel' : (post.media[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+        type: normalizedMedia.length > 0 ? 
+          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'photo'
       });
       
       await feedPost.save();
@@ -150,11 +163,24 @@ async function distributePagePost(post, page, visibility, targetAudience) {
       const followerIds = followers.map(f => f.userId.toString());
       console.log(`📢 [DISTRIBUTION] Found ${followerIds.length} followers`);
       
+      // ✅ FIX: Normalize media format
+      const normalizedMedia = (post.media || []).map((item, index) => ({
+        type: item.type === 'image' ? 'photo' : item.type,
+        url: item.url,
+        thumbnail: item.thumbnail,
+        width: item.width || 1080,
+        height: item.height || 1080,
+        duration: item.duration,
+        order: item.order !== undefined ? item.order : index
+      }));
+      
       // Create ONE FeedPost with array of targeted users
       const feedPost = new FeedPost({
         userId: post.author,
-        content: post.content,
-        media: post.media || [],
+        userName: page.name, // ✅ FIX: Add required userName field
+        userProfileImage: page.profileImage,
+        content: post.content || '', // ✅ FIX: Ensure content is not undefined
+        media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,
         privacy: 'friends', // Treated as friends-only
@@ -162,8 +188,8 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         pageId: page._id,
         pageVisibility: 'followers',
         targetUserIds: followerIds, // ✅ WEEK 1 FIX: Array of all targeted users
-        type: post.media && post.media.length > 0 ? 
-          (post.media.length > 1 ? 'carousel' : (post.media[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+        type: normalizedMedia.length > 0 ? 
+          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'photo'
       });
       
       await feedPost.save();
@@ -191,11 +217,24 @@ async function distributePagePost(post, page, visibility, targetAudience) {
       const targetFollowerIds = targetFollowers.map(f => f.userId.toString());
       console.log(`📢 [DISTRIBUTION] Found ${targetFollowerIds.length} targeted followers`);
       
+      // ✅ FIX: Normalize media format
+      const normalizedMedia = (post.media || []).map((item, index) => ({
+        type: item.type === 'image' ? 'photo' : item.type,
+        url: item.url,
+        thumbnail: item.thumbnail,
+        width: item.width || 1080,
+        height: item.height || 1080,
+        duration: item.duration,
+        order: item.order !== undefined ? item.order : index
+      }));
+      
       // Create ONE FeedPost with array of targeted users
       const feedPost = new FeedPost({
         userId: post.author,
-        content: post.content,
-        media: post.media || [],
+        userName: page.name, // ✅ FIX: Add required userName field
+        userProfileImage: page.profileImage,
+        content: post.content || '', // ✅ FIX: Ensure content is not undefined
+        media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,
         privacy: 'friends',
@@ -203,8 +242,8 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         pageId: page._id,
         pageVisibility: 'custom',
         targetUserIds: targetFollowerIds, // ✅ WEEK 1 FIX: Array of all targeted users
-        type: post.media && post.media.length > 0 ? 
-          (post.media.length > 1 ? 'carousel' : (post.media[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+        type: normalizedMedia.length > 0 ? 
+          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'photo'
       });
       
       await feedPost.save();
