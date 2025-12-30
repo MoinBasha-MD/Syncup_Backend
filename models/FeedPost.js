@@ -56,6 +56,26 @@ const feedPostSchema = new mongoose.Schema({
     default: false,
     index: true
   },
+  
+  // ✅ PHASE 1: Page post visibility tracking
+  pageVisibility: {
+    type: String,
+    enum: ['public', 'followers', 'custom'],
+    index: true
+  },
+  
+  // ✅ PHASE 1: Targeted user (for followers-only and custom posts)
+  targetUserId: {
+    type: String,
+    index: true
+  },
+  
+  // ✅ WEEK 1 FIX: Array of targeted users (replaces creating multiple documents)
+  targetUserIds: {
+    type: [String],
+    index: true,
+    default: []
+  },
   type: {
     type: String,
     enum: ['photo', 'video', 'carousel'],
@@ -137,6 +157,10 @@ feedPostSchema.index({ privacy: 1, createdAt: -1 });
 feedPostSchema.index({ hashtags: 1 });
 feedPostSchema.index({ pageId: 1, createdAt: -1 }); // For page posts
 feedPostSchema.index({ isPagePost: 1, createdAt: -1 }); // For filtering
+// ✅ PHASE 1: New indexes for targeted distribution
+feedPostSchema.index({ pageVisibility: 1 });
+feedPostSchema.index({ targetUserId: 1, createdAt: -1 });
+feedPostSchema.index({ pageId: 1, pageVisibility: 1, targetUserId: 1 });
 
 // Extract hashtags from caption
 feedPostSchema.pre('save', function(next) {
@@ -249,10 +273,36 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
         $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }]
       },
       
-      // Posts from followed pages (Phase 2)
+      // ✅ PHASE 1: Page posts - PUBLIC (everyone can see)
       {
         pageId: { $in: followedPageIds },
-        isPagePost: true
+        isPagePost: true,
+        $or: [
+          { pageVisibility: 'public' },
+          { pageVisibility: { $exists: false } } // Backward compatibility
+        ]
+      },
+      
+      // ✅ PHASE 1: Page posts - FOLLOWERS ONLY (targeted to this user)
+      {
+        pageId: { $in: followedPageIds },
+        isPagePost: true,
+        pageVisibility: 'followers',
+        $or: [
+          { targetUserId: userId }, // Old format (single user)
+          { targetUserIds: userId } // ✅ WEEK 1 FIX: New format (array)
+        ]
+      },
+      
+      // ✅ PHASE 1: Page posts - CUSTOM (targeted to this user)
+      {
+        pageId: { $in: followedPageIds },
+        isPagePost: true,
+        pageVisibility: 'custom',
+        $or: [
+          { targetUserId: userId }, // Old format (single user)
+          { targetUserIds: userId } // ✅ WEEK 1 FIX: New format (array)
+        ]
       }
     ]
   };

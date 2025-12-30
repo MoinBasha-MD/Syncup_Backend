@@ -1,16 +1,25 @@
 const PagePost = require('../models/PagePost');
 const Page = require('../models/Page');
 const FeedPost = require('../models/FeedPost');
+const PageFollower = require('../models/PageFollower');
 
-// ✅ Create a new page post
+// ✅ PHASE 1: Create a new page post with visibility controls
 const createPagePost = async (req, res) => {
   try {
     const { pageId } = req.params;
-    const { content, media, scheduledFor, hashtags, showHashtags } = req.body;
+    const { 
+      content, 
+      media, 
+      scheduledFor, 
+      hashtags, 
+      showHashtags,
+      visibility = 'public', // ✅ PHASE 1: New field
+      targetAudience // ✅ PHASE 1: New field
+    } = req.body;
 
-    console.log('📝 [PAGE POST] Creating vibe for page:', pageId);
-    console.log('📝 [PAGE POST] Hashtags:', hashtags);
-    console.log('📝 [PAGE POST] Show hashtags:', showHashtags);
+    console.log('📝 [PAGE POST] Creating post for page:', pageId);
+    console.log('📝 [PAGE POST] Visibility:', visibility);
+    console.log('📝 [PAGE POST] Target Audience:', targetAudience);
 
     // Find page
     const page = await Page.findById(pageId);
@@ -29,6 +38,22 @@ const createPagePost = async (req, res) => {
       });
     }
 
+    // ✅ PHASE 1: Validate visibility
+    if (!['public', 'followers', 'custom'].includes(visibility)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid visibility option. Must be: public, followers, or custom'
+      });
+    }
+
+    // ✅ PHASE 1: Validate custom targeting
+    if (visibility === 'custom' && !targetAudience) {
+      return res.status(400).json({
+        success: false,
+        message: 'Target audience required for custom visibility'
+      });
+    }
+
     // Create post
     const post = new PagePost({
       page: pageId,
@@ -37,7 +62,10 @@ const createPagePost = async (req, res) => {
       media: media || [],
       hashtags: hashtags || [],
       showHashtags: showHashtags !== undefined ? showHashtags : false,
+      visibility, // ✅ PHASE 1
+      targetAudience: targetAudience || { enabled: false }, // ✅ PHASE 1
       scheduledFor: scheduledFor || null,
+      status: scheduledFor ? 'scheduled' : 'published', // ✅ PHASE 1
       isPublished: !scheduledFor,
       publishedAt: scheduledFor ? null : new Date()
     });
@@ -48,38 +76,19 @@ const createPagePost = async (req, res) => {
     page.postCount += 1;
     await page.save();
 
-    console.log('✅ [PAGE POST] Vibe created successfully:', post._id);
+    console.log('✅ [PAGE POST] Post created successfully:', post._id);
 
-    // ✅ CRITICAL: Also create FeedPost for distribution to followers' feeds and Explore
-    try {
-      const feedPost = new FeedPost({
-        userId: req.user._id,
-        content: content,
-        media: media || [],
-        hashtags: hashtags || [],
-        showHashtags: showHashtags !== undefined ? showHashtags : false,
-        privacy: 'public', // Page posts are always public
-        isPagePost: true,
-        pageId: pageId,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      });
-
-      await feedPost.save();
-      console.log('✅ [PAGE POST] FeedPost created for distribution:', feedPost._id);
-      console.log('📢 [PAGE POST] Page vibe will now appear in:');
-      console.log('   - Followers\' feeds');
-      console.log('   - Explore feed (public discovery)');
-      console.log('   - Page profile');
-    } catch (feedError) {
-      console.error('⚠️ [PAGE POST] Failed to create FeedPost (vibe still saved to PagePost):', feedError);
-      // Don't fail the entire request if FeedPost creation fails
-      // The vibe is still saved to PagePost and visible on page profile
+    // ✅ PHASE 1: Handle distribution based on visibility
+    if (!scheduledFor) {
+      await distributePagePost(post, page, visibility, targetAudience);
+    } else {
+      console.log('📅 [PAGE POST] Post scheduled for:', scheduledFor);
+      // TODO Phase 2: Schedule for later distribution
     }
 
     res.status(201).json({
       success: true,
-      message: 'Vibe created successfully',
+      message: 'Post created successfully',
       post
     });
   } catch (error) {
@@ -91,6 +100,133 @@ const createPagePost = async (req, res) => {
     });
   }
 };
+
+// ✅ PHASE 1: Distribution logic for page posts
+async function distributePagePost(post, page, visibility, targetAudience) {
+  console.log(`📢 [DISTRIBUTION] Starting distribution for post ${post._id}`);
+  console.log(`📢 [DISTRIBUTION] Visibility: ${visibility}`);
+  
+  try {
+    if (visibility === 'public') {
+      // PUBLIC DISTRIBUTION - Single FeedPost for all users
+      console.log('📢 [DISTRIBUTION] Creating public FeedPost (visible to everyone)');
+      
+      const feedPost = new FeedPost({
+        userId: post.author,
+        content: post.content,
+        media: post.media || [],
+        hashtags: post.hashtags || [],
+        showHashtags: post.showHashtags,
+        privacy: 'public',
+        isPagePost: true,
+        pageId: page._id,
+        pageVisibility: 'public', // ✅ PHASE 1
+        type: post.media && post.media.length > 0 ? 
+          (post.media.length > 1 ? 'carousel' : (post.media[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+      });
+      
+      await feedPost.save();
+      
+      // Update distribution stats
+      post.distributionStats = {
+        totalReach: 0, // Will be calculated by views
+        followerReach: 0,
+        nonFollowerReach: 0,
+        distributedAt: new Date()
+      };
+      await post.save();
+      
+      console.log(`✅ [DISTRIBUTION] Public FeedPost created: ${feedPost._id}`);
+      console.log('📢 [DISTRIBUTION] Post will appear in:');
+      console.log('   - All followers\' feeds');
+      console.log('   - Explore feed (public discovery)');
+      console.log('   - Hashtag pages');
+      
+    } else if (visibility === 'followers') {
+      // ✅ WEEK 1 FIX: FOLLOWERS-ONLY DISTRIBUTION - Single FeedPost with targetUserIds array
+      console.log('📢 [DISTRIBUTION] Creating followers-only FeedPost (optimized)');
+      
+      const followers = await PageFollower.find({ pageId: page._id }).select('userId');
+      const followerIds = followers.map(f => f.userId.toString());
+      console.log(`📢 [DISTRIBUTION] Found ${followerIds.length} followers`);
+      
+      // Create ONE FeedPost with array of targeted users
+      const feedPost = new FeedPost({
+        userId: post.author,
+        content: post.content,
+        media: post.media || [],
+        hashtags: post.hashtags || [],
+        showHashtags: post.showHashtags,
+        privacy: 'friends', // Treated as friends-only
+        isPagePost: true,
+        pageId: page._id,
+        pageVisibility: 'followers',
+        targetUserIds: followerIds, // ✅ WEEK 1 FIX: Array of all targeted users
+        type: post.media && post.media.length > 0 ? 
+          (post.media.length > 1 ? 'carousel' : (post.media[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+      });
+      
+      await feedPost.save();
+      
+      // Update distribution stats
+      post.distributionStats = {
+        totalReach: followerIds.length,
+        followerReach: followerIds.length,
+        nonFollowerReach: 0,
+        targetedFollowers: followerIds.length,
+        distributedAt: new Date()
+      };
+      await post.save();
+      
+      console.log(`✅ [DISTRIBUTION] Created 1 FeedPost targeting ${followerIds.length} followers (optimized)`);
+      console.log('📢 [DISTRIBUTION] Post will appear ONLY in followers\' feeds');
+      
+    } else if (visibility === 'custom') {
+      // ✅ WEEK 1 FIX: CUSTOM AUDIENCE DISTRIBUTION - Single FeedPost with targetUserIds array
+      console.log('📢 [DISTRIBUTION] Creating custom-targeted FeedPost (optimized)');
+      console.log('📢 [DISTRIBUTION] Target criteria:', JSON.stringify(targetAudience));
+      
+      // Get targeted followers based on criteria
+      const targetFollowers = await PageFollower.getTargetedFollowers(page._id, targetAudience);
+      const targetFollowerIds = targetFollowers.map(f => f.userId.toString());
+      console.log(`📢 [DISTRIBUTION] Found ${targetFollowerIds.length} targeted followers`);
+      
+      // Create ONE FeedPost with array of targeted users
+      const feedPost = new FeedPost({
+        userId: post.author,
+        content: post.content,
+        media: post.media || [],
+        hashtags: post.hashtags || [],
+        showHashtags: post.showHashtags,
+        privacy: 'friends',
+        isPagePost: true,
+        pageId: page._id,
+        pageVisibility: 'custom',
+        targetUserIds: targetFollowerIds, // ✅ WEEK 1 FIX: Array of all targeted users
+        type: post.media && post.media.length > 0 ? 
+          (post.media.length > 1 ? 'carousel' : (post.media[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+      });
+      
+      await feedPost.save();
+      
+      // Update distribution stats
+      post.distributionStats = {
+        totalReach: targetFollowerIds.length,
+        followerReach: targetFollowerIds.length,
+        nonFollowerReach: 0,
+        targetedFollowers: targetFollowerIds.length,
+        distributedAt: new Date()
+      };
+      await post.save();
+      
+      console.log(`✅ [DISTRIBUTION] Created 1 FeedPost targeting ${targetFollowerIds.length} followers (optimized)`);
+      console.log('📢 [DISTRIBUTION] Post will appear ONLY in targeted followers\' feeds');
+    }
+  } catch (error) {
+    console.error('❌ [DISTRIBUTION] Distribution failed:', error);
+    throw error;
+  }
+}
 
 // ✅ Get all posts for a page
 const getPagePosts = async (req, res) => {
@@ -289,6 +425,25 @@ const toggleLikePagePost = async (req, res) => {
 
     console.log(`✅ [PAGE POST] Post ${isLiked ? 'liked' : 'unliked'}:`, postId);
 
+    // ✅ WEEK 2 FIX: Track engagement for page followers
+    if (isLiked) {
+      try {
+        const PageFollower = require('../models/PageFollower');
+        const follower = await PageFollower.findOne({
+          pageId: pageId,
+          userId: req.user._id
+        });
+        
+        if (follower) {
+          await follower.trackEngagement('like');
+          console.log(`📊 [PAGE POST] Tracked like engagement for follower ${req.user._id}`);
+        }
+      } catch (engagementError) {
+        console.error('❌ [PAGE POST] Error tracking engagement:', engagementError);
+        // Don't fail the request if engagement tracking fails
+      }
+    }
+
     res.json({
       success: true,
       message: isLiked ? 'Post liked' : 'Post unliked',
@@ -335,6 +490,23 @@ const addCommentToPagePost = async (req, res) => {
     const newComment = post.comments[post.comments.length - 1];
 
     console.log('✅ [PAGE POST] Comment added to post:', postId);
+
+    // ✅ WEEK 2 FIX: Track engagement for page followers
+    try {
+      const PageFollower = require('../models/PageFollower');
+      const follower = await PageFollower.findOne({
+        pageId: pageId,
+        userId: req.user._id
+      });
+      
+      if (follower) {
+        await follower.trackEngagement('comment');
+        console.log(`📊 [PAGE POST] Tracked comment engagement for follower ${req.user._id}`);
+      }
+    } catch (engagementError) {
+      console.error('❌ [PAGE POST] Error tracking engagement:', engagementError);
+      // Don't fail the request if engagement tracking fails
+    }
 
     res.status(201).json({
       success: true,
@@ -420,6 +592,23 @@ const sharePagePost = async (req, res) => {
     await post.incrementShares();
 
     console.log('✅ [PAGE POST] Post shared:', postId);
+
+    // ✅ WEEK 2 FIX: Track engagement for page followers
+    try {
+      const PageFollower = require('../models/PageFollower');
+      const follower = await PageFollower.findOne({
+        pageId: pageId,
+        userId: req.user._id
+      });
+      
+      if (follower) {
+        await follower.trackEngagement('share');
+        console.log(`📊 [PAGE POST] Tracked share engagement for follower ${req.user._id}`);
+      }
+    } catch (engagementError) {
+      console.error('❌ [PAGE POST] Error tracking engagement:', engagementError);
+      // Don't fail the request if engagement tracking fails
+    }
 
     res.json({
       success: true,

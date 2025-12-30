@@ -100,9 +100,57 @@ const pagePostSchema = new mongoose.Schema({
     default: false
   },
   
+  // ✅ PHASE 1: Post visibility control
+  visibility: {
+    type: String,
+    enum: ['public', 'followers', 'custom'],
+    default: 'public',
+    required: true,
+    index: true
+  },
+  
+  // ✅ PHASE 1: Audience targeting
+  targetAudience: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    countries: [String], // ISO country codes (e.g., ['US', 'UK', 'IN'])
+    excludeCountries: [String], // Countries to exclude
+    ageRange: {
+      min: { type: Number, min: 13, max: 100 },
+      max: { type: Number, min: 13, max: 100 }
+    },
+    customListIds: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PageFollowerList'
+    }]
+  },
+  
+  // ✅ PHASE 1: Post status for scheduling
+  status: {
+    type: String,
+    enum: ['draft', 'scheduled', 'published', 'archived'],
+    default: 'published',
+    index: true
+  },
+  
   // Scheduling
   scheduledFor: Date,
   publishedAt: Date,
+  timezone: {
+    type: String,
+    default: 'UTC'
+  },
+  
+  // ✅ PHASE 1: Distribution tracking
+  distributionStats: {
+    totalReach: { type: Number, default: 0 },
+    followerReach: { type: Number, default: 0 },
+    nonFollowerReach: { type: Number, default: 0 },
+    targetedFollowers: { type: Number, default: 0 },
+    distributedAt: Date
+  },
   
   // Analytics
   analytics: {
@@ -120,6 +168,10 @@ pagePostSchema.index({ page: 1, createdAt: -1 });
 pagePostSchema.index({ page: 1, isPinned: -1, createdAt: -1 });
 pagePostSchema.index({ hashtags: 1 });
 pagePostSchema.index({ isPublished: 1, publishedAt: -1 });
+// ✅ PHASE 1: New indexes for visibility and status
+pagePostSchema.index({ visibility: 1 });
+pagePostSchema.index({ status: 1, scheduledFor: 1 });
+pagePostSchema.index({ 'targetAudience.countries': 1 });
 
 // Virtual for engagement rate
 pagePostSchema.virtual('engagementRate').get(function() {

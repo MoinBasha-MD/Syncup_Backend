@@ -13,19 +13,34 @@ const {
   sharePagePost
 } = require('../controllers/pagePostController');
 
-// ✅ Post management routes
-router.post('/:pageId/posts', protect, createPagePost);
-router.get('/:pageId/posts', getPagePosts);
-router.get('/:pageId/posts/:postId', getPagePost);
-router.put('/:pageId/posts/:postId', protect, updatePagePost);
-router.delete('/:pageId/posts/:postId', protect, deletePagePost);
+// ✅ WEEK 2 FIX: Import validation middleware
+const {
+  validatePagePost,
+  validatePageId,
+  validatePostId,
+  validateComment
+} = require('../middleware/validatePagePost');
 
-// ✅ Post engagement routes
-router.post('/:pageId/posts/:postId/like', protect, toggleLikePagePost);
-router.post('/:pageId/posts/:postId/share', protect, sharePagePost);
+// ✅ WEEK 2 FIX: Import rate limiting middleware
+const {
+  postCreationLimiter,
+  commentLimiter,
+  likeLimiter
+} = require('../middleware/rateLimiter');
 
-// ✅ Comment routes
-router.post('/:pageId/posts/:postId/comments', protect, addCommentToPagePost);
-router.delete('/:pageId/posts/:postId/comments/:commentId', protect, deleteCommentFromPagePost);
+// ✅ Post management routes (with validation + rate limiting)
+router.post('/:pageId/posts', protect, postCreationLimiter, validatePageId, validatePagePost, createPagePost);
+router.get('/:pageId/posts', validatePageId, getPagePosts);
+router.get('/:pageId/posts/:postId', validatePageId, validatePostId, getPagePost);
+router.put('/:pageId/posts/:postId', protect, validatePageId, validatePostId, validatePagePost, updatePagePost);
+router.delete('/:pageId/posts/:postId', protect, validatePageId, validatePostId, deletePagePost);
+
+// ✅ Post engagement routes (with validation + rate limiting)
+router.post('/:pageId/posts/:postId/like', protect, likeLimiter, validatePageId, validatePostId, toggleLikePagePost);
+router.post('/:pageId/posts/:postId/share', protect, validatePageId, validatePostId, sharePagePost);
+
+// ✅ Comment routes (with validation + rate limiting)
+router.post('/:pageId/posts/:postId/comments', protect, commentLimiter, validatePageId, validatePostId, validateComment, addCommentToPagePost);
+router.delete('/:pageId/posts/:postId/comments/:commentId', protect, validatePageId, validatePostId, deleteCommentFromPagePost);
 
 module.exports = router;

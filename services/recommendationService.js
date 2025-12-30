@@ -182,21 +182,40 @@ class RecommendationService {
   async getPersonalizedExploreFeed(userId, page = 1, limit = 20, excludeUserIds = [], excludePageIds = []) {
     console.log(`🎯 [RECOMMENDATION] Getting personalized feed for user ${userId}`);
     
+    // ✅ WEEK 1 FIX: Get posts user has already seen (last 30 days)
+    const UserSeenPost = require('../models/UserSeenPost');
+    const seenPostIds = await UserSeenPost.getSeenPostIds(userId);
+    console.log(`👁️ [RECOMMENDATION] Excluding ${seenPostIds.length} already seen posts`);
+    
     // Check if user has interaction history
     const userInteractions = await UserInteraction.getUserInteractions(userId, 30, 100);
     const hasHistory = userInteractions.length > 0;
     
     console.log(`📊 [RECOMMENDATION] User has ${userInteractions.length} interactions in last 30 days`);
     
-    // Get candidate posts (public posts from non-friends)
+    // Get candidate posts (public posts from non-friends, excluding seen posts)
     const candidateLimit = limit * 5; // Get more candidates for scoring
     const candidatePosts = await FeedPost.find({
+      _id: { $nin: seenPostIds }, // ✅ WEEK 1 FIX: Exclude seen posts
       isActive: true,
       privacy: 'public',
       userId: { $nin: [userId, ...excludeUserIds] },
       $or: [
-        { $and: [{ $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }] }, { userId: { $nin: excludeUserIds } }] },
-        { $and: [{ isPagePost: true }, { pageId: { $nin: excludePageIds } }] }
+        // Regular user posts (not page posts)
+        {
+          $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }],
+          userId: { $nin: excludeUserIds }
+        },
+        // ✅ WEEK 2 FIX: Page posts - ONLY PUBLIC ones (exclude followers-only and custom)
+        {
+          isPagePost: true,
+          pageId: { $nin: excludePageIds },
+          $or: [
+            { pageVisibility: 'public' },
+            { pageVisibility: { $exists: false } } // Backward compatibility for old posts
+          ]
+          // This excludes: pageVisibility: 'followers' and pageVisibility: 'custom'
+        }
       ]
     })
     .sort({ createdAt: -1 })
@@ -204,7 +223,7 @@ class RecommendationService {
     .populate('pageId', 'name username profileImage isVerified')
     .lean();
     
-    console.log(`📦 [RECOMMENDATION] Found ${candidatePosts.length} candidate posts`);
+    console.log(`📦 [RECOMMENDATION] Found ${candidatePosts.length} candidate posts (after excluding seen)`);
     
     // If user has no history, use trending/popular content
     if (!hasHistory) {
@@ -244,6 +263,22 @@ class RecommendationService {
     // Log top post score breakdown for debugging
     if (paginatedPosts.length > 0) {
       console.log(`🎯 [RECOMMENDATION] Top post score:`, paginatedPosts[0]._scoreBreakdown);
+    }
+    
+    // ✅ WEEK 1 FIX: Track these posts as shown to user
+    if (paginatedPosts.length > 0) {
+      const postIds = paginatedPosts.map(p => p._id);
+      const UserSeenPost = require('../models/UserSeenPost');
+      
+      // Track asynchronously (don't wait)
+      UserSeenPost.trackViewsBatch(userId, postIds, { 
+        source: 'explore',
+        sessionId: Date.now().toString()
+      }).catch(err => {
+        console.error('❌ [RECOMMENDATION] Error tracking shown posts:', err);
+      });
+      
+      console.log(`👁️ [RECOMMENDATION] Tracking ${postIds.length} posts as shown to user ${userId}`);
     }
     
     return paginatedPosts;
