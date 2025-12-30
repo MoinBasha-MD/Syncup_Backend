@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
-const User = require('../models/User');
+const User = require('../models/userModel');
 const Page = require('../models/Page');
 const PageFollower = require('../models/PageFollower');
 const Friend = require('../models/Friend');
