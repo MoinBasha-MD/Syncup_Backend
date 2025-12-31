@@ -399,6 +399,10 @@ const userSchema = mongoose.Schema(
       addedAt: {
         type: Date,
         default: Date.now
+      },
+      lastUsed: {
+        type: Date,
+        default: Date.now
       }
     }],
     // Chat encryption settings

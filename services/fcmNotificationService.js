@@ -109,7 +109,7 @@ class FCMNotificationService {
 
       console.log(`✅ [FCM] Wakeup notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
 
-      // Remove invalid tokens
+      // Process results and cleanup invalid tokens
       if (response.failureCount > 0) {
         const invalidTokens = [];
         response.responses.forEach((resp, idx) => {
@@ -119,11 +119,36 @@ class FCMNotificationService {
           }
         });
 
-        // Remove invalid tokens from database
+        // Remove ALL invalid tokens from database
         if (invalidTokens.length > 0) {
           await User.updateOne(
             { userId },
             { $pull: { fcmTokens: { token: { $in: invalidTokens } } } }
+          );
+          console.log(`🧹 [FCM] Cleaned up ${invalidTokens.length} invalid token(s)`);
+        }
+      }
+
+      // Update lastUsed timestamp for successful tokens
+      if (response.successCount > 0) {
+        const successfulTokens = [];
+        response.responses.forEach((resp, idx) => {
+          if (resp.success) {
+            successfulTokens.push(tokens[idx]);
+          }
+        });
+
+        if (successfulTokens.length > 0) {
+          await User.updateOne(
+            { userId },
+            { 
+              $set: { 
+                'fcmTokens.$[elem].lastUsed': new Date() 
+              } 
+            },
+            { 
+              arrayFilters: [{ 'elem.token': { $in: successfulTokens } }] 
+            }
           );
         }
       }

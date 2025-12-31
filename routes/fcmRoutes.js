@@ -44,17 +44,30 @@ router.post('/register-fcm-token', protect, async (req, res) => {
     const tokenExists = user.fcmTokens.some(t => t.token === fcmToken);
     
     if (!tokenExists) {
+      // CRITICAL FIX: Remove old tokens for this platform to prevent accumulation
+      // Keep only the latest token per platform
+      const currentPlatform = platform || 'android';
+      user.fcmTokens = user.fcmTokens.filter(t => t.platform !== currentPlatform);
+      
       // Add new token
       user.fcmTokens.push({
         token: fcmToken,
-        platform: platform || 'android',
-        addedAt: new Date()
+        platform: currentPlatform,
+        addedAt: new Date(),
+        lastUsed: new Date()
       });
 
       await user.save();
-      console.log('✅ [FCM] Token registered successfully');
+      console.log('✅ [FCM] Token registered successfully (old tokens removed)');
+      console.log(`📱 [FCM] Active tokens: ${user.fcmTokens.length}`);
     } else {
-      console.log('ℹ️ [FCM] Token already registered');
+      // Update lastUsed timestamp for existing token
+      const existingToken = user.fcmTokens.find(t => t.token === fcmToken);
+      if (existingToken) {
+        existingToken.lastUsed = new Date();
+        await user.save();
+      }
+      console.log('ℹ️ [FCM] Token already registered (timestamp updated)');
     }
 
     res.json({
@@ -183,6 +196,60 @@ router.post('/test-fcm', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to send test notification',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Cleanup old/unused FCM tokens
+ * POST /api/notifications/cleanup-tokens
+ * Removes tokens older than 30 days that haven't been used
+ */
+router.post('/cleanup-tokens', protect, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    console.log('🧹 [FCM] Cleaning up old tokens for user:', userId);
+
+    const user = await User.findOne({ userId });
+    
+    if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No tokens to cleanup',
+        removedCount: 0
+      });
+    }
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const initialCount = user.fcmTokens.length;
+
+    // Remove tokens older than 30 days that haven't been used recently
+    user.fcmTokens = user.fcmTokens.filter(token => {
+      const lastUsed = token.lastUsed || token.addedAt;
+      return lastUsed > thirtyDaysAgo;
+    });
+
+    const removedCount = initialCount - user.fcmTokens.length;
+
+    if (removedCount > 0) {
+      await user.save();
+      console.log(`✅ [FCM] Removed ${removedCount} old token(s)`);
+    }
+
+    res.json({
+      success: true,
+      message: 'Token cleanup completed',
+      removedCount,
+      remainingCount: user.fcmTokens.length
+    });
+
+  } catch (error) {
+    console.error('❌ [FCM] Error cleaning up tokens:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cleanup tokens',
       error: error.message
     });
   }
