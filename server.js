@@ -100,6 +100,9 @@ app.set('trust proxy', 1);
 memoryMonitor();
 
 // Security middleware (order matters!)
+const { ipBlocker, suspiciousPatternDetector } = require('./middleware/ipBlockMiddleware');
+app.use(ipBlocker); // Block known malicious IPs (FIRST - before any processing)
+app.use(suspiciousPatternDetector); // Monitor suspicious patterns
 app.use(securityHeaders); // Add security headers
 app.use(requestSizeLimiter); // Limit request size
 // app.use(mongoSanitizer); // Temporarily disabled due to compatibility issue

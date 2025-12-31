@@ -262,40 +262,10 @@ const sendMessage = async (req, res) => {
         savedMessage.status = 'delivered';
         await savedMessage.save();
       } else {
-        console.log('⚠️ Primary WebSocket failed, trying multi-device broadcast...');
-        
-        // Strategy 2: Multi-device notification broadcast
-        const receiverWithDevices = await User.findOne({ userId: receiverId }).select('deviceTokens');
-        if (receiverWithDevices && receiverWithDevices.deviceTokens && receiverWithDevices.deviceTokens.length > 0) {
-          console.log(`📱 [MESSAGE] Broadcasting to ${receiverWithDevices.deviceTokens.length} registered device(s)`);
-          
-          const io = req.app.get('io'); // Get Socket.IO instance
-          let deviceNotified = false;
-          
-          receiverWithDevices.deviceTokens.forEach((device, index) => {
-            if (device.isActive) {
-              console.log(`📱 [MESSAGE] Notifying device ${index + 1}:`, {
-                platform: device.platform,
-                tokenPreview: device.token.substring(0, 20) + '...',
-                lastActive: device.lastActive
-              });
-              
-              // Emit to device-specific channel
-              io.emit(`message:new:${device.token}`, messageData);
-              deviceNotified = true;
-            }
-          });
-          
-          if (deviceNotified) {
-            console.log('✅ [MESSAGE] Notification sent to active devices');
-            savedMessage.status = 'delivered';
-            await savedMessage.save();
-          } else {
-            console.log('⚠️ [MESSAGE] No active devices found');
-          }
-        } else {
-          console.log('⚠️ [MESSAGE] Receiver has no registered devices');
-        }
+        console.log('⚠️ Primary WebSocket failed - user offline');
+        // FCM notification already sent by enhancedNotificationService
+        // No need for additional device-specific broadcasts
+        console.log('📱 [MESSAGE] FCM notification will wake the app when delivered');
       }
     } catch (socketError) {
       console.error('❌ Error broadcasting message:', socketError);
