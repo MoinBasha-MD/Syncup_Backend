@@ -41,7 +41,7 @@ const createGame = async (req, res) => {
     // Generate unique game ID
     const gameId = ChatGame.generateGameId();
 
-    // Create new game
+    // Create new game (auto-start immediately)
     const game = new ChatGame({
       gameId,
       chatId,
@@ -52,12 +52,13 @@ const createGame = async (req, res) => {
       player2Name: opponent.name,
       board: Array(9).fill(''),
       currentTurn: creatorUserId, // Creator goes first
-      status: 'pending'
+      status: 'active', // Start immediately, no acceptance needed
+      acceptedAt: new Date()
     });
 
     await game.save();
 
-    console.log('✅ [GAME] Game created:', gameId);
+    console.log('✅ [GAME] Game created and started:', gameId);
 
     // Send WebSocket invitation to opponent
     try {
@@ -65,8 +66,9 @@ const createGame = async (req, res) => {
       const io = getSocketManager();
       
       if (io) {
-        const invitationData = {
+        const gameData = {
           gameId,
+          game,
           from: creatorUserId,
           fromName: creator.name,
           to: opponentUserId,
@@ -74,9 +76,11 @@ const createGame = async (req, res) => {
           chatId
         };
         
-        io.to(opponentUserId).emit('game:invitation', invitationData);
-        console.log('📤 [GAME] Invitation sent to:', opponentUserId);
-        console.log('📤 [GAME] Invitation data:', invitationData);
+        // Notify both players that game has started
+        io.to(creatorUserId).emit('game:started', gameData);
+        io.to(opponentUserId).emit('game:started', gameData);
+        console.log('📤 [GAME] Game started notification sent to both players');
+        console.log('📤 [GAME] Game data:', { gameId, status: 'active', currentTurn: creatorUserId });
       }
     } catch (socketError) {
       console.error('⚠️ [GAME] Failed to send WebSocket invitation:', socketError);
