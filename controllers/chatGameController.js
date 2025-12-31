@@ -65,17 +65,35 @@ const createGame = async (req, res) => {
       const io = getSocketManager();
       
       if (io) {
-        io.to(opponentUserId).emit('game:invitation', {
+        const invitationData = {
           gameId,
           from: creatorUserId,
           fromName: creator.name,
+          to: opponentUserId,
           gameType: 'tictactoe',
           chatId
-        });
+        };
+        
+        io.to(opponentUserId).emit('game:invitation', invitationData);
         console.log('📤 [GAME] Invitation sent to:', opponentUserId);
+        console.log('📤 [GAME] Invitation data:', invitationData);
       }
     } catch (socketError) {
       console.error('⚠️ [GAME] Failed to send WebSocket invitation:', socketError);
+    }
+
+    // Send FCM notification as backup (in case user doesn't have chat open)
+    try {
+      const fcmNotificationService = require('../services/fcmNotificationService');
+      await fcmNotificationService.sendWakeupNotification(opponentUserId, {
+        senderId: creatorUserId,
+        senderName: creator.name,
+        messagePreview: `🎮 ${creator.name} wants to play Tic-Tac-Toe!`,
+        messageId: gameId
+      });
+      console.log('📱 [GAME] FCM notification sent to opponent');
+    } catch (fcmError) {
+      console.error('⚠️ [GAME] Failed to send FCM notification:', fcmError);
     }
 
     res.status(201).json({
