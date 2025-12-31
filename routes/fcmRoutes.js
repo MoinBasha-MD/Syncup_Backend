@@ -60,6 +60,15 @@ router.post('/register-fcm-token', protect, async (req, res) => {
       await user.save();
       console.log('✅ [FCM] Token registered successfully (old tokens removed)');
       console.log(`📱 [FCM] Active tokens: ${user.fcmTokens.length}`);
+      console.log(`🔍 [FCM DEBUG] Saved token details:`, {
+        userId: user.userId,
+        tokenCount: user.fcmTokens.length,
+        tokens: user.fcmTokens.map(t => ({
+          platform: t.platform,
+          tokenPreview: t.token.substring(0, 20) + '...',
+          addedAt: t.addedAt
+        }))
+      });
     } else {
       // Update lastUsed timestamp for existing token
       const existingToken = user.fcmTokens.find(t => t.token === fcmToken);

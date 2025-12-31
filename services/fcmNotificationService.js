@@ -59,6 +59,18 @@ class FCMNotificationService {
       // Get user's FCM tokens
       const user = await User.findOne({ userId }).select('fcmTokens');
       
+      console.log(`🔍 [FCM DEBUG] User lookup result:`, {
+        userFound: !!user,
+        userId: userId,
+        hasFcmTokens: user ? !!user.fcmTokens : false,
+        tokenCount: user && user.fcmTokens ? user.fcmTokens.length : 0,
+        tokens: user && user.fcmTokens ? user.fcmTokens.map(t => ({
+          platform: t.platform,
+          tokenPreview: t.token.substring(0, 20) + '...',
+          addedAt: t.addedAt
+        })) : []
+      });
+      
       if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
         console.log(`⚠️ [FCM] No FCM tokens found for user: ${userId}`);
         return { success: false, reason: 'No FCM tokens' };
