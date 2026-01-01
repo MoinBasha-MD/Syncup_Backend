@@ -127,7 +127,10 @@ class FCMNotificationService {
         response.responses.forEach((resp, idx) => {
           if (!resp.success) {
             invalidTokens.push(tokens[idx]);
-            console.log(`⚠️ [FCM] Invalid token removed: ${tokens[idx].substring(0, 20)}...`);
+            console.log(`❌ [FCM] Token failed: ${tokens[idx].substring(0, 20)}...`);
+            console.log(`❌ [FCM] Error code: ${resp.error?.code}`);
+            console.log(`❌ [FCM] Error message: ${resp.error?.message}`);
+            console.log(`❌ [FCM] Full token: ${tokens[idx]}`);
           }
         });
 
