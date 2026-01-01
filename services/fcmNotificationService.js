@@ -85,15 +85,15 @@ class FCMNotificationService {
       const message = {
         notification: {
           title: messageData.senderName || 'New Message',
-          body: messageData.messagePreview || 'You have a new message'
+          body: 'New message' // Always show "New message" for privacy
         },
         data: {
-          type: 'wakeup',
+          type: 'chat_message',
           action: 'reconnect_websocket',
           senderId: String(messageData.senderId || ''),
           senderName: String(messageData.senderName || ''),
           messageId: String(messageData.messageId || ''),
-          messagePreview: String(messageData.messagePreview || ''),
+          chatId: String(messageData.senderId || ''),
           timestamp: new Date().toISOString()
         },
         tokens: tokens,
@@ -102,8 +102,15 @@ class FCMNotificationService {
           ttl: 60000, // 1 minute
           notification: {
             channelId: 'chat_messages',
-            sound: 'default',
-            priority: 'high'
+            sound: 'mess_tone', // Custom notification sound
+            priority: 'high',
+            defaultSound: false,
+            defaultVibrateTimings: false,
+            defaultLightSettings: false,
+            color: '#007AFF', // Blue notification color
+            icon: 'ic_notification',
+            tag: String(messageData.senderId || ''),
+            visibility: 'public'
           }
         },
         apns: {
