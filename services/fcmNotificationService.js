@@ -81,6 +81,7 @@ class FCMNotificationService {
 
       // Create notification payload with both notification and data
       // CRITICAL: notification field required for Android 12+ to wake app when closed
+      // CRITICAL: All data fields MUST be strings (Firebase requirement)
       const message = {
         notification: {
           title: messageData.senderName || 'New Message',
@@ -89,10 +90,10 @@ class FCMNotificationService {
         data: {
           type: 'wakeup',
           action: 'reconnect_websocket',
-          senderId: messageData.senderId || '',
-          senderName: messageData.senderName || '',
-          messageId: messageData.messageId || '',
-          messagePreview: messageData.messagePreview || '',
+          senderId: String(messageData.senderId || ''),
+          senderName: String(messageData.senderName || ''),
+          messageId: String(messageData.messageId || ''),
+          messagePreview: String(messageData.messagePreview || ''),
           timestamp: new Date().toISOString()
         },
         tokens: tokens,
@@ -199,12 +200,19 @@ class FCMNotificationService {
 
       const tokens = user.fcmTokens.map(t => t.token);
 
+      // Convert all data fields to strings (Firebase requirement)
+      const dataFields = notification.data || {};
+      const stringifiedData = {};
+      for (const [key, value] of Object.entries(dataFields)) {
+        stringifiedData[key] = String(value);
+      }
+
       const message = {
         notification: {
           title: notification.title,
           body: notification.body
         },
-        data: notification.data || {},
+        data: stringifiedData,
         tokens: tokens,
         android: {
           priority: 'high',
@@ -252,6 +260,13 @@ class FCMNotificationService {
 
       console.log(`🧪 [FCM TEST] Sending test notification to ${user.name} (${tokens.length} tokens)`);
 
+      // Convert all data fields to strings (Firebase requirement)
+      const additionalData = notification.data || {};
+      const stringifiedAdditionalData = {};
+      for (const [key, value] of Object.entries(additionalData)) {
+        stringifiedAdditionalData[key] = String(value);
+      }
+
       const message = {
         notification: {
           title: notification.title || '🧪 Test Notification',
@@ -259,9 +274,9 @@ class FCMNotificationService {
         },
         data: {
           type: 'test',
-          userId: userId,
+          userId: String(userId),
           timestamp: new Date().toISOString(),
-          ...(notification.data || {})
+          ...stringifiedAdditionalData
         },
         tokens: tokens,
         android: {
