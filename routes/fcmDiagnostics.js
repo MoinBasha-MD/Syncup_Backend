@@ -92,6 +92,46 @@ router.post('/test-token', protect, async (req, res) => {
 });
 
 /**
+ * Get any user's FCM tokens by userId (Admin)
+ * GET /api/fcm-diagnostics/user-tokens/:userId
+ */
+router.get('/user-tokens/:userId', protect, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await User.findOne({ userId }).select('fcmTokens deviceTokens name phoneNumber');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        userId: user.userId,
+        name: user.name,
+        phoneNumber: user.phoneNumber,
+        fcmTokens: user.fcmTokens || [],
+        deviceTokens: user.deviceTokens || [],
+        fcmTokenCount: user.fcmTokens?.length || 0,
+        deviceTokenCount: user.deviceTokens?.length || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ [FCM DIAGNOSTICS] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user tokens',
+      error: error.message
+    });
+  }
+});
+
+/**
  * Get user's current FCM tokens
  * GET /api/fcm-diagnostics/my-tokens
  */
