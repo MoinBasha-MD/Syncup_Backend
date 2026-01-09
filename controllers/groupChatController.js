@@ -79,6 +79,28 @@ const createGroupChat = asyncHandler(async (req, res) => {
 
     console.log(`✅ [GROUP CHAT] Created group "${groupName}" with ${memberIds.length} members`);
 
+    // Broadcast group creation notification to all members (except creator)
+    const notificationData = {
+      type: 'group_created',
+      groupId: groupChat._id,
+      groupName: groupChat.groupName,
+      groupImage: groupChat.groupImage,
+      createdBy: createdBy,
+      memberCount: memberIds.length,
+      timestamp: new Date().toISOString()
+    };
+
+    memberIds.forEach(memberId => {
+      if (memberId !== createdBy) {
+        try {
+          broadcastToUser(memberId, 'group:created', notificationData);
+          console.log(`📢 [GROUP CHAT] Notified member ${memberId} about new group`);
+        } catch (error) {
+          console.error(`❌ [GROUP CHAT] Failed to notify member ${memberId}:`, error);
+        }
+      }
+    });
+
     res.status(201).json({
       success: true,
       data: populatedGroup,
