@@ -16,21 +16,46 @@ exports.getPublicProfile = async (req, res) => {
   try {
     const { userId } = req.params;
     const { includePosts } = req.query;
-    const currentUserId = req.user._id.toString(); // Convert to string for Friend model
+    
+    // Use userId field (UUID string) for Friend model, not _id (MongoDB ObjectId)
+    const currentUserId = req.user.userId || req.user._id.toString();
 
     console.log('🔍 [PROFILE] Getting public profile for userId:', userId);
-    console.log('🔍 [PROFILE] Current user:', currentUserId);
+    console.log('🔍 [PROFILE] Current user ID:', currentUserId);
+    console.log('🔍 [PROFILE] Current user details:', {
+      _id: req.user._id,
+      userId: req.user.userId,
+      name: req.user.name
+    });
 
-    // Find the user - try both _id and userId fields
-    let user = await User.findById(userId).select(
-      'userId name username profileImage bio isOnline lastSeen'
-    );
+    // Determine if userId is a UUID (36 chars with dashes) or MongoDB ObjectId (24 hex chars)
+    const isUUID = typeof userId === 'string' && userId.length === 36 && userId.includes('-');
+    const isObjectId = typeof userId === 'string' && userId.length === 24 && /^[0-9a-fA-F]{24}$/.test(userId);
     
-    // If not found by _id, try by userId field
-    if (!user) {
+    console.log('🔍 [PROFILE] UserId format - isUUID:', isUUID, 'isObjectId:', isObjectId);
+
+    // Find the user based on ID format
+    let user;
+    if (isUUID) {
+      // UUID format - search by userId field
       user = await User.findOne({ userId }).select(
-        'userId name username profileImage bio isOnline lastSeen'
+        'userId name username profileImage bio isOnline lastSeen following'
       );
+    } else if (isObjectId) {
+      // MongoDB ObjectId format - search by _id
+      user = await User.findById(userId).select(
+        'userId name username profileImage bio isOnline lastSeen following'
+      );
+    } else {
+      // Try both methods as fallback
+      user = await User.findOne({ userId }).select(
+        'userId name username profileImage bio isOnline lastSeen following'
+      );
+      if (!user) {
+        user = await User.findById(userId).select(
+          'userId name username profileImage bio isOnline lastSeen following'
+        ).catch(() => null); // Catch casting errors
+      }
     }
 
     if (!user) {
@@ -43,16 +68,14 @@ exports.getPublicProfile = async (req, res) => {
     
     console.log('✅ [PROFILE] User found:', user.name);
 
-    // Check if current user is following this user
-    const isFollowing = await FeedPost.exists({
-      userId: currentUserId,
-      following: userId
-    });
-
-    // Convert target userId to string for Friend model
-    const targetUserId = user._id.toString();
+    // Use the correct userId field for Friend model (UUID string, not MongoDB ObjectId)
+    const targetUserId = user.userId || user._id.toString();
     
+    console.log('🔍 [PROFILE] Target userId for Friend queries:', targetUserId);
     console.log('🔍 [PROFILE] Checking friendship between:', currentUserId, 'and', targetUserId);
+
+    // Check if current user is following this user
+    const isFollowing = user.following && user.following.includes(currentUserId);
 
     // Check if they are friends
     const friendship = await Friend.findOne({
