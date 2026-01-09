@@ -31,6 +31,9 @@ const sendMessage = async (req, res) => {
       burnViewTime,    // seconds
       isGhost,         // boolean
       ghostSessionId,  // string
+      // Message forwarding
+      isForwarded,     // ✅ For forwarded messages
+      forwardedFrom,   // ✅ Original sender userId
       // E2EE Phase 2 - Encrypted payload
       e2ee             // Encrypted message payload
     } = req.body;
@@ -149,6 +152,8 @@ const sendMessage = async (req, res) => {
       sharedPost,      // ✅ Include shared post data
       imageUrl,        // ✅ Include image URL
       fileMetadata,    // ✅ Include file metadata
+      isForwarded,     // ✅ Include forwarded flag
+      forwardedFrom,   // ✅ Include original sender
       // E2EE Phase 2 - Include encrypted payload if present
       e2ee: e2ee || { enabled: false }
     };
