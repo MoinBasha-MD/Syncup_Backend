@@ -311,6 +311,15 @@ const messageSchema = new mongoose.Schema({
       default: 'AES-256-GCM'
     }
   },
+  // Message forwarding
+  isForwarded: {
+    type: Boolean,
+    default: false
+  },
+  forwardedFrom: {
+    type: String, // Original sender userId
+    default: null
+  },
   // Search optimization
   searchText: {
     type: String,
