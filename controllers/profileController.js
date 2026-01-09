@@ -80,17 +80,21 @@ exports.getPublicProfile = async (req, res) => {
 
     // Get posts count - all posts for friends, public only for strangers
     const postsCountQuery = isFriend 
-      ? { userId: userId }  // All posts for friends
-      : { userId: userId, isPublic: true };  // Only public posts for strangers
+      ? { userId: targetUserId }  // All posts for friends
+      : { userId: targetUserId, privacy: 'public' };  // Only public posts for strangers
     
+    console.log('📊 [PROFILE] Posts query:', postsCountQuery);
     const postsCount = await FeedPost.countDocuments(postsCountQuery);
+    console.log('📊 [PROFILE] Posts count:', postsCount);
 
     // Get followers/following counts
     const followersCount = await User.countDocuments({
-      following: userId
+      following: targetUserId
     });
+    console.log('📊 [PROFILE] Followers count:', followersCount);
 
     const followingCount = user.following ? user.following.length : 0;
+    console.log('📊 [PROFILE] Following count:', followingCount);
 
     // CRITICAL FIX: Get friends count for the target user
     // Use Friend.getFriends which properly handles bidirectional friendships
@@ -127,22 +131,50 @@ exports.getPublicProfile = async (req, res) => {
       // If friends, show ALL posts. If not friends, show only public posts
       const postQuery = isFriend 
         ? { userId: targetUserId }  // All posts for friends
-        : { userId: targetUserId, isPublic: true };  // Only public posts for strangers
+        : { userId: targetUserId, privacy: 'public' };  // Only public posts for strangers
       
+      console.log('📸 [PROFILE] Fetching posts with query:', postQuery);
       const posts = await FeedPost.find(postQuery)
         .sort({ createdAt: -1 })
         .limit(50)
-        .select('_id imageUrl videoUrl caption likesCount commentsCount createdAt');
+        .select('_id media type caption likes comments createdAt privacy');
+      
+      console.log(`📸 [PROFILE] Found ${posts.length} posts`);
+      
+      // Transform posts to match frontend format
+      const transformedPosts = posts.map(post => ({
+        _id: post._id,
+        imageUrl: post.media && post.media.length > 0 && post.media[0].type === 'photo' ? post.media[0].url : null,
+        images: post.media ? post.media.filter(m => m.type === 'photo').map(m => m.url) : [],
+        videoUrl: post.media && post.media.length > 0 && post.media[0].type === 'video' ? post.media[0].url : null,
+        caption: post.caption,
+        likesCount: post.likes ? post.likes.length : 0,
+        commentsCount: post.comments ? post.comments.length : 0,
+        createdAt: post.createdAt
+      }));
 
       // Use 'posts' key for friends, 'publicPosts' for strangers
       if (isFriend) {
-        profileData.posts = posts;
+        profileData.posts = transformedPosts;
       } else {
-        profileData.publicPosts = posts;
+        profileData.publicPosts = transformedPosts;
       }
+      
+      console.log('✅ [PROFILE] Posts transformed and added to response');
     }
 
     console.log('✅ [PROFILE] Public profile retrieved successfully');
+    console.log('📦 [PROFILE] Response data:', {
+      name: profileData.name,
+      postsCount: profileData.postsCount,
+      friendsCount: profileData.friendsCount,
+      followersCount: profileData.followersCount,
+      mutualCount: profileData.mutualCount,
+      isFriend: profileData.isFriend,
+      isFollowing: profileData.isFollowing,
+      canSendRequest: profileData.canSendRequest,
+      postsIncluded: includePosts === 'true' ? (profileData.posts?.length || profileData.publicPosts?.length || 0) : 'not requested'
+    });
 
     res.status(200).json({
       success: true,
