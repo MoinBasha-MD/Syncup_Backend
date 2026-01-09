@@ -16,21 +16,32 @@ exports.getPublicProfile = async (req, res) => {
   try {
     const { userId } = req.params;
     const { includePosts } = req.query;
-    const currentUserId = req.user.userId;
+    const currentUserId = req.user._id.toString(); // Convert to string for Friend model
 
-    console.log('🔍 [PROFILE] Getting public profile for:', userId);
+    console.log('🔍 [PROFILE] Getting public profile for userId:', userId);
+    console.log('🔍 [PROFILE] Current user:', currentUserId);
 
-    // Find the user
-    const user = await User.findOne({ userId }).select(
+    // Find the user - try both _id and userId fields
+    let user = await User.findById(userId).select(
       'userId name username profileImage bio isOnline lastSeen'
     );
+    
+    // If not found by _id, try by userId field
+    if (!user) {
+      user = await User.findOne({ userId }).select(
+        'userId name username profileImage bio isOnline lastSeen'
+      );
+    }
 
     if (!user) {
+      console.log('❌ [PROFILE] User not found:', userId);
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
+    
+    console.log('✅ [PROFILE] User found:', user.name);
 
     // Check if current user is following this user
     const isFollowing = await FeedPost.exists({
@@ -38,23 +49,34 @@ exports.getPublicProfile = async (req, res) => {
       following: userId
     });
 
+    // Convert target userId to string for Friend model
+    const targetUserId = user._id.toString();
+    
+    console.log('🔍 [PROFILE] Checking friendship between:', currentUserId, 'and', targetUserId);
+
     // Check if they are friends
     const friendship = await Friend.findOne({
       $or: [
-        { userId: currentUserId, friendUserId: userId, status: 'accepted' },
-        { userId: userId, friendUserId: currentUserId, status: 'accepted' }
-      ]
+        { userId: currentUserId, friendUserId: targetUserId, status: 'accepted' },
+        { userId: targetUserId, friendUserId: currentUserId, status: 'accepted' }
+      ],
+      isDeleted: { $ne: true }
     });
     const isFriend = !!friendship;
+    
+    console.log('🤝 [PROFILE] Are friends?', isFriend);
 
     // Check if can send friend request
     const existingRequest = await Friend.findOne({
       $or: [
-        { userId: currentUserId, friendUserId: userId },
-        { userId: userId, friendUserId: currentUserId }
-      ]
+        { userId: currentUserId, friendUserId: targetUserId },
+        { userId: targetUserId, friendUserId: currentUserId }
+      ],
+      isDeleted: { $ne: true }
     });
     const canSendRequest = !existingRequest;
+    
+    console.log('📤 [PROFILE] Can send request?', canSendRequest);
 
     // Get posts count - all posts for friends, public only for strangers
     const postsCountQuery = isFriend 
@@ -72,14 +94,14 @@ exports.getPublicProfile = async (req, res) => {
 
     // CRITICAL FIX: Get friends count for the target user
     // Use Friend.getFriends which properly handles bidirectional friendships
-    const targetUserFriendsData = await Friend.getFriends(userId);
+    const targetUserFriendsData = await Friend.getFriends(targetUserId);
     const friendsCount = targetUserFriendsData.length;
 
     // CRITICAL FIX: Get mutual friends count using the fixed getMutualFriends method
-    const mutualFriendIds = await Friend.getMutualFriends(currentUserId, userId);
+    const mutualFriendIds = await Friend.getMutualFriends(currentUserId, targetUserId);
     const mutualCount = mutualFriendIds.length;
     
-    console.log(`📊 [PROFILE] Target user ${userId} has ${friendsCount} friends, ${mutualCount} mutual with current user`);
+    console.log(`📊 [PROFILE] Target user ${targetUserId} has ${friendsCount} friends, ${mutualCount} mutual with current user`);
 
     // Build response
     const profileData = {
@@ -104,8 +126,8 @@ exports.getPublicProfile = async (req, res) => {
     if (includePosts === 'true') {
       // If friends, show ALL posts. If not friends, show only public posts
       const postQuery = isFriend 
-        ? { userId: userId }  // All posts for friends
-        : { userId: userId, isPublic: true };  // Only public posts for strangers
+        ? { userId: targetUserId }  // All posts for friends
+        : { userId: targetUserId, isPublic: true };  // Only public posts for strangers
       
       const posts = await FeedPost.find(postQuery)
         .sort({ createdAt: -1 })
