@@ -12,7 +12,7 @@ const Friend = require('../models/Friend');
 router.post('/unified', protect, async (req, res) => {
   try {
     const { query, types = ['all'], limit = 4 } = req.body;
-    const userId = req.user._id;
+    const userId = req.user._id.toString(); // Convert to string for Friend model compatibility
 
     console.log(`🔍 [UNIFIED SEARCH] Query: "${query}", Types: ${types}, User: ${userId}`);
 
@@ -198,19 +198,35 @@ async function searchPeople(userId, query, limit) {
       .lean();
 
     // Get friendship status for each user
-    const userIds = users.map(u => u._id);
+    const userIds = users.map(u => u._id.toString()); // Convert to strings for Friend model
+    
+    console.log(`🔍 [SEARCH DEBUG] Checking friendships for userId: ${userId}`);
+    console.log(`🔍 [SEARCH DEBUG] Checking against userIds:`, userIds);
+    
     const friendships = await Friend.find({
       $or: [
         { userId: userId, friendUserId: { $in: userIds } },
         { userId: { $in: userIds }, friendUserId: userId }
-      ]
+      ],
+      isDeleted: { $ne: true }
     }).lean();
+    
+    console.log(`🔍 [SEARCH DEBUG] Found ${friendships.length} friendships`);
+
+    console.log(`🔍 [SEARCH DEBUG] Found ${friendships.length} friendship records:`, 
+      friendships.map(f => ({ 
+        from: f.userId.toString(), 
+        to: f.friendUserId.toString(), 
+        status: f.status 
+      })));
 
     const friendshipMap = new Map();
     friendships.forEach(f => {
-      const otherUserId = f.userId.toString() === userId.toString() 
-        ? f.friendUserId.toString() 
-        : f.userId.toString();
+      // Friend model stores userId/friendUserId as strings
+      const otherUserId = f.userId === userId 
+        ? f.friendUserId 
+        : f.userId;
+      console.log(`✅ [SEARCH DEBUG] Mapping ${otherUserId} -> status: ${f.status}`);
       friendshipMap.set(otherUserId, f.status);
     });
 
@@ -218,6 +234,8 @@ async function searchPeople(userId, query, limit) {
     const results = await Promise.all(users.map(async (user) => {
       const userIdStr = user._id.toString();
       const status = friendshipMap.get(userIdStr);
+      
+      console.log(`👤 [SEARCH DEBUG] User: ${user.name} (${userIdStr}), Status: ${status || 'null'}`);
       
       // Count mutual friends
       const mutualCount = await Friend.countDocuments({
