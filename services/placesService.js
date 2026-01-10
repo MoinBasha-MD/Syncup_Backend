@@ -19,20 +19,18 @@ class PlacesService {
   }
 
   /**
-   * Get nearby places - Smart caching strategy
-   * 1. Check if region is cached and fresh
-   * 2. If yes, return from DB
-   * 3. If no, fetch from Geoapify API
-   * 4. Save to DB and return
+   * Get nearby places - DB CACHE ONLY
+   * Backend only returns cached data from DB
+   * Frontend handles Geoapify API calls directly
    */
   async getNearbyPlaces(latitude, longitude, radiusMeters = 3000, categories = []) {
     try {
-      console.log('🔍 [PLACES SERVICE] Getting nearby places...');
+      console.log('🔍 [PLACES SERVICE] Checking DB cache...');
       console.log('📍 Location:', latitude, longitude);
       console.log('📏 Radius:', radiusMeters, 'meters');
       console.log('🏷️ Categories:', categories);
 
-      // Step 1: Check if this region is cached
+      // Check if this region is cached
       const cachedRegion = await PlaceCacheRegion.findCachedRegion(
         longitude,
         latitude,
@@ -41,21 +39,10 @@ class PlacesService {
       );
 
       if (cachedRegion && !cachedRegion.isExpired()) {
-        console.log('✅ [PLACES SERVICE] Found cached region, fetching from DB');
+        console.log('✅ [PLACES SERVICE] Found cached region in DB');
         
         // Fetch places from DB
         const places = await Place.findNearby(longitude, latitude, radiusMeters, categories);
-        
-        // Check if any places are stale (> 24 hours old)
-        const stalePlaces = places.filter(p => p.isStale(this.cacheExpiryHours));
-        
-        if (stalePlaces.length > 0) {
-          console.log(`⚠️ [PLACES SERVICE] ${stalePlaces.length} places are stale, will refresh in background`);
-          // Refresh stale places in background (don't wait)
-          this.refreshStalePlaces(stalePlaces).catch(err => {
-            console.error('❌ [PLACES SERVICE] Background refresh failed:', err);
-          });
-        }
         
         return {
           success: true,
@@ -68,25 +55,15 @@ class PlacesService {
         };
       }
 
-      console.log('🌐 [PLACES SERVICE] No valid cache, fetching from Geoapify API');
-      
-      // Step 2: Fetch from Geoapify API
-      const apiPlaces = await this.fetchFromGeoapifyAPI(
-        latitude,
-        longitude,
-        radiusMeters,
-        categories
-      );
-
-      // Step 3: Save to database
-      await this.savePlacesToDB(apiPlaces, longitude, latitude, radiusMeters, categories);
-
+      // No cache found - return empty, frontend will call API
+      console.log('⚠️ [PLACES SERVICE] No cache found in DB');
       return {
-        success: true,
-        source: 'api',
-        places: apiPlaces,
-        count: apiPlaces.length,
-        cached: false
+        success: false,
+        source: 'none',
+        places: [],
+        count: 0,
+        cached: false,
+        message: 'No cached data available. Frontend should call Geoapify API directly.'
       };
     } catch (error) {
       console.error('❌ [PLACES SERVICE] Error:', error);
@@ -94,88 +71,7 @@ class PlacesService {
     }
   }
 
-  /**
-   * Fetch places from Geoapify API
-   */
-  async fetchFromGeoapifyAPI(latitude, longitude, radiusMeters, categories) {
-    try {
-      console.log('🌐 [PLACES SERVICE] Calling Geoapify API...');
-
-      // Build category filter
-      const categoryFilter = categories.length > 0 
-        ? categories.join(',')
-        : 'catering,healthcare,service';
-
-      const url = `${this.geoapifyBaseUrl}?` +
-        `categories=${categoryFilter}` +
-        `&filter=circle:${longitude},${latitude},${radiusMeters}` +
-        `&limit=100` +
-        `&apiKey=${this.geoapifyApiKey}`;
-
-      const response = await axios.get(url, {
-        timeout: 10000 // 10 second timeout
-      });
-
-      if (!response.data || !response.data.features) {
-        console.warn('⚠️ [PLACES SERVICE] No features in API response');
-        return [];
-      }
-
-      const places = this.parseGeoapifyResponse(response.data);
-      console.log(`✅ [PLACES SERVICE] Fetched ${places.length} places from API`);
-
-      return places;
-    } catch (error) {
-      console.error('❌ [PLACES SERVICE] Geoapify API error:', error.message);
-      throw new Error('Failed to fetch places from Geoapify API');
-    }
-  }
-
-  /**
-   * Parse Geoapify API response
-   */
-  parseGeoapifyResponse(data) {
-    return data.features.map(feature => {
-      const props = feature.properties;
-      const coords = feature.geometry.coordinates;
-
-      return {
-        geoapifyPlaceId: props.place_id,
-        name: props.name || props.address_line1 || 'Unknown Place',
-        category: this.extractMainCategory(props.categories),
-        categoryName: this.getCategoryName(props.categories),
-        location: {
-          type: 'Point',
-          coordinates: coords // [longitude, latitude]
-        },
-        address: {
-          formatted: props.formatted || props.address_line1,
-          street: props.street,
-          houseNumber: props.housenumber,
-          city: props.city,
-          state: props.state,
-          country: props.country,
-          postalCode: props.postcode
-        },
-        contact: {
-          phone: props.contact?.phone,
-          website: props.website,
-          email: props.contact?.email
-        },
-        icon: this.getCategoryIcon(props.categories),
-        color: this.getCategoryColor(props.categories),
-        geoapifyCategories: props.categories || [],
-        openingHours: props.opening_hours,
-        cacheMetadata: {
-          firstCachedAt: new Date(),
-          lastUpdatedAt: new Date(),
-          lastVerifiedAt: new Date(),
-          updateCount: 0,
-          source: 'geoapify'
-        }
-      };
-    });
-  }
+  // Geoapify API fetching and parsing removed - frontend handles this directly
 
   /**
    * Save places to database
@@ -207,21 +103,7 @@ class PlacesService {
     }
   }
 
-  /**
-   * Refresh stale places in background
-   */
-  async refreshStalePlaces(stalePlaces) {
-    console.log(`🔄 [PLACES SERVICE] Refreshing ${stalePlaces.length} stale places...`);
-    
-    for (const place of stalePlaces) {
-      try {
-        // Mark as updated
-        await place.updateCache();
-      } catch (error) {
-        console.error(`❌ [PLACES SERVICE] Failed to refresh place ${place.name}:`, error);
-      }
-    }
-  }
+  // Stale place refresh removed - frontend handles API calls
 
   /**
    * Format places for frontend
@@ -244,80 +126,7 @@ class PlacesService {
     }));
   }
 
-  /**
-   * Extract main category from Geoapify categories
-   */
-  extractMainCategory(categories) {
-    if (!categories || categories.length === 0) return 'other';
-    
-    const categoryMap = {
-      'catering.restaurant': 'restaurants',
-      'catering.cafe': 'cafes',
-      'catering.fast_food': 'restaurants',
-      'healthcare.hospital': 'hospitals',
-      'healthcare.clinic': 'hospitals',
-      'service.fuel': 'gas_stations',
-      'service.charging_station': 'gas_stations',
-      'service.financial.bank': 'banks',
-      'service.financial.atm': 'banks'
-    };
-
-    for (const cat of categories) {
-      if (categoryMap[cat]) {
-        return categoryMap[cat];
-      }
-    }
-
-    return 'other';
-  }
-
-  /**
-   * Get category display name
-   */
-  getCategoryName(categories) {
-    const mainCat = this.extractMainCategory(categories);
-    const nameMap = {
-      'restaurants': 'Restaurant',
-      'cafes': 'Cafe',
-      'hospitals': 'Hospital',
-      'gas_stations': 'Gas Station',
-      'banks': 'Bank',
-      'other': 'Place'
-    };
-    return nameMap[mainCat] || 'Place';
-  }
-
-  /**
-   * Get category icon
-   */
-  getCategoryIcon(categories) {
-    const mainCat = this.extractMainCategory(categories);
-    const iconMap = {
-      'restaurants': '🍽️',
-      'cafes': '☕',
-      'hospitals': '🏥',
-      'gas_stations': '⛽',
-      'banks': '🏦',
-      'other': '📍'
-    };
-    return iconMap[mainCat] || '📍';
-  }
-
-  /**
-   * Get category color
-   */
-  getCategoryColor(categories) {
-    const mainCat = this.extractMainCategory(categories);
-    const colorMap = {
-      'restaurants': '#FF6B6B',
-      'cafes': '#F38181',
-      'hospitals': '#4ECDC4',
-      'gas_stations': '#10b981',
-      'banks': '#AA96DA',
-      'other': '#999999'
-    };
-    return colorMap[mainCat] || '#999999';
-  }
+  // Category helper methods removed - frontend handles all Geoapify API processing
 
   /**
    * Check cache status for a region
