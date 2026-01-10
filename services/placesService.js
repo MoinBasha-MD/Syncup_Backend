@@ -8,6 +8,14 @@ class PlacesService {
     this.geoapifyApiKey = process.env.GEOAPIFY_API_KEY;
     this.geoapifyBaseUrl = 'https://api.geoapify.com/v2/places';
     this.cacheExpiryHours = 24; // 24 hours cache
+    
+    // Log API key status for debugging
+    if (!this.geoapifyApiKey) {
+      console.error('❌ [PLACES SERVICE] GEOAPIFY_API_KEY not found in environment variables!');
+      console.error('❌ [PLACES SERVICE] Available env vars:', Object.keys(process.env).filter(k => k.includes('GEO')));
+    } else {
+      console.log('✅ [PLACES SERVICE] Geoapify API key loaded successfully');
+    }
   }
 
   /**
