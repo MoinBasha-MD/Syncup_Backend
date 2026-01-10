@@ -19,13 +19,25 @@ exports.sendIntentNotification = async (req, res) => {
       });
     }
 
-    // Check if target user exists
+    // Check if target user exists and get their status
     const toUser = await User.findById(toUserId);
     if (!toUser) {
       return res.status(404).json({ 
         success: false, 
         message: 'Target user not found' 
       });
+    }
+
+    // Calculate expiry based on user's status end time
+    let expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // Default 24 hours
+    
+    // Check if user has an active status with end time
+    if (toUser.statusEndTime && new Date(toUser.statusEndTime) > new Date()) {
+      expiresAt = new Date(toUser.statusEndTime);
+      console.log(`⏰ Intent will expire with status at: ${expiresAt}`);
+    } else if (toUser.subEndTime && new Date(toUser.subEndTime) > new Date()) {
+      expiresAt = new Date(toUser.subEndTime);
+      console.log(`⏰ Intent will expire with sub-status at: ${expiresAt}`);
     }
 
     // Check if there's already an active intent from this user to target
@@ -35,7 +47,7 @@ exports.sendIntentNotification = async (req, res) => {
       // Update existing intent
       existingIntent.intentType = intentType;
       existingIntent.createdAt = new Date();
-      existingIntent.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      existingIntent.expiresAt = expiresAt;
       await existingIntent.save();
 
       console.log(`🔔 Updated intent notification: ${fromUserId} -> ${toUserId} (${intentType})`);
@@ -45,7 +57,8 @@ exports.sendIntentNotification = async (req, res) => {
         fromUserId,
         toUserId,
         intentType,
-        status: 'pending'
+        status: 'pending',
+        expiresAt
       });
 
       await intent.save();
