@@ -298,6 +298,7 @@ app.use('/api/admin', apiLimiter, require('./routes/adminCleanupRoutes')); // Ad
 app.use('/api', apiLimiter, require('./routes/savedVibesRoutes')); // Saved vibes and collections routes (Feature 1)
 app.use('/api', apiLimiter, require('./routes/commentMentionsRoutes')); // Comment mentions/tagging routes (Feature 2)
 app.use('/api/chat-games', apiLimiter, require('./routes/chatGameRoutes')); // In-chat games (Tic-Tac-Toe)
+app.use('/api/intent-notifications', apiLimiter, require('./routes/intentNotificationRoutes')); // Intent notifications (visual contact indicators)
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 // Admin Dashboard Routes (for admin panel at localhost:3001)
