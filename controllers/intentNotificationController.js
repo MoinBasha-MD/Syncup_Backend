@@ -1,5 +1,5 @@
 const IntentNotification = require('../models/IntentNotification');
-const User = require('../models/User');
+const User = require('../models/userModel');
 const { broadcastToUser } = require('../socketManager');
 
 /**
