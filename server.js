@@ -70,6 +70,7 @@ const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
 const otpRoutes = require('./routes/otpRoutes');
 const cryptoRoutes = require('./routes/cryptoRoutes');
 const placesRoutes = require('./routes/placesRoutes');
+const encryptedFileRoutes = require('./routes/encryptedFileRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
@@ -313,13 +314,16 @@ app.use('/api/admin/auth', adminAuthRoutes);
 // Admin dashboard routes (protected)
 app.use('/api/admin', adminAuthMiddleware, adminDashboardRoutes); // Admin panel API endpoints
 
-// Serve static files from the uploads directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// 🔐 ENCRYPTED FILE ROUTES (MUST BE BEFORE STATIC FILE SERVING)
+// All file requests go through decryption middleware
+app.use('/api', encryptedFileRoutes);
+
+// ⚠️ STATIC FILE SERVING DISABLED FOR UPLOADS (files are encrypted)
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Serve static files from public directory (for JS, CSS, images)
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Also serve uploads under /api/uploads for compatibility
-app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // API status and health check route
 app.get('/', (req, res) => {

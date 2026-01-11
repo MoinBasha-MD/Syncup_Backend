@@ -2,6 +2,7 @@ const Comment = require('../models/Comment');
 const FeedPost = require('../models/FeedPost');
 const User = require('../models/userModel');
 const mongoose = require('mongoose');
+const { getInstance: getPostEncryption } = require('../utils/postEncryption');
 
 // Create a comment on a post
 const createComment = async (req, res) => {
@@ -45,6 +46,17 @@ const createComment = async (req, res) => {
     });
 
     await comment.save();
+
+    // 🔓 Decrypt comment before returning to client
+    const decryptedComment = comment.toObject();
+    try {
+      const postEncryption = getPostEncryption();
+      if (decryptedComment._textEncrypted && decryptedComment.text) {
+        decryptedComment.text = await postEncryption.decryptText(decryptedComment.text);
+      }
+    } catch (decryptError) {
+      console.error('❌ Comment decryption error:', decryptError);
+    }
 
     // Update post comment count (recalculate total including replies)
     const totalComments = await Comment.aggregate([
@@ -92,7 +104,7 @@ const createComment = async (req, res) => {
           userId: comment.userId,
           userName: comment.userName,
           userProfileImage: comment.userProfileImage,
-          text: comment.text,
+          text: decryptedComment.text, // Send decrypted text
           likesCount: comment.likesCount,
           repliesCount: comment.repliesCount,
           createdAt: comment.createdAt
@@ -111,7 +123,7 @@ const createComment = async (req, res) => {
             userId: comment.userId,
             userName: comment.userName,
             userProfileImage: comment.userProfileImage,
-            text: comment.text,
+            text: decryptedComment.text, // Send decrypted text
             likesCount: comment.likesCount,
             repliesCount: comment.repliesCount,
             createdAt: comment.createdAt
@@ -124,7 +136,7 @@ const createComment = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      data: comment,
+      data: decryptedComment,
       message: 'Comment created successfully'
     });
 
@@ -198,11 +210,22 @@ const updateComment = async (req, res) => {
     comment.isEdited = true;
     await comment.save();
 
+    // 🔓 Decrypt comment before returning to client
+    const decryptedComment = comment.toObject();
+    try {
+      const postEncryption = getPostEncryption();
+      if (decryptedComment._textEncrypted && decryptedComment.text) {
+        decryptedComment.text = await postEncryption.decryptText(decryptedComment.text);
+      }
+    } catch (decryptError) {
+      console.error('❌ Comment decryption error:', decryptError);
+    }
+
     console.log(`✏️ Comment updated: ${commentId}`);
 
     res.status(200).json({
       success: true,
-      data: comment,
+      data: decryptedComment,
       message: 'Comment updated successfully'
     });
 

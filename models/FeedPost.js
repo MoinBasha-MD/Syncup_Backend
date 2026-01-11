@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { getInstance: getPostEncryption } = require('../utils/postEncryption');
 
 const mediaItemSchema = new mongoose.Schema({
   type: {
@@ -83,9 +84,14 @@ const feedPostSchema = new mongoose.Schema({
   },
   caption: {
     type: String,
-    maxlength: 2200,
+    maxlength: 5000, // Increased for encrypted content
     trim: true,
     default: ''
+  },
+  _captionEncrypted: {
+    type: Boolean,
+    default: false,
+    select: false // Don't include in queries by default
   },
   media: [mediaItemSchema],
   location: {
@@ -95,6 +101,10 @@ const feedPostSchema = new mongoose.Schema({
     coordinates: {
       lat: Number,
       lng: Number
+    },
+    _nameEncrypted: {
+      type: Boolean,
+      default: false
     }
   },
   hashtags: [{
@@ -162,37 +172,82 @@ feedPostSchema.index({ pageVisibility: 1 });
 feedPostSchema.index({ targetUserId: 1, createdAt: -1 });
 feedPostSchema.index({ pageId: 1, pageVisibility: 1, targetUserId: 1 });
 
-// Extract hashtags from caption
-feedPostSchema.pre('save', function(next) {
-  if (this.isModified('caption')) {
-    const hashtagRegex = /#(\w+)/g;
-    const hashtags = [];
-    let match;
+// 🔐 ENCRYPTION: Encrypt sensitive fields before saving
+feedPostSchema.pre('save', async function(next) {
+  try {
+    const postEncryption = getPostEncryption();
     
-    while ((match = hashtagRegex.exec(this.caption)) !== null) {
-      hashtags.push(match[1].toLowerCase());
+    // Encrypt caption if modified and not already encrypted
+    if (this.isModified('caption') && this.caption && !this._captionEncrypted) {
+      // Extract hashtags BEFORE encryption
+      const hashtagRegex = /#(\w+)/g;
+      const hashtags = [];
+      let match;
+      
+      while ((match = hashtagRegex.exec(this.caption)) !== null) {
+        hashtags.push(match[1].toLowerCase());
+      }
+      
+      this.hashtags = [...new Set(hashtags)];
+      
+      // Extract mentions BEFORE encryption
+      const mentionRegex = /@(\w+)/g;
+      const mentions = [];
+      
+      while ((match = mentionRegex.exec(this.caption)) !== null) {
+        mentions.push(match[1].toLowerCase());
+      }
+      
+      this.mentions = [...new Set(mentions)];
+      
+      // Now encrypt the caption (async)
+      this.caption = await postEncryption.encryptText(this.caption);
+      this._captionEncrypted = true;
+      
+      console.log('🔒 [FEED POST] Caption encrypted');
     }
     
-    this.hashtags = [...new Set(hashtags)]; // Remove duplicates
+    // Encrypt location name if modified and not already encrypted
+    if (this.isModified('location.name') && this.location && this.location.name && !this.location._nameEncrypted) {
+      this.location.name = await postEncryption.encryptText(this.location.name);
+      this.location._nameEncrypted = true;
+      
+      console.log('🔒 [FEED POST] Location name encrypted');
+    }
+    
+    next();
+  } catch (error) {
+    console.error('❌ [FEED POST] Encryption error:', error);
+    // Continue without encryption on error (graceful degradation)
+    next();
   }
-  next();
 });
 
-// Extract mentions from caption
-feedPostSchema.pre('save', function(next) {
-  if (this.isModified('caption')) {
-    const mentionRegex = /@(\w+)/g;
-    const mentions = [];
-    let match;
+// Note: Hashtag and mention extraction moved to encryption pre-save hook above
+
+// 🔓 DECRYPTION: Decrypt post after loading from database
+feedPostSchema.methods.decrypt = function() {
+  try {
+    const postEncryption = getPostEncryption();
     
-    while ((match = mentionRegex.exec(this.caption)) !== null) {
-      mentions.push(match[1].toLowerCase());
+    // Decrypt caption
+    if (this._captionEncrypted && this.caption) {
+      this.caption = postEncryption.decryptText(this.caption);
+      this._captionEncrypted = false;
     }
     
-    this.mentions = [...new Set(mentions)]; // Remove duplicates
+    // Decrypt location name
+    if (this.location && this.location._nameEncrypted && this.location.name) {
+      this.location.name = postEncryption.decryptText(this.location.name);
+      this.location._nameEncrypted = false;
+    }
+    
+    return this;
+  } catch (error) {
+    console.error('❌ [FEED POST] Decryption error:', error);
+    return this; // Return as-is on error
   }
-  next();
-});
+};
 
 // Method to extract hashtags
 feedPostSchema.methods.extractHashtags = function() {

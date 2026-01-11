@@ -1,6 +1,7 @@
 const FeedPost = require('../models/FeedPost');
 const User = require('../models/userModel');
 const Page = require('../models/Page');
+const { getInstance: getPostEncryption } = require('../utils/postEncryption');
 
 // Create a new feed post
 const createFeedPost = async (req, res) => {
@@ -83,6 +84,20 @@ const createFeedPost = async (req, res) => {
       console.log(`✅ Feed post created by ${user.name}:`, newPost._id);
     }
 
+    // 🔓 Decrypt post before returning to client
+    const decryptedPost = newPost.toObject();
+    try {
+      const postEncryption = getPostEncryption();
+      if (decryptedPost.caption && decryptedPost._captionEncrypted) {
+        decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
+      }
+      if (decryptedPost.location?.name && decryptedPost.location._nameEncrypted) {
+        decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
+      }
+    } catch (decryptError) {
+      console.error('❌ Decryption error:', decryptError);
+    }
+
     // Broadcast to WebSocket (optional - for real-time updates)
     try {
       const { broadcastToUser } = require('../socketManager');
@@ -118,7 +133,7 @@ const createFeedPost = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      data: newPost,
+      data: decryptedPost,
       message: 'Post created successfully'
     });
 
@@ -178,15 +193,32 @@ const getFeedPosts = async (req, res) => {
     // Pass friend IDs + all page IDs (followed + owned) to getFeedPosts
     const posts = await FeedPost.getFeedPosts(userId, page, limit, friendUserIds, allPageIds);
 
-    console.log(`✅ Returning ${posts.length} FOR YOU posts (own + friends + pages)`);
+    // 🔓 Decrypt all posts before returning
+    const postEncryption = getPostEncryption();
+    const decryptedPosts = await Promise.all(posts.map(async post => {
+      const decrypted = { ...post };
+      try {
+        if (decrypted.caption && decrypted._captionEncrypted) {
+          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+        }
+        if (decrypted.location?.name && decrypted.location._nameEncrypted) {
+          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+        }
+      } catch (decryptError) {
+        console.error('❌ Decryption error for post:', decrypted._id, decryptError);
+      }
+      return decrypted;
+    }));
+
+    console.log(`✅ Returning ${decryptedPosts.length} FOR YOU posts (own + friends + pages)`);
 
     res.status(200).json({
       success: true,
-      data: posts,
+      data: decryptedPosts,
       pagination: {
         page,
         limit,
-        total: posts.length
+        total: decryptedPosts.length
       }
     });
 
@@ -217,9 +249,23 @@ const getPost = async (req, res) => {
     // Increment view count
     await post.incrementViews();
 
+    // 🔓 Decrypt post before returning
+    const decryptedPost = post.toObject();
+    try {
+      const postEncryption = getPostEncryption();
+      if (decryptedPost.caption && decryptedPost._captionEncrypted) {
+        decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
+      }
+      if (decryptedPost.location?.name && decryptedPost.location._nameEncrypted) {
+        decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
+      }
+    } catch (decryptError) {
+      console.error('❌ Decryption error:', decryptError);
+    }
+
     res.status(200).json({
       success: true,
-      data: post
+      data: decryptedPost
     });
 
   } catch (error) {

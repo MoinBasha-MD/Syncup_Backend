@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { getInstance: getPostEncryption } = require('../utils/postEncryption');
 
 const commentReplySchema = new mongoose.Schema({
   userId: {
@@ -15,8 +16,12 @@ const commentReplySchema = new mongoose.Schema({
   text: {
     type: String,
     required: true,
-    maxlength: 500,
+    maxlength: 1000, // Increased for encrypted content
     trim: true
+  },
+  _textEncrypted: {
+    type: Boolean,
+    default: false
   },
   likes: [{
     type: String // User IDs who liked this reply
@@ -53,8 +58,13 @@ const commentSchema = new mongoose.Schema({
   text: {
     type: String,
     required: true,
-    maxlength: 2200,
+    maxlength: 5000, // Increased for encrypted content
     trim: true
+  },
+  _textEncrypted: {
+    type: Boolean,
+    default: false,
+    select: false // Don't include in queries by default
   },
   mentions: [{
     type: String,
@@ -96,31 +106,58 @@ commentSchema.index({ postId: 1, isActive: 1, createdAt: -1 });
 commentSchema.index({ mentions: 1 });
 commentSchema.index({ hashtags: 1 });
 
-// Pre-save middleware to extract mentions and hashtags
-commentSchema.pre('save', function(next) {
-  if (this.isModified('text')) {
-    // Extract mentions (@username)
-    const mentionRegex = /@(\w+)/g;
-    const mentions = [];
-    let match;
+// 🔐 ENCRYPTION: Encrypt comment text before saving
+commentSchema.pre('save', async function(next) {
+  try {
+    const postEncryption = getPostEncryption();
     
-    while ((match = mentionRegex.exec(this.text)) !== null) {
-      mentions.push(match[1].toLowerCase());
+    // Encrypt main comment text if modified and not already encrypted
+    if (this.isModified('text') && this.text && !this._textEncrypted) {
+      // Extract mentions BEFORE encryption
+      const mentionRegex = /@(\w+)/g;
+      const mentions = [];
+      let match;
+      
+      while ((match = mentionRegex.exec(this.text)) !== null) {
+        mentions.push(match[1].toLowerCase());
+      }
+      
+      this.mentions = [...new Set(mentions)];
+      
+      // Extract hashtags BEFORE encryption
+      const hashtagRegex = /#(\w+)/g;
+      const hashtags = [];
+      
+      while ((match = hashtagRegex.exec(this.text)) !== null) {
+        hashtags.push(match[1].toLowerCase());
+      }
+      
+      this.hashtags = [...new Set(hashtags)];
+      
+      // Now encrypt the text
+      this.text = await postEncryption.encryptText(this.text);
+      this._textEncrypted = true;
+      
+      console.log('🔒 [COMMENT] Comment text encrypted');
     }
     
-    this.mentions = [...new Set(mentions)]; // Remove duplicates
-    
-    // Extract hashtags (#topic)
-    const hashtagRegex = /#(\w+)/g;
-    const hashtags = [];
-    
-    while ((match = hashtagRegex.exec(this.text)) !== null) {
-      hashtags.push(match[1].toLowerCase());
+    // Encrypt reply texts if modified
+    if (this.isModified('replies') && this.replies && this.replies.length > 0) {
+      for (let reply of this.replies) {
+        if (reply.text && !reply._textEncrypted) {
+          reply.text = await postEncryption.encryptText(reply.text);
+          reply._textEncrypted = true;
+          console.log('🔒 [COMMENT] Reply text encrypted');
+        }
+      }
     }
     
-    this.hashtags = [...new Set(hashtags)]; // Remove duplicates
+    next();
+  } catch (error) {
+    console.error('❌ [COMMENT] Encryption error:', error);
+    // Continue without encryption on error (graceful degradation)
+    next();
   }
-  next();
 });
 
 // Method to toggle like on comment
@@ -145,6 +182,34 @@ commentSchema.methods.addReply = function(replyData) {
   this.replies.push(replyData);
   this.repliesCount = this.replies.length;
   return this.save();
+};
+
+// 🔓 DECRYPTION: Decrypt comment after loading from database
+commentSchema.methods.decrypt = async function() {
+  try {
+    const postEncryption = getPostEncryption();
+    
+    // Decrypt main comment text
+    if (this._textEncrypted && this.text) {
+      this.text = await postEncryption.decryptText(this.text);
+      this._textEncrypted = false;
+    }
+    
+    // Decrypt reply texts
+    if (this.replies && this.replies.length > 0) {
+      for (let reply of this.replies) {
+        if (reply._textEncrypted && reply.text) {
+          reply.text = await postEncryption.decryptText(reply.text);
+          reply._textEncrypted = false;
+        }
+      }
+    }
+    
+    return this;
+  } catch (error) {
+    console.error('❌ [COMMENT] Decryption error:', error);
+    return this; // Return as-is on error
+  }
 };
 
 // Method to toggle like on reply
@@ -178,17 +243,47 @@ commentSchema.methods.deleteReply = function(replyId) {
 };
 
 // Static method to get comments for a post
-commentSchema.statics.getPostComments = function(postId, page = 1, limit = 20) {
+commentSchema.statics.getPostComments = async function(postId, page = 1, limit = 20) {
   const skip = (page - 1) * limit;
   
-  return this.find({
+  const comments = await this.find({
     postId: postId,
     isActive: true
   })
   .sort({ createdAt: -1 })
   .skip(skip)
   .limit(limit)
+  .select('+_textEncrypted') // Include encryption flag
   .lean();
+  
+  // Decrypt comments before returning
+  const postEncryption = getPostEncryption();
+  const decryptedComments = await Promise.all(comments.map(async comment => {
+    const decrypted = { ...comment };
+    
+    try {
+      // Decrypt main comment text
+      if (decrypted._textEncrypted && decrypted.text) {
+        decrypted.text = await postEncryption.decryptText(decrypted.text);
+      }
+      
+      // Decrypt replies
+      if (decrypted.replies && decrypted.replies.length > 0) {
+        decrypted.replies = await Promise.all(decrypted.replies.map(async reply => {
+          if (reply._textEncrypted && reply.text) {
+            reply.text = await postEncryption.decryptText(reply.text);
+          }
+          return reply;
+        }));
+      }
+    } catch (decryptError) {
+      console.error('❌ [COMMENT] Decryption error:', decryptError);
+    }
+    
+    return decrypted;
+  }));
+  
+  return decryptedComments;
 };
 
 // Static method to get comment count for a post
@@ -199,4 +294,6 @@ commentSchema.statics.getCommentCount = async function(postId) {
   });
 };
 
-module.exports = mongoose.model('Comment', commentSchema);
+const Comment = mongoose.model('Comment', commentSchema);
+
+module.exports = Comment;
