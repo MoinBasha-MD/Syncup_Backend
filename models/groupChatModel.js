@@ -105,6 +105,16 @@ const groupChatSchema = mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: {
+      transform: function(doc, ret) {
+        // Convert relative image paths to full URLs
+        if (ret.groupImage && !ret.groupImage.startsWith('http')) {
+          const baseUrl = process.env.API_BASE_URL || 'https://api.crackman.in/api';
+          ret.groupImage = `${baseUrl}${ret.groupImage}`;
+        }
+        return ret;
+      }
+    }
   }
 );
 
