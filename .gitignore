@@ -16,3 +16,5 @@ config/firebase-service-account.json
 *.pem
 *.key
 *.crt
+
+.env

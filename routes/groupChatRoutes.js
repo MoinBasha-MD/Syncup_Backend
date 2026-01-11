@@ -1,11 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const {
   createGroupChat,
   getUserGroupChats,
   getGroupChatDetails,
   updateGroupChat,
+  uploadGroupImage,
   deleteGroupChat,
   addGroupMembers,
   removeGroupMember,
@@ -19,6 +23,42 @@ const {
   leaveGroup
 } = require('../controllers/groupChatController');
 
+// Configure multer for group image uploads
+const groupImagesDir = path.join(__dirname, '../uploads/group-images');
+if (!fs.existsSync(groupImagesDir)) {
+  fs.mkdirSync(groupImagesDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, groupImagesDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'group-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype);
+  
+  if (mimetype && extname) {
+    return cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed (jpeg, jpg, png, gif, webp)'));
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  }
+});
+
 // Apply authentication middleware to all routes
 router.use(protect);
 
@@ -31,6 +71,9 @@ router.route('/:groupId')
   .get(getGroupChatDetails)   // GET /api/group-chats/:groupId - Get group details
   .put(updateGroupChat)       // PUT /api/group-chats/:groupId - Update group info
   .delete(deleteGroupChat);   // DELETE /api/group-chats/:groupId - Delete group
+
+// Group Image Upload Route
+router.post('/:groupId/upload-image', upload.single('groupImage'), uploadGroupImage);
 
 // Group Message Search
 router.post('/:groupId/messages/search', searchGroupMessages);

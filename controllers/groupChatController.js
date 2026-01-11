@@ -617,6 +617,64 @@ const removeGroupMember = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc    Upload group image
+ * @route   POST /api/group-chats/:groupId/upload-image
+ * @access  Private
+ */
+const uploadGroupImage = asyncHandler(async (req, res) => {
+  const { groupId } = req.params;
+  const userId = req.user.userId;
+
+  try {
+    // Check if user is admin
+    const membership = await GroupMember.isAdmin(groupId, userId);
+    if (!membership) {
+      res.status(403);
+      throw new Error('Only admins can update group image');
+    }
+
+    // Check if file was uploaded
+    if (!req.file) {
+      res.status(400);
+      throw new Error('No image file provided');
+    }
+
+    // Construct the image path (relative to server)
+    const imagePath = `/uploads/group-images/${req.file.filename}`;
+    
+    console.log('📸 [GROUP IMAGE] Uploaded:', imagePath);
+
+    // Update group with new image path
+    const updatedGroup = await GroupChat.findByIdAndUpdate(
+      groupId,
+      { 
+        groupImage: imagePath,
+        lastActivity: new Date()
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedGroup) {
+      res.status(404);
+      throw new Error('Group chat not found');
+    }
+
+    console.log(`✅ [GROUP IMAGE] Group ${groupId} image updated by admin ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        groupImage: imagePath
+      },
+      message: 'Group image uploaded successfully'
+    });
+  } catch (error) {
+    console.error('❌ [GROUP IMAGE] Error uploading group image:', error);
+    throw error;
+  }
+});
+
+/**
  * @desc    Update group chat info
  * @route   PUT /api/group-chats/:groupId
  * @access  Private
@@ -1067,6 +1125,7 @@ module.exports = {
   getUserGroupChats,
   getGroupChatDetails,
   updateGroupChat,
+  uploadGroupImage,
   deleteGroupChat,
   addGroupMembers,
   removeGroupMember,
