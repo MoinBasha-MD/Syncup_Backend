@@ -17,4 +17,4 @@ config/firebase-service-account.json
 *.key
 *.crt
 
-.env
+.env".env" 
