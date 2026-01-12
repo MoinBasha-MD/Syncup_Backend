@@ -88,11 +88,23 @@ const createFeedPost = async (req, res) => {
     const decryptedPost = newPost.toObject();
     try {
       const postEncryption = getPostEncryption();
-      if (decryptedPost.caption && decryptedPost._captionEncrypted) {
-        decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
+      // Check if caption looks encrypted (contains base64-like pattern)
+      if (decryptedPost.caption && (decryptedPost._captionEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decryptedPost.caption))) {
+        try {
+          decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
+          console.log('🔓 Decrypted caption for new post:', decryptedPost._id);
+        } catch (err) {
+          console.error('❌ Failed to decrypt caption for new post:', err.message);
+        }
       }
-      if (decryptedPost.location?.name && decryptedPost.location._nameEncrypted) {
-        decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
+      // Check if location name looks encrypted
+      if (decryptedPost.location?.name && (decryptedPost.location._nameEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decryptedPost.location.name))) {
+        try {
+          decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
+          console.log('🔓 Decrypted location for new post:', decryptedPost._id);
+        } catch (err) {
+          console.error('❌ Failed to decrypt location for new post:', err.message);
+        }
       }
     } catch (decryptError) {
       console.error('❌ Decryption error:', decryptError);
@@ -198,11 +210,23 @@ const getFeedPosts = async (req, res) => {
     const decryptedPosts = await Promise.all(posts.map(async post => {
       const decrypted = { ...post };
       try {
-        if (decrypted.caption && decrypted._captionEncrypted) {
-          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+        // Check if caption looks encrypted (contains base64-like pattern)
+        if (decrypted.caption && (decrypted._captionEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decrypted.caption))) {
+          try {
+            decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+            console.log('🔓 Decrypted caption for post:', decrypted._id);
+          } catch (err) {
+            console.error('❌ Failed to decrypt caption for post:', decrypted._id, err.message);
+          }
         }
-        if (decrypted.location?.name && decrypted.location._nameEncrypted) {
-          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+        // Check if location name looks encrypted
+        if (decrypted.location?.name && (decrypted.location._nameEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decrypted.location.name))) {
+          try {
+            decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+            console.log('🔓 Decrypted location for post:', decrypted._id);
+          } catch (err) {
+            console.error('❌ Failed to decrypt location for post:', decrypted._id, err.message);
+          }
         }
       } catch (decryptError) {
         console.error('❌ Decryption error for post:', decrypted._id, decryptError);
@@ -253,11 +277,23 @@ const getPost = async (req, res) => {
     const decryptedPost = post.toObject();
     try {
       const postEncryption = getPostEncryption();
-      if (decryptedPost.caption && decryptedPost._captionEncrypted) {
-        decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
+      // Check if caption looks encrypted (contains base64-like pattern)
+      if (decryptedPost.caption && (decryptedPost._captionEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decryptedPost.caption))) {
+        try {
+          decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
+          console.log('🔓 Decrypted caption for single post:', decryptedPost._id);
+        } catch (err) {
+          console.error('❌ Failed to decrypt caption:', err.message);
+        }
       }
-      if (decryptedPost.location?.name && decryptedPost.location._nameEncrypted) {
-        decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
+      // Check if location name looks encrypted
+      if (decryptedPost.location?.name && (decryptedPost.location._nameEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decryptedPost.location.name))) {
+        try {
+          decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
+          console.log('🔓 Decrypted location for single post:', decryptedPost._id);
+        } catch (err) {
+          console.error('❌ Failed to decrypt location:', err.message);
+        }
       }
     } catch (decryptError) {
       console.error('❌ Decryption error:', decryptError);
@@ -1065,16 +1101,45 @@ const getExplorePosts = async (req, res) => {
       posts = await FeedPost.getExplorePosts(userId, page, limit, friendUserIds, allPageIds);
     }
 
-    console.log(`✅ Returning ${posts.length} EXPLORE posts (${usePersonalization ? 'personalized' : 'chronological'})`);
+    // 🔓 Decrypt all posts before returning
+    const postEncryption = getPostEncryption();
+    const decryptedPosts = await Promise.all(posts.map(async post => {
+      const decrypted = { ...post };
+      try {
+        // Check if caption looks encrypted (contains base64-like pattern)
+        if (decrypted.caption && (decrypted._captionEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decrypted.caption))) {
+          try {
+            decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+            console.log('🔓 Decrypted caption for explore post:', decrypted._id);
+          } catch (err) {
+            console.error('❌ Failed to decrypt caption for explore post:', decrypted._id, err.message);
+          }
+        }
+        // Check if location name looks encrypted
+        if (decrypted.location?.name && (decrypted.location._nameEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decrypted.location.name))) {
+          try {
+            decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+            console.log('🔓 Decrypted location for explore post:', decrypted._id);
+          } catch (err) {
+            console.error('❌ Failed to decrypt location for explore post:', decrypted._id, err.message);
+          }
+        }
+      } catch (decryptError) {
+        console.error('❌ Decryption error for explore post:', decrypted._id, decryptError);
+      }
+      return decrypted;
+    }));
+
+    console.log(`✅ Returning ${decryptedPosts.length} EXPLORE posts (${usePersonalization ? 'personalized' : 'chronological'})`);
 
     res.status(200).json({
       success: true,
-      data: posts,
+      data: decryptedPosts,
       personalized: usePersonalization,
       pagination: {
         page,
         limit,
-        total: posts.length
+        total: decryptedPosts.length
       }
     });
 

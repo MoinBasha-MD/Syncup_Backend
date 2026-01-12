@@ -349,7 +349,8 @@ const getChatHistory = async (req, res) => {
         $or: [
           { senderId: userId, receiverId: contactId },
           { senderId: contactId, receiverId: userId }
-        ]
+        ],
+        deletedFor: { $ne: userId } // ✅ WhatsApp-style: Exclude messages deleted by current user
       })
       .sort({ timestamp: -1 })
       .skip(skip)
@@ -357,8 +358,13 @@ const getChatHistory = async (req, res) => {
       .lean();
     }
 
+    // Filter out messages deleted by current user (for optimized loading too)
+    const filteredMessages = messages.filter(msg => 
+      !msg.deletedFor || !msg.deletedFor.includes(userId)
+    );
+
     // Reverse to get chronological order (oldest first)
-    const chronologicalMessages = messages.reverse();
+    const chronologicalMessages = filteredMessages.reverse();
 
     console.log(`✅ Retrieved ${chronologicalMessages.length} messages from chat history (optimized: ${optimized})`);
 
@@ -1411,31 +1417,38 @@ const cleanupExpiredMessages = async (req, res) => {
   }
 };
 
-// Clear all messages in a conversation
+// Clear all messages in a conversation (WhatsApp-style: only for current user)
 const clearMessages = async (req, res) => {
   try {
     const { contactId } = req.params;
     const currentUserId = req.user.userId;
 
-    console.log('🗑️ [CHAT] Clearing messages between:', {
+    console.log('🗑️ [CHAT] Marking messages as deleted for user:', {
       currentUserId,
       contactId
     });
 
-    // Delete all messages between these two users (both directions)
-    const result = await Message.deleteMany({
-      $or: [
-        { senderId: currentUserId, receiverId: contactId },
-        { senderId: contactId, receiverId: currentUserId }
-      ]
-    });
+    // Mark all messages between these two users as deleted for current user only
+    // Messages stay in database but won't show for this user
+    const result = await Message.updateMany(
+      {
+        $or: [
+          { senderId: currentUserId, receiverId: contactId },
+          { senderId: contactId, receiverId: currentUserId }
+        ],
+        deletedFor: { $ne: currentUserId } // Only update if not already deleted for this user
+      },
+      {
+        $addToSet: { deletedFor: currentUserId } // Add user to deletedFor array
+      }
+    );
 
-    console.log('✅ [CHAT] Messages cleared:', result.deletedCount);
+    console.log('✅ [CHAT] Messages marked as deleted for user:', result.modifiedCount);
 
     res.status(200).json({
       success: true,
-      message: 'All messages cleared successfully',
-      deletedCount: result.deletedCount
+      message: 'Messages cleared from your chat',
+      modifiedCount: result.modifiedCount
     });
   } catch (error) {
     console.error('❌ [CHAT] Error clearing messages:', error);

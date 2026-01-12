@@ -209,6 +209,10 @@ const messageSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  // WhatsApp-style: Track who deleted this message from their view
+  deletedFor: [{
+    type: String // Array of userIds who deleted this message from their chat
+  }],
   expiresAt: {
     type: Date,
     default: null,
