@@ -20,7 +20,8 @@ const {
   markGhostMessagesViewed, // ✅ FIX #3
   deleteViewedGhostMessages, // ✅ FIX #3
   markBurnViewed,
-  cleanupExpiredMessages
+  cleanupExpiredMessages,
+  clearMessages
 } = require('../controllers/chatController');
 
 // All chat routes require authentication
@@ -72,5 +73,8 @@ router.post('/ghost/mark-viewed', markGhostMessagesViewed); // ✅ FIX #3
 router.post('/ghost/delete-viewed', deleteViewedGhostMessages); // ✅ FIX #3
 router.put('/burn/:messageId/viewed', markBurnViewed);
 router.post('/timer/cleanup', cleanupExpiredMessages);
+
+// Clear all messages in a conversation
+router.delete('/clear/:contactId', clearMessages);
 
 module.exports = router;

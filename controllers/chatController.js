@@ -1411,6 +1411,42 @@ const cleanupExpiredMessages = async (req, res) => {
   }
 };
 
+// Clear all messages in a conversation
+const clearMessages = async (req, res) => {
+  try {
+    const { contactId } = req.params;
+    const currentUserId = req.user.userId;
+
+    console.log('🗑️ [CHAT] Clearing messages between:', {
+      currentUserId,
+      contactId
+    });
+
+    // Delete all messages between these two users (both directions)
+    const result = await Message.deleteMany({
+      $or: [
+        { senderId: currentUserId, receiverId: contactId },
+        { senderId: contactId, receiverId: currentUserId }
+      ]
+    });
+
+    console.log('✅ [CHAT] Messages cleared:', result.deletedCount);
+
+    res.status(200).json({
+      success: true,
+      message: 'All messages cleared successfully',
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('❌ [CHAT] Error clearing messages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to clear messages',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   sendMessage,
   getChatHistory,
@@ -1430,5 +1466,6 @@ module.exports = {
   markGhostMessagesViewed, // ✅ FIX #3
   deleteViewedGhostMessages, // ✅ FIX #3
   markBurnViewed,
-  cleanupExpiredMessages
+  cleanupExpiredMessages,
+  clearMessages
 };
