@@ -88,23 +88,13 @@ const createFeedPost = async (req, res) => {
     const decryptedPost = newPost.toObject();
     try {
       const postEncryption = getPostEncryption();
-      // Check if caption looks encrypted (contains base64-like pattern)
-      if (decryptedPost.caption && (decryptedPost._captionEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decryptedPost.caption))) {
-        try {
-          decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
-          console.log('🔓 Decrypted caption for new post:', decryptedPost._id);
-        } catch (err) {
-          console.error('❌ Failed to decrypt caption for new post:', err.message);
-        }
+      // Check if caption is encrypted (format: salt:iv:authTag:ciphertext)
+      if (decryptedPost.caption && postEncryption.isEncrypted(decryptedPost.caption)) {
+        decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
       }
-      // Check if location name looks encrypted
-      if (decryptedPost.location?.name && (decryptedPost.location._nameEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decryptedPost.location.name))) {
-        try {
-          decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
-          console.log('🔓 Decrypted location for new post:', decryptedPost._id);
-        } catch (err) {
-          console.error('❌ Failed to decrypt location for new post:', err.message);
-        }
+      // Check if location name is encrypted
+      if (decryptedPost.location?.name && postEncryption.isEncrypted(decryptedPost.location.name)) {
+        decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
       }
     } catch (decryptError) {
       console.error('❌ Decryption error:', decryptError);
@@ -210,23 +200,13 @@ const getFeedPosts = async (req, res) => {
     const decryptedPosts = await Promise.all(posts.map(async post => {
       const decrypted = { ...post };
       try {
-        // Check if caption looks encrypted (contains base64-like pattern)
-        if (decrypted.caption && (decrypted._captionEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decrypted.caption))) {
-          try {
-            decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-            console.log('🔓 Decrypted caption for post:', decrypted._id);
-          } catch (err) {
-            console.error('❌ Failed to decrypt caption for post:', decrypted._id, err.message);
-          }
+        // Check if caption is encrypted (format: salt:iv:authTag:ciphertext)
+        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
+          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
         }
-        // Check if location name looks encrypted
-        if (decrypted.location?.name && (decrypted.location._nameEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decrypted.location.name))) {
-          try {
-            decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-            console.log('🔓 Decrypted location for post:', decrypted._id);
-          } catch (err) {
-            console.error('❌ Failed to decrypt location for post:', decrypted._id, err.message);
-          }
+        // Check if location name is encrypted
+        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
+          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
         }
       } catch (decryptError) {
         console.error('❌ Decryption error for post:', decrypted._id, decryptError);
@@ -277,23 +257,13 @@ const getPost = async (req, res) => {
     const decryptedPost = post.toObject();
     try {
       const postEncryption = getPostEncryption();
-      // Check if caption looks encrypted (contains base64-like pattern)
-      if (decryptedPost.caption && (decryptedPost._captionEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decryptedPost.caption))) {
-        try {
-          decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
-          console.log('🔓 Decrypted caption for single post:', decryptedPost._id);
-        } catch (err) {
-          console.error('❌ Failed to decrypt caption:', err.message);
-        }
+      // Check if caption is encrypted (format: salt:iv:authTag:ciphertext)
+      if (decryptedPost.caption && postEncryption.isEncrypted(decryptedPost.caption)) {
+        decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
       }
-      // Check if location name looks encrypted
-      if (decryptedPost.location?.name && (decryptedPost.location._nameEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decryptedPost.location.name))) {
-        try {
-          decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
-          console.log('🔓 Decrypted location for single post:', decryptedPost._id);
-        } catch (err) {
-          console.error('❌ Failed to decrypt location:', err.message);
-        }
+      // Check if location name is encrypted
+      if (decryptedPost.location?.name && postEncryption.isEncrypted(decryptedPost.location.name)) {
+        decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
       }
     } catch (decryptError) {
       console.error('❌ Decryption error:', decryptError);
@@ -683,13 +653,30 @@ const getUserPosts = async (req, res) => {
 
     const posts = await FeedPost.getUserPosts(userId, page, limit);
 
+    // 🔓 Decrypt all posts before returning
+    const postEncryption = getPostEncryption();
+    const decryptedPosts = await Promise.all(posts.map(async post => {
+      const decrypted = { ...post };
+      try {
+        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
+          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+        }
+        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
+          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+        }
+      } catch (decryptError) {
+        console.error('❌ Decryption error for user post:', decrypted._id, decryptError);
+      }
+      return decrypted;
+    }));
+
     res.status(200).json({
       success: true,
-      data: posts,
+      data: decryptedPosts,
       pagination: {
         page,
         limit,
-        total: posts.length
+        total: decryptedPosts.length
       }
     });
 
@@ -851,11 +838,28 @@ const getSavedPosts = async (req, res) => {
     .limit(limit)
     .lean();
 
-    console.log(`📚 Retrieved ${savedPosts.length} saved posts for ${userId} (${validPostIds.length} valid IDs)`);
+    // 🔓 Decrypt all posts before returning
+    const postEncryption = getPostEncryption();
+    const decryptedPosts = await Promise.all(savedPosts.map(async post => {
+      const decrypted = { ...post };
+      try {
+        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
+          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+        }
+        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
+          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+        }
+      } catch (decryptError) {
+        console.error('❌ Decryption error for saved post:', decrypted._id, decryptError);
+      }
+      return decrypted;
+    }));
+
+    console.log(`📚 Retrieved ${decryptedPosts.length} saved posts for ${userId} (${validPostIds.length} valid IDs)`);
 
     res.status(200).json({
       success: true,
-      data: savedPosts,
+      data: decryptedPosts,
       pagination: {
         page,
         limit,
@@ -895,11 +899,28 @@ const getLikedPosts = async (req, res) => {
       isActive: true
     });
 
-    console.log(`❤️ Retrieved ${likedPosts.length} liked posts for ${userId}`);
+    // 🔓 Decrypt all posts before returning
+    const postEncryption = getPostEncryption();
+    const decryptedPosts = await Promise.all(likedPosts.map(async post => {
+      const decrypted = { ...post };
+      try {
+        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
+          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+        }
+        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
+          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+        }
+      } catch (decryptError) {
+        console.error('❌ Decryption error for liked post:', decrypted._id, decryptError);
+      }
+      return decrypted;
+    }));
+
+    console.log(`❤️ Retrieved ${decryptedPosts.length} liked posts for ${userId}`);
 
     res.status(200).json({
       success: true,
-      data: likedPosts,
+      data: decryptedPosts,
       pagination: {
         page,
         limit,
@@ -928,9 +949,20 @@ const getCommentedPosts = async (req, res) => {
 
     // Find unique post IDs where user has commented
     const comments = await Comment.find({
-      userId: userId,
-      isActive: true
+      userId: userId
     }).distinct('postId');
+
+    if (!comments || comments.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        pagination: {
+          page,
+          limit,
+          total: 0
+        }
+      });
+    }
 
     // Get the posts
     const commentedPosts = await FeedPost.find({
@@ -942,11 +974,28 @@ const getCommentedPosts = async (req, res) => {
     .limit(limit)
     .lean();
 
-    console.log(`💬 Retrieved ${commentedPosts.length} commented posts for ${userId}`);
+    // 🔓 Decrypt all posts before returning
+    const postEncryption = getPostEncryption();
+    const decryptedPosts = await Promise.all(commentedPosts.map(async post => {
+      const decrypted = { ...post };
+      try {
+        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
+          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+        }
+        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
+          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+        }
+      } catch (decryptError) {
+        console.error('❌ Decryption error for commented post:', decrypted._id, decryptError);
+      }
+      return decrypted;
+    }));
+
+    console.log(`💬 Retrieved ${decryptedPosts.length} commented posts for ${userId}`);
 
     res.status(200).json({
       success: true,
-      data: commentedPosts,
+      data: decryptedPosts,
       pagination: {
         page,
         limit,
@@ -1019,15 +1068,32 @@ const getPagePosts = async (req, res) => {
 
     const posts = await FeedPost.getPagePosts(pageId, page, limit);
 
-    console.log(`✅ Returning ${posts.length} page posts`);
+    // 🔓 Decrypt all posts before returning
+    const postEncryption = getPostEncryption();
+    const decryptedPosts = await Promise.all(posts.map(async post => {
+      const decrypted = { ...post };
+      try {
+        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
+          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
+        }
+        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
+          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
+        }
+      } catch (decryptError) {
+        console.error('❌ Decryption error for page post:', decrypted._id, decryptError);
+      }
+      return decrypted;
+    }));
+
+    console.log(`✅ Returning ${decryptedPosts.length} page posts`);
 
     res.status(200).json({
       success: true,
-      data: posts,
+      data: decryptedPosts,
       pagination: {
         page,
         limit,
-        total: posts.length
+        total: decryptedPosts.length
       }
     });
 
@@ -1106,23 +1172,13 @@ const getExplorePosts = async (req, res) => {
     const decryptedPosts = await Promise.all(posts.map(async post => {
       const decrypted = { ...post };
       try {
-        // Check if caption looks encrypted (contains base64-like pattern)
-        if (decrypted.caption && (decrypted._captionEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decrypted.caption))) {
-          try {
-            decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-            console.log('🔓 Decrypted caption for explore post:', decrypted._id);
-          } catch (err) {
-            console.error('❌ Failed to decrypt caption for explore post:', decrypted._id, err.message);
-          }
+        // Check if caption is encrypted (format: salt:iv:authTag:ciphertext)
+        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
+          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
         }
-        // Check if location name looks encrypted
-        if (decrypted.location?.name && (decrypted.location._nameEncrypted || /^[A-Za-z0-9+/=]{20,}/.test(decrypted.location.name))) {
-          try {
-            decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-            console.log('🔓 Decrypted location for explore post:', decrypted._id);
-          } catch (err) {
-            console.error('❌ Failed to decrypt location for explore post:', decrypted._id, err.message);
-          }
+        // Check if location name is encrypted
+        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
+          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
         }
       } catch (decryptError) {
         console.error('❌ Decryption error for explore post:', decrypted._id, decryptError);
