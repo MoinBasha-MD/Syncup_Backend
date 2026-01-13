@@ -6,7 +6,7 @@ const { getInstance: getPostEncryption } = require('../utils/postEncryption');
 // Create a new feed post
 const createFeedPost = async (req, res) => {
   try {
-    const { caption, type, mediaUrls, location, privacy, pageId } = req.body;
+    const { caption, type, mediaUrls, mediaMetadata, location, privacy, pageId } = req.body;
     const userId = req.user.userId;
 
     // Validate required fields
@@ -50,14 +50,29 @@ const createFeedPost = async (req, res) => {
       console.log(`📄 [PAGE POST] User ${userId} posting as page ${page.name}`);
     }
 
-    // Create media items
-    const media = mediaUrls.map((url, index) => ({
-      type: type === 'carousel' ? (url.includes('.mp4') ? 'video' : 'photo') : type,
-      url: url,
-      width: 1080,
-      height: 1080,
-      order: index
-    }));
+    // Create media items with encryption metadata
+    const media = mediaUrls.map((url, index) => {
+      const mediaItem = {
+        type: type === 'carousel' ? (url.includes('.mp4') ? 'video' : 'photo') : type,
+        url: url,
+        width: 1080,
+        height: 1080,
+        order: index
+      };
+      
+      // Add encryption metadata if provided
+      if (mediaMetadata && mediaMetadata[index]) {
+        const metadata = mediaMetadata[index];
+        if (metadata.encrypted) {
+          mediaItem.encrypted = true;
+          mediaItem.encryptionIv = metadata.encryptionIv;
+          mediaItem.encryptionAuthTag = metadata.encryptionAuthTag;
+          console.log(`🔐 [POST CREATE] Media ${index} has encryption metadata`);
+        }
+      }
+      
+      return mediaItem;
+    });
 
     // Create new feed post
     const newPost = new FeedPost({

@@ -17,107 +17,119 @@ const decryptMediaMiddleware = async (req, res, next) => {
     }
 
     // Get the file path
-    const filePath = path.join(__dirname, '..', req.path);
+    let filePath = path.join(__dirname, '..', req.path);
+    let encryptedFilePath = filePath.endsWith('.enc') ? filePath : `${filePath}.enc`;
+    let unencryptedFilePath = filePath.replace('.enc', '');
     
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
-      // If .enc file doesn't exist, try without .enc (legacy files)
-      const legacyPath = filePath.replace('.enc', '');
-      if (fs.existsSync(legacyPath)) {
-        console.log('📁 [MEDIA DECRYPT] Serving legacy unencrypted file:', legacyPath);
-        return res.sendFile(legacyPath);
-      }
+    console.log('📁 [MEDIA DECRYPT] Request for:', req.path);
+    
+    // Check if encrypted version exists first
+    if (fs.existsSync(encryptedFilePath)) {
+      // File is encrypted - need to decrypt
+      console.log('🔓 [MEDIA DECRYPT] Found encrypted file:', encryptedFilePath);
+      filePath = encryptedFilePath;
+    } else if (fs.existsSync(unencryptedFilePath)) {
+      // Legacy unencrypted file exists
+      console.log('📁 [MEDIA DECRYPT] Serving legacy unencrypted file:', unencryptedFilePath);
+      return res.sendFile(unencryptedFilePath);
+    } else {
+      // File doesn't exist
+      console.log('❌ [MEDIA DECRYPT] File not found:', req.path);
       return next(); // Let 404 handler deal with it
     }
 
-    // Check if file is encrypted
+    // At this point, we have an encrypted file to decrypt
     const mediaEncryption = getMediaEncryption();
-    
-    if (!mediaEncryption.isEncryptedFile(filePath)) {
-      // Not encrypted, serve as-is (legacy files)
-      console.log('📁 [MEDIA DECRYPT] Serving unencrypted file:', filePath);
-      return res.sendFile(filePath);
-    }
-
-    // File is encrypted - need to decrypt
-    console.log('🔓 [MEDIA DECRYPT] Decrypting file:', filePath);
 
     // Get encryption metadata from database based on file type
     let encryptionIv, encryptionAuthTag, mimeType;
 
     // Determine file type from path
+    // Strip .enc extension for database lookup (URLs in DB don't have .enc)
+    const requestedFilename = path.basename(req.path).replace('.enc', '');
+    
     if (req.path.includes('/post-media/')) {
       // Post media - get from FeedPost model
       const FeedPost = require('../models/FeedPost');
-      const filename = path.basename(req.path);
       
       const post = await FeedPost.findOne({
-        'media.url': { $regex: filename }
+        'media.url': { $regex: requestedFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
       }).lean();
 
       if (post && post.media) {
-        const mediaItem = post.media.find(m => m.url.includes(filename));
+        const mediaItem = post.media.find(m => m.url && m.url.includes(requestedFilename));
         if (mediaItem && mediaItem.encrypted) {
           encryptionIv = mediaItem.encryptionIv;
           encryptionAuthTag = mediaItem.encryptionAuthTag;
           mimeType = mediaItem.type === 'video' ? 'video/mp4' : 'image/jpeg';
+          console.log('✅ [MEDIA DECRYPT] Found encryption metadata for post media');
         }
       }
     } else if (req.path.includes('/story-images/')) {
       // Story image - get from Story model
-      const Story = require('../models/Story');
-      const filename = path.basename(req.path);
+      const Story = require('../models/storyModel');
       
       const story = await Story.findOne({
-        'items.url': { $regex: filename }
+        'items.url': { $regex: requestedFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
       }).lean();
 
       if (story && story.items) {
-        const item = story.items.find(i => i.url && i.url.includes(filename));
-        if (item && item.encrypted) {
+        const item = story.items.find(i => i.url && i.url.includes(requestedFilename));
+        if (item && item.encryptionIv) {
           encryptionIv = item.encryptionIv;
           encryptionAuthTag = item.encryptionAuthTag;
           mimeType = 'image/jpeg';
+          console.log('✅ [MEDIA DECRYPT] Found encryption metadata for story');
         }
       }
     } else if (req.path.includes('/profile-images/')) {
       // Profile image - get from User model
-      const User = require('../models/User');
-      const filename = path.basename(req.path);
+      const User = require('../models/userModel');
       
       const user = await User.findOne({
-        profileImage: { $regex: filename }
+        profileImage: { $regex: requestedFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
       }).lean();
 
       if (user && user.profileImageEncrypted) {
         encryptionIv = user.profileImageIv;
         encryptionAuthTag = user.profileImageAuthTag;
         mimeType = 'image/jpeg';
+        console.log('✅ [MEDIA DECRYPT] Found encryption metadata for profile');
       }
     } else if (req.path.includes('/group-images/')) {
       // Group image - get from Group model
       const Group = require('../models/Group');
-      const filename = path.basename(req.path);
       
       const group = await Group.findOne({
-        groupImage: { $regex: filename }
+        groupImage: { $regex: requestedFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
       }).lean();
 
       if (group && group.groupImageEncrypted) {
         encryptionIv = group.groupImageIv;
         encryptionAuthTag = group.groupImageAuthTag;
         mimeType = 'image/jpeg';
+        console.log('✅ [MEDIA DECRYPT] Found encryption metadata for group');
       }
     }
 
-    // If we don't have encryption metadata, file might be corrupted or legacy
+    // If we don't have encryption metadata, check if unencrypted version exists
     if (!encryptionIv || !encryptionAuthTag) {
-      console.warn('⚠️ [MEDIA DECRYPT] No encryption metadata found for:', filePath);
-      // Try to serve as-is (might fail)
-      return res.sendFile(filePath);
+      console.warn('⚠️ [MEDIA DECRYPT] No encryption metadata found for:', requestedFilename);
+      
+      // Check if unencrypted file exists (legacy file)
+      const legacyPath = path.join(__dirname, '..', 'uploads', req.path.split('/uploads/')[1].replace('.enc', ''));
+      if (fs.existsSync(legacyPath)) {
+        console.log('📁 [MEDIA DECRYPT] Serving legacy unencrypted file:', legacyPath);
+        return res.sendFile(legacyPath);
+      }
+      
+      // File not found
+      console.error('❌ [MEDIA DECRYPT] File not found and no metadata:', requestedFilename);
+      return next();
     }
 
     // Decrypt and stream the file
+    console.log('🔓 [MEDIA DECRYPT] Decrypting with IV and authTag');
     await mediaEncryption.decryptFileStream(
       filePath,
       encryptionIv,
@@ -130,6 +142,7 @@ const decryptMediaMiddleware = async (req, res, next) => {
 
   } catch (error) {
     console.error('❌ [MEDIA DECRYPT] Error:', error);
+    console.error('❌ [MEDIA DECRYPT] Stack:', error.stack);
     // On error, try to continue to next middleware
     next();
   }
