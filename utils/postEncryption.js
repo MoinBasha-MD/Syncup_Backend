@@ -266,12 +266,46 @@ class PostEncryption {
 
   /**
    * Check if text is encrypted
+   * Validates format: salt:iv:authTag:ciphertext (all base64)
    */
   isEncrypted(text) {
     if (!text || typeof text !== 'string') return false;
+    
     // Encrypted format: base64:base64:base64:base64
     const parts = text.split(':');
-    return parts.length === 4;
+    if (parts.length !== 4) return false;
+    
+    // Validate each part is valid base64 and has expected length
+    const [saltB64, ivB64, authTagB64, ciphertextB64] = parts;
+    
+    // Base64 regex pattern
+    const base64Pattern = /^[A-Za-z0-9+/]+=*$/;
+    
+    // Check all parts are valid base64
+    if (!base64Pattern.test(saltB64) || 
+        !base64Pattern.test(ivB64) || 
+        !base64Pattern.test(authTagB64) || 
+        !base64Pattern.test(ciphertextB64)) {
+      return false;
+    }
+    
+    // Validate expected lengths (base64 encoded)
+    // Salt: 32 bytes = 44 chars base64
+    // IV: 16 bytes = 24 chars base64
+    // AuthTag: 16 bytes = 24 chars base64
+    // Ciphertext: variable but should be at least 16 chars
+    const saltLen = saltB64.replace(/=/g, '').length;
+    const ivLen = ivB64.replace(/=/g, '').length;
+    const authTagLen = authTagB64.replace(/=/g, '').length;
+    const cipherLen = ciphertextB64.replace(/=/g, '').length;
+    
+    // Allow some tolerance for base64 padding
+    if (saltLen < 42 || saltLen > 44) return false;
+    if (ivLen < 22 || ivLen > 24) return false;
+    if (authTagLen < 22 || authTagLen > 24) return false;
+    if (cipherLen < 16) return false; // Minimum ciphertext length
+    
+    return true;
   }
 }
 

@@ -318,9 +318,10 @@ app.use('/api/admin', adminAuthMiddleware, adminDashboardRoutes); // Admin panel
 // All file requests go through decryption middleware
 app.use('/api', encryptedFileRoutes);
 
-// ⚠️ STATIC FILE SERVING DISABLED FOR UPLOADS (files are encrypted)
-// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-// app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
+// 🔐 MEDIA DECRYPTION MIDDLEWARE - Decrypt encrypted media files on-the-fly
+const mediaDecryptionMiddleware = require('./middleware/mediaDecryptionMiddleware');
+app.use('/uploads', mediaDecryptionMiddleware);
+app.use('/api/uploads', mediaDecryptionMiddleware);
 
 // Serve static files from public directory (for JS, CSS, images)
 app.use(express.static(path.join(__dirname, 'public')));

@@ -81,6 +81,13 @@ const storyItemSchema = new mongoose.Schema({
     type: Number,
     default: null
   },
+  // 🔐 Server-side media file encryption (for non-E2EE stories)
+  encryptionIv: {
+    type: String // Base64 encoded IV for server-side encryption
+  },
+  encryptionAuthTag: {
+    type: String // Base64 encoded auth tag for server-side encryption
+  },
   mimeType: {
     type: String,
     default: null

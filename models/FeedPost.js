@@ -29,6 +29,17 @@ const mediaItemSchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: 0
+  },
+  // 🔐 Media file encryption metadata
+  encrypted: {
+    type: Boolean,
+    default: false
+  },
+  encryptionIv: {
+    type: String // Base64 encoded IV
+  },
+  encryptionAuthTag: {
+    type: String // Base64 encoded auth tag
   }
 }, { _id: false });
 

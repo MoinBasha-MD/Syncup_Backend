@@ -178,6 +178,17 @@ const userSchema = mongoose.Schema(
       type: String,
       default: ''
     },
+    // 🔐 Server-side profile image encryption metadata
+    profileImageEncrypted: {
+      type: Boolean,
+      default: false
+    },
+    profileImageIv: {
+      type: String // Base64 encoded IV
+    },
+    profileImageAuthTag: {
+      type: String // Base64 encoded auth tag
+    },
     // E2EE Device Public Keys (Phase 1)
     devicePublicKeys: [{
       deviceId: String,
