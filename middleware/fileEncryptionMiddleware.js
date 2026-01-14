@@ -222,7 +222,7 @@ const serveEncryptedFile = async (filePath, res) => {
       const FeedPost = require('../models/FeedPost');
       const Story = require('../models/storyModel');
       const User = require('../models/userModel');
-      const Group = require('../models/Group');
+      const Group = require('../models/groupModel');
       
       const filename = path.basename(filePath).replace('.enc', '');
       let encryptionIv, encryptionAuthTag;
