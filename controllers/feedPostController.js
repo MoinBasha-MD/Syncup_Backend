@@ -253,21 +253,8 @@ const getPost = async (req, res) => {
     // Increment view count
     await post.incrementViews();
 
-    // 🔓 Decrypt post before returning
+    // ENCRYPTION DISABLED - Posts stored as plain text
     const decryptedPost = post.toObject();
-    try {
-      const postEncryption = getPostEncryption();
-      // Check if caption is encrypted (format: salt:iv:authTag:ciphertext)
-      if (decryptedPost.caption && postEncryption.isEncrypted(decryptedPost.caption)) {
-        decryptedPost.caption = await postEncryption.decryptText(decryptedPost.caption);
-      }
-      // Check if location name is encrypted
-      if (decryptedPost.location?.name && postEncryption.isEncrypted(decryptedPost.location.name)) {
-        decryptedPost.location.name = await postEncryption.decryptText(decryptedPost.location.name);
-      }
-    } catch (decryptError) {
-      console.error('❌ Decryption error:', decryptError);
-    }
 
     res.status(200).json({
       success: true,
