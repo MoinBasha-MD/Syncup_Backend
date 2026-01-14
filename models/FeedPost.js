@@ -300,13 +300,18 @@ feedPostSchema.methods.incrementViews = function() {
 feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 20, contactIds = [], followedPageIds = []) {
   const skip = (page - 1) * limit;
   
+  console.log('');
+  console.log('📱 [FEED POST MODEL] ==========================================');
   console.log('📱 [FEED POST MODEL] getFeedPosts called');
   console.log('📱 [FEED POST MODEL] userId:', userId);
   console.log('📱 [FEED POST MODEL] contactIds count:', contactIds.length);
+  console.log('📱 [FEED POST MODEL] contactIds:', contactIds);
   console.log('📱 [FEED POST MODEL] followedPageIds count:', followedPageIds.length);
+  console.log('📱 [FEED POST MODEL] ==========================================');
+  console.log('');
   
-  // FOR YOU FEED LOGIC (Friends + Own Posts ONLY):
-  // 1. Your own posts - all privacy levels
+  // FOR YOU FEED LOGIC (Friends + Own PUBLIC Posts ONLY):
+  // 1. Your own PUBLIC posts only (not private/friends-only)
   // 2. Posts from contacts/friends with 'public' or 'friends' privacy
   // 3. Posts from pages you follow
   // NO PUBLIC POSTS FROM NON-FRIENDS!
@@ -314,8 +319,12 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
   const query = {
     isActive: true,
     $or: [
-      // Own posts (all privacy levels) - not page posts
-      { userId: userId, $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }] },
+      // Own PUBLIC posts only - not page posts
+      { 
+        userId: userId, 
+        privacy: 'public',
+        $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }] 
+      },
       
       // Contacts' posts with 'public' or 'friends' privacy - not page posts
       { 
@@ -365,12 +374,30 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
     .populate('pageId', 'name username profileImage isVerified')
     .lean();
   
+  console.log('');
+  console.log('📱 [FEED POST MODEL] ==========================================');
   console.log('📱 [FEED POST MODEL] Found', posts.length, 'posts for For You feed');
   console.log('📱 [FEED POST MODEL] Breakdown:', {
     ownPosts: posts.filter(p => p.userId === userId).length,
     contactPosts: posts.filter(p => contactIds.includes(p.userId)).length,
     pagePosts: posts.filter(p => p.isPagePost).length
   });
+  
+  // Show details of each post
+  posts.forEach((post, index) => {
+    console.log(`📱 [FEED POST MODEL] Post ${index + 1}:`, {
+      _id: post._id,
+      userId: post.userId,
+      userName: post.userName,
+      privacy: post.privacy,
+      isPagePost: post.isPagePost,
+      caption: post.caption?.substring(0, 30) + '...',
+      isOwnPost: post.userId === userId,
+      isFriendPost: contactIds.includes(post.userId)
+    });
+  });
+  console.log('📱 [FEED POST MODEL] ==========================================');
+  console.log('');
   
   return posts;
 };
@@ -379,10 +406,15 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
 feedPostSchema.statics.getExplorePosts = async function(userId, page = 1, limit = 20, contactIds = [], followedPageIds = []) {
   const skip = (page - 1) * limit;
   
+  console.log('');
+  console.log('🔍 [FEED POST MODEL] ==========================================');
   console.log('🔍 [FEED POST MODEL] getExplorePosts called');
   console.log('🔍 [FEED POST MODEL] userId:', userId);
   console.log('🔍 [FEED POST MODEL] Excluding contactIds count:', contactIds.length);
+  console.log('🔍 [FEED POST MODEL] Excluding contactIds:', contactIds);
   console.log('🔍 [FEED POST MODEL] Excluding followedPageIds count:', followedPageIds.length);
+  console.log('🔍 [FEED POST MODEL] ==========================================');
+  console.log('');
   
   // EXPLORE FEED LOGIC (Public posts from non-friends):
   // 1. Must be active and public
@@ -431,22 +463,44 @@ feedPostSchema.statics.getExplorePosts = async function(userId, page = 1, limit 
     .populate('pageId', 'name username profileImage isVerified')
     .lean();
   
+  console.log('');
+  console.log('🔍 [FEED POST MODEL] ==========================================');
   console.log('🔍 [FEED POST MODEL] Found', posts.length, 'posts for Explore feed');
   
-  // Debug: Show first post details if available
-  if (posts.length > 0) {
-    console.log('🔍 [FEED POST MODEL] Sample post:', {
-      _id: posts[0]._id,
-      userId: posts[0].userId,
-      privacy: posts[0].privacy,
-      isPagePost: posts[0].isPagePost,
-      caption: posts[0].caption?.substring(0, 50)
+  // Show details of each post to debug
+  posts.forEach((post, index) => {
+    console.log(`🔍 [FEED POST MODEL] Post ${index + 1}:`, {
+      _id: post._id,
+      userId: post.userId,
+      userName: post.userName,
+      privacy: post.privacy,
+      isPagePost: post.isPagePost,
+      caption: post.caption?.substring(0, 30) + '...',
+      isOwnPost: post.userId === userId,
+      isFriendPost: contactIds.includes(post.userId),
+      WARNING_OWN: post.userId === userId ? '⚠️ OWN POST SHOWING IN EXPLORE!' : '',
+      WARNING_FRIEND: contactIds.includes(post.userId) ? '⚠️ FRIEND POST SHOWING IN EXPLORE!' : ''
     });
-  } else {
+  });
+  
+  // Count issues
+  const ownPostsCount = posts.filter(p => p.userId === userId).length;
+  const friendPostsCount = posts.filter(p => contactIds.includes(p.userId)).length;
+  
+  if (ownPostsCount > 0) {
+    console.log(`🔍 [FEED POST MODEL] ⚠️⚠️⚠️ ERROR: ${ownPostsCount} OWN POSTS showing in Explore!`);
+  }
+  if (friendPostsCount > 0) {
+    console.log(`🔍 [FEED POST MODEL] ⚠️⚠️⚠️ ERROR: ${friendPostsCount} FRIEND POSTS showing in Explore!`);
+  }
+  
+  if (posts.length === 0) {
     // Debug: Check if there are ANY public posts
     const totalPublicPosts = await this.countDocuments({ isActive: true, privacy: 'public' });
     console.log('🔍 [FEED POST MODEL] Total public posts in DB:', totalPublicPosts);
   }
+  console.log('🔍 [FEED POST MODEL] ==========================================');
+  console.log('');
   
   return posts;
 };

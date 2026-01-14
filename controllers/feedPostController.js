@@ -201,11 +201,16 @@ const getFeedPosts = async (req, res) => {
     // Combine followed pages + owned pages
     const allPageIds = [...new Set([...followedPageIds.map(id => id.toString()), ...ownedPageIds.map(id => id.toString())])];
     
-    console.log(`📱 Getting feed for user ${userId}:`);
-    console.log(`  👥 Friends (from Friend model): ${friendUserIds.length}`);
+    console.log('');
+    console.log('📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱');
+    console.log(`📱 [FOR YOU] Getting feed for user ${userId}:`);
+    console.log(`  👥 Friends count: ${friendUserIds.length}`);
+    console.log(`  👥 Friend IDs:`, friendUserIds);
     console.log(`  📄 Followed pages: ${followedPageIds.length}`);
     console.log(`  👤 Owned/managed pages: ${ownedPageIds.length}`);
     console.log(`  📄 Total pages in feed: ${allPageIds.length}`);
+    console.log('📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱');
+    console.log('');
 
     // Pass friend IDs + all page IDs (followed + owned) to getFeedPosts
     const posts = await FeedPost.getFeedPosts(userId, page, limit, friendUserIds, allPageIds);
@@ -1063,10 +1068,16 @@ const getExplorePosts = async (req, res) => {
     // Combine followed pages + owned pages
     const allPageIds = [...new Set([...followedPageIds.map(id => id.toString()), ...ownedPageIds.map(id => id.toString())])];
     
-    console.log(`🔍 Getting EXPLORE feed for user ${userId}:`);
-    console.log(`  👥 Excluding friends (from Friend model): ${friendUserIds.length}`);
-    console.log(`  📄 Excluding followed/owned pages: ${allPageIds.length}`);
+    console.log('');
+    console.log('🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍');
+    console.log(`🔍 [EXPLORE] Getting feed for user ${userId}:`);
+    console.log(`  ❌ Excluding own userId: ${userId}`);
+    console.log(`  👥 Excluding friends count: ${friendUserIds.length}`);
+    console.log(`  � Excluding friend IDs:`, friendUserIds);
+    console.log(`  �📄 Excluding followed/owned pages: ${allPageIds.length}`);
     console.log(`  🎯 Personalization: ${usePersonalization ? 'ENABLED' : 'DISABLED'}`);
+    console.log('🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍');
+    console.log('');
 
     let posts;
     
