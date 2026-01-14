@@ -57,4 +57,10 @@ router.get('/uploads/post-videos/:filename', protect, async (req, res) => {
   await serveEncryptedFile(filePath, res);
 });
 
+// Post media (photos and videos) - NEW
+router.get('/uploads/post-media/:filename', protect, async (req, res) => {
+  const filePath = path.join(__dirname, '../uploads/post-media', req.params.filename);
+  await serveEncryptedFile(filePath, res);
+});
+
 module.exports = router;

@@ -171,25 +171,21 @@ const decryptFileMiddleware = async (req, res, next) => {
  */
 const serveEncryptedFile = async (filePath, res) => {
   try {
-    const fileEncryption = getInstance();
-    
-    console.log('🔓 [FILE SERVE] Decrypting and serving file:', path.basename(filePath));
+    console.log('🔓 [FILE SERVE] Serving file:', path.basename(filePath));
     
     // Check if file exists
     try {
       await fs.access(filePath);
     } catch (error) {
+      console.log('❌ [FILE SERVE] File not found:', filePath);
       return res.status(404).json({
         success: false,
         message: 'File not found'
       });
     }
     
-    // Decrypt file to buffer
-    const decryptedBuffer = await fileEncryption.decryptFile(filePath);
-    
     // Detect content type from file extension
-    const ext = path.extname(filePath).toLowerCase();
+    const ext = path.extname(filePath).toLowerCase().replace('.enc', '');
     const contentTypes = {
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
@@ -206,13 +202,125 @@ const serveEncryptedFile = async (filePath, res) => {
     
     const contentType = contentTypes[ext] || 'application/octet-stream';
     
-    // Send decrypted file
-    res.set('Content-Type', contentType);
-    res.send(decryptedBuffer);
+    // Determine which encryption method to use based on file path
+    const isPostMedia = filePath.includes('/post-media/');
+    const isStoryImage = filePath.includes('/story-images/');
+    const isProfileImage = filePath.includes('/profile-images/');
+    const isGroupImage = filePath.includes('/group-images/');
     
-    console.log('✅ [FILE SERVE] File served successfully');
+    // Post media, stories, and profiles use mediaFileEncryption
+    const useMediaEncryption = isPostMedia || isStoryImage || isProfileImage || isGroupImage;
+    
+    if (useMediaEncryption) {
+      console.log('🔓 [FILE SERVE] Using media encryption for:', path.basename(filePath));
+      
+      // Use media file encryption (server-side encryption)
+      const { getInstance: getMediaEncryption } = require('../utils/mediaFileEncryption');
+      const mediaEncryption = getMediaEncryption();
+      
+      // Get encryption metadata from database
+      const FeedPost = require('../models/FeedPost');
+      const Story = require('../models/storyModel');
+      const User = require('../models/userModel');
+      const Group = require('../models/Group');
+      
+      const filename = path.basename(filePath).replace('.enc', '');
+      let encryptionIv, encryptionAuthTag;
+      
+      // Query database for encryption metadata
+      if (isPostMedia) {
+        const post = await FeedPost.findOne({
+          'media.url': { $regex: filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+        }).lean();
+        
+        if (post && post.media) {
+          const mediaItem = post.media.find(m => m.url && m.url.includes(filename));
+          if (mediaItem && mediaItem.encrypted) {
+            encryptionIv = mediaItem.encryptionIv;
+            encryptionAuthTag = mediaItem.encryptionAuthTag;
+          }
+        }
+      } else if (isStoryImage) {
+        const story = await Story.findOne({
+          'items.url': { $regex: filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+        }).lean();
+        
+        if (story && story.items) {
+          const item = story.items.find(i => i.url && i.url.includes(filename));
+          if (item && item.encryptionIv) {
+            encryptionIv = item.encryptionIv;
+            encryptionAuthTag = item.encryptionAuthTag;
+          }
+        }
+      } else if (isProfileImage) {
+        const user = await User.findOne({
+          profileImage: { $regex: filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+        }).lean();
+        
+        if (user && user.profileImageEncrypted) {
+          encryptionIv = user.profileImageIv;
+          encryptionAuthTag = user.profileImageAuthTag;
+        }
+      } else if (isGroupImage) {
+        const group = await Group.findOne({
+          groupImage: { $regex: filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+        }).lean();
+        
+        if (group && group.groupImageEncrypted) {
+          encryptionIv = group.groupImageIv;
+          encryptionAuthTag = group.groupImageAuthTag;
+        }
+      }
+      
+      if (encryptionIv && encryptionAuthTag) {
+        console.log('✅ [FILE SERVE] Found encryption metadata, decrypting...');
+        
+        // Decrypt and stream using media encryption
+        await mediaEncryption.decryptFileStream(
+          filePath,
+          encryptionIv,
+          encryptionAuthTag,
+          res,
+          contentType
+        );
+        
+        console.log('✅ [FILE SERVE] Media encrypted file decrypted and served');
+        return;
+      } else {
+        console.log('⚠️ [FILE SERVE] No encryption metadata found, serving as unencrypted');
+        const fileBuffer = await fs.readFile(filePath);
+        res.set('Content-Type', contentType);
+        res.send(fileBuffer);
+        console.log('✅ [FILE SERVE] Unencrypted file served');
+        return;
+      }
+    }
+    
+    // Chat files use E2EE encryption
+    console.log('🔓 [FILE SERVE] Using E2EE encryption for:', path.basename(filePath));
+    const fileEncryption = getInstance();
+    
+    try {
+      console.log('🔓 [FILE SERVE] Attempting E2EE decryption');
+      const decryptedBuffer = await fileEncryption.decryptFile(filePath);
+      
+      // Send decrypted file
+      res.set('Content-Type', contentType);
+      res.send(decryptedBuffer);
+      console.log('✅ [FILE SERVE] E2EE encrypted file decrypted and served');
+    } catch (decryptError) {
+      // If decryption fails, file might be unencrypted (legacy)
+      console.log('📁 [FILE SERVE] E2EE decryption failed, serving as unencrypted file');
+      
+      // Read and serve unencrypted file
+      const fileBuffer = await fs.readFile(filePath);
+      res.set('Content-Type', contentType);
+      res.send(fileBuffer);
+      console.log('✅ [FILE SERVE] Unencrypted file served');
+    }
   } catch (error) {
-    console.error('❌ [FILE SERVE] Failed to serve encrypted file:', error);
+    console.error('❌ [FILE SERVE] Failed to serve file:', error);
+    console.error('❌ [FILE SERVE] Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Failed to serve file'
