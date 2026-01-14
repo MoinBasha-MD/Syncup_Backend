@@ -277,30 +277,28 @@ const uploadProfileImage = async (req, res) => {
       }
     }
 
-    // 🔐 ENCRYPT THE FILE
-    const { getInstance: getMediaEncryption } = require('../utils/mediaFileEncryption');
-    const mediaEncryption = getMediaEncryption();
+    // 🔐 ENCRYPTION DISABLED - Serve files directly for better performance
+    // const { getInstance: getMediaEncryption } = require('../utils/mediaFileEncryption');
+    // const mediaEncryption = getMediaEncryption();
+    // const encryptionResult = await mediaEncryption.encryptFile(req.file.path);
     
-    const encryptionResult = await mediaEncryption.encryptFile(req.file.path);
-    const encryptedFilename = path.basename(encryptionResult.encryptedPath);
-    const imageUrl = `/uploads/profile-images/${encryptedFilename}`;
+    const filename = req.file.filename;
+    const imageUrl = `/uploads/profile-images/${filename}`;
     
-    console.log('Upload controller - Profile image encrypted and saved');
+    console.log('Upload controller - Profile image saved (encryption disabled)');
     
-    // Update user profile with new image URL and encryption metadata
+    // Update user profile with new image URL
     user.profileImage = imageUrl;
-    user.profileImageEncrypted = true;
-    user.profileImageIv = encryptionResult.iv;
-    user.profileImageAuthTag = encryptionResult.authTag;
+    user.profileImageEncrypted = false;
     await user.save();
 
     res.status(200).json({
       success: true,
       data: {
         profileImage: imageUrl,
-        encrypted: true
+        encrypted: false
       },
-      message: 'Profile image uploaded and encrypted successfully'
+      message: 'Profile image uploaded successfully'
     });
   } catch (error) {
     console.error('Error uploading profile image:', error);
@@ -381,29 +379,27 @@ const uploadStoryImage = async (req, res) => {
     console.log('📸 Story upload - File saved to:', req.file.path);
     console.log('📸 Story upload - File exists:', fs.existsSync(req.file.path));
 
-    // 🔐 ENCRYPT THE FILE
-    const { getInstance: getMediaEncryption } = require('../utils/mediaFileEncryption');
-    const mediaEncryption = getMediaEncryption();
+    // 🔐 ENCRYPTION DISABLED - Serve files directly for better performance
+    // const { getInstance: getMediaEncryption } = require('../utils/mediaFileEncryption');
+    // const mediaEncryption = getMediaEncryption();
+    // const encryptionResult = await mediaEncryption.encryptFile(req.file.path);
     
-    const encryptionResult = await mediaEncryption.encryptFile(req.file.path);
-    const encryptedFilename = path.basename(encryptionResult.encryptedPath);
-    const imageUrl = `/uploads/story-images/${encryptedFilename}`;
+    const filename = req.file.filename;
+    const imageUrl = `/uploads/story-images/${filename}`;
     
-    console.log('📸 Story upload - Image encrypted and saved');
-    console.log('📸 Story upload - Encrypted URL:', imageUrl);
+    console.log('📸 Story upload - Image saved (encryption disabled)');
+    console.log('📸 Story upload - URL:', imageUrl);
 
     res.status(200).json({
       success: true,
       data: {
         imageUrl: imageUrl,
-        fileName: encryptedFilename,
-        filePath: encryptionResult.encryptedPath,
+        fileName: filename,
+        filePath: req.file.path,
         fileSize: req.file.size,
-        encrypted: true,
-        encryptionIv: encryptionResult.iv,
-        encryptionAuthTag: encryptionResult.authTag
+        encrypted: false
       },
-      message: 'Story image uploaded and encrypted successfully'
+      message: 'Story image uploaded successfully'
     });
   } catch (error) {
     console.error('❌ Error uploading story image:', error);
@@ -600,34 +596,31 @@ const uploadPostMedia = async (req, res) => {
       });
     }
 
-    // 🔐 ENCRYPT THE FILE
-    const { getInstance: getMediaEncryption } = require('../utils/mediaFileEncryption');
-    const mediaEncryption = getMediaEncryption();
-    
-    const encryptionResult = await mediaEncryption.encryptFile(req.file.path);
+    // 🔐 ENCRYPTION DISABLED - Serve files directly for better performance
+    // const { getInstance: getMediaEncryption } = require('../utils/mediaFileEncryption');
+    // const mediaEncryption = getMediaEncryption();
+    // const encryptionResult = await mediaEncryption.encryptFile(req.file.path);
     
     // Determine if it's a photo or video
     const isVideo = req.file.mimetype.startsWith('video/');
-    const encryptedFilename = path.basename(encryptionResult.encryptedPath);
-    const mediaUrl = `/uploads/post-media/${encryptedFilename}`;
+    const filename = req.file.filename;
+    const mediaUrl = `/uploads/post-media/${filename}`;
     
-    console.log(`📸 Post media upload - ${isVideo ? 'Video' : 'Photo'} encrypted and saved`);
-    console.log('📸 Post media upload - Encrypted URL:', mediaUrl);
+    console.log(`📸 Post media upload - ${isVideo ? 'Video' : 'Photo'} saved (encryption disabled)`);
+    console.log('📸 Post media upload - URL:', mediaUrl);
 
-    // Return the media URL with encryption metadata
+    // Return the media URL without encryption
     res.status(200).json({
       success: true,
       data: {
         [isVideo ? 'videoUrl' : 'imageUrl']: mediaUrl,
-        fileName: encryptedFilename,
+        fileName: filename,
         fileSize: req.file.size,
         mimeType: req.file.mimetype,
         uploadedBy: req.user.userId,
-        encrypted: true,
-        encryptionIv: encryptionResult.iv,
-        encryptionAuthTag: encryptionResult.authTag
+        encrypted: false
       },
-      message: `Post ${isVideo ? 'video' : 'photo'} uploaded and encrypted successfully`
+      message: `Post ${isVideo ? 'video' : 'photo'} uploaded successfully`
     });
   } catch (error) {
     console.error('❌ Error uploading post media:', error);
