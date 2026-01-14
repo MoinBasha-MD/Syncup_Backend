@@ -157,19 +157,33 @@ class StoryService {
         }
       }
       
-      // Process story items
-      const processedItems = storyData.items.map((item, index) => ({
-        id: item.id || `item_${Date.now()}_${index}`,
-        type: item.type || 'image',
-        url: item.url || null,
-        text: item.text || null,
-        backgroundColor: item.backgroundColor || '#000000',
-        textColor: item.textColor || '#FFFFFF',
-        fontSize: item.fontSize || 'medium',
-        fontFamily: item.fontFamily || 'default',
-        textAlign: item.textAlign || 'center',
-        durationMs: item.durationMs || 5000
-      }));
+      // Process story items with validation
+      const processedItems = storyData.items.map((item, index) => {
+        console.log(`📝 Processing item ${index}:`, { type: item.type, hasUrl: !!item.url, hasText: !!item.text });
+        
+        // Validate item based on type
+        if (item.type === 'image' && !item.url) {
+          throw new Error(`Image item ${index} is missing URL`);
+        }
+        if (item.type === 'text' && !item.text) {
+          throw new Error(`Text item ${index} is missing text content`);
+        }
+        
+        return {
+          id: item.id || `item_${Date.now()}_${index}`,
+          type: item.type || 'image',
+          url: item.url || null,
+          text: item.text || null,
+          backgroundColor: item.backgroundColor || '#000000',
+          textColor: item.textColor || '#FFFFFF',
+          fontSize: item.fontSize || 'medium',
+          fontFamily: item.fontFamily || 'default',
+          textAlign: item.textAlign || 'center',
+          durationMs: item.durationMs || 5000
+        };
+      });
+      
+      console.log('✅ All items processed successfully:', processedItems.length);
       
       // Set expiration time (24 hours from now)
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -177,7 +191,8 @@ class StoryService {
       console.log('💾 Creating story document with data:', {
         userId,
         itemsCount: processedItems.length,
-        expiresAt: expiresAt.toISOString()
+        expiresAt: expiresAt.toISOString(),
+        items: processedItems.map(i => ({ type: i.type, hasUrl: !!i.url, hasText: !!i.text }))
       });
       
       // Create story document with explicit expiresAt field
@@ -189,6 +204,7 @@ class StoryService {
       
       const savedStory = await story.save();
       console.log('✅ Story saved successfully with ID:', savedStory._id);
+      console.log('✅ Saved story items:', savedStory.items.map(i => ({ id: i.id, type: i.type, url: i.url?.substring(0, 50) })));
       
       // Format the result for API response
       const formattedResult = {

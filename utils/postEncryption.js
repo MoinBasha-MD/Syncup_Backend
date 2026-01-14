@@ -146,37 +146,49 @@ class PostEncryption {
       // Split components
       const parts = encryptedText.split(':');
       if (parts.length !== 4) {
-        console.warn('⚠️ [POST ENCRYPTION] Invalid encrypted text format, returning as-is');
+        // console.warn('⚠️ [POST ENCRYPTION] Invalid encrypted text format, returning as-is');
         return encryptedText;
       }
 
       const [saltB64, ivB64, authTagB64, ciphertextB64] = parts;
 
-      // Decode from base64
-      const salt = Buffer.from(saltB64, 'base64');
-      const iv = Buffer.from(ivB64, 'base64');
-      const authTag = Buffer.from(authTagB64, 'base64');
-      const ciphertext = Buffer.from(ciphertextB64, 'base64');
+      // Validate base64 format before decoding
+      try {
+        // Decode from base64
+        const salt = Buffer.from(saltB64, 'base64');
+        const iv = Buffer.from(ivB64, 'base64');
+        const authTag = Buffer.from(authTagB64, 'base64');
+        const ciphertext = Buffer.from(ciphertextB64, 'base64');
 
-      // Derive encryption key
-      const key = await this.deriveKey(salt);
+        // Validate buffer lengths
+        if (salt.length !== this.saltLength || 
+            iv.length !== this.ivLength || 
+            authTag.length !== this.authTagLength) {
+          // Invalid lengths - not actually encrypted
+          return encryptedText;
+        }
 
-      // Create decipher
-      const decipher = crypto.createDecipheriv(this.algorithm, key, iv);
-      decipher.setAuthTag(authTag);
+        // Derive encryption key
+        const key = await this.deriveKey(salt);
 
-      // Decrypt
-      const decrypted = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final()
-      ]);
+        // Create decipher
+        const decipher = crypto.createDecipheriv(this.algorithm, key, iv);
+        decipher.setAuthTag(authTag);
 
-      return decrypted.toString('utf8');
+        // Decrypt
+        const decrypted = Buffer.concat([
+          decipher.update(ciphertext),
+          decipher.final()
+        ]);
+
+        return decrypted.toString('utf8');
+      } catch (bufferError) {
+        // Invalid base64 or decryption failed - return as-is
+        return encryptedText;
+      }
 
     } catch (error) {
-      console.error('❌ [POST ENCRYPTION] Decryption failed:', error.message);
-      // Return encrypted text as-is rather than throwing
-      // This allows graceful degradation
+      // Silently return encrypted text as-is for graceful degradation
       return encryptedText;
     }
   }
