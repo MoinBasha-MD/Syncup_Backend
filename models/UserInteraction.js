@@ -7,8 +7,7 @@ const mongoose = require('mongoose');
 
 const userInteractionSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String, // Changed from ObjectId to String to support UUID-based userIds
     required: true,
     index: true
   },
@@ -108,7 +107,7 @@ userInteractionSchema.statics.hasUserInteracted = async function(userId, postId,
 // Static method to get engagement stats for a post
 userInteractionSchema.statics.getPostEngagementStats = async function(postId) {
   const stats = await this.aggregate([
-    { $match: { postId: mongoose.Types.ObjectId(postId) } },
+    { $match: { postId: new mongoose.Types.ObjectId(postId) } },
     {
       $group: {
         _id: '$interactionType',
