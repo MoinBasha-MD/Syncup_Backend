@@ -58,7 +58,8 @@ router.get('/uploads/post-videos/:filename', protect, async (req, res) => {
 });
 
 // Post media (photos and videos) - NEW
-router.get('/uploads/post-media/:filename', protect, async (req, res) => {
+// ⚠️ PUBLIC ROUTE: No auth required because React Native Image component cannot send headers
+router.get('/uploads/post-media/:filename', async (req, res) => {
   const filePath = path.join(__dirname, '../uploads/post-media', req.params.filename);
   await serveEncryptedFile(filePath, res);
 });
