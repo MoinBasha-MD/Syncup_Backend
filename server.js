@@ -127,13 +127,14 @@ app.use(...performanceOptimization());
 
 // Basic middleware
 app.use(express.json({ 
-  limit: '150mb', // Increased for video uploads
+  limit: '200mb', // Increased for video uploads
   verify: (req, res, buf) => {
     // Store raw body for webhook verification if needed
     req.rawBody = buf;
   }
 })); // Limit request body size
-app.use(express.urlencoded({ extended: true, limit: '150mb' })); // Increased for video uploads
+app.use(express.urlencoded({ extended: true, limit: '200mb' })); // Increased for video uploads
+app.use(express.raw({ limit: '200mb' })); // For raw binary data
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'uploads');
