@@ -210,24 +210,9 @@ const getFeedPosts = async (req, res) => {
     // Pass friend IDs + all page IDs (followed + owned) to getFeedPosts
     const posts = await FeedPost.getFeedPosts(userId, page, limit, friendUserIds, allPageIds);
 
-    // 🔓 Decrypt all posts before returning
-    const postEncryption = getPostEncryption();
-    const decryptedPosts = await Promise.all(posts.map(async post => {
-      const decrypted = { ...post };
-      try {
-        // Check if caption is encrypted (format: salt:iv:authTag:ciphertext)
-        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
-          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-        }
-        // Check if location name is encrypted
-        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
-          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-        }
-      } catch (decryptError) {
-        console.error('❌ Decryption error for post:', decrypted._id, decryptError);
-      }
-      return decrypted;
-    }));
+    // ENCRYPTION DISABLED - Posts stored as plain text
+    // No decryption needed
+    const decryptedPosts = posts;
 
     console.log(`✅ Returning ${decryptedPosts.length} FOR YOU posts (own + friends + pages)`);
 
@@ -668,22 +653,9 @@ const getUserPosts = async (req, res) => {
 
     const posts = await FeedPost.getUserPosts(userId, page, limit);
 
-    // 🔓 Decrypt all posts before returning
-    const postEncryption = getPostEncryption();
-    const decryptedPosts = await Promise.all(posts.map(async post => {
-      const decrypted = { ...post };
-      try {
-        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
-          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-        }
-        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
-          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-        }
-      } catch (decryptError) {
-        console.error('❌ Decryption error for user post:', decrypted._id, decryptError);
-      }
-      return decrypted;
-    }));
+    // ENCRYPTION DISABLED - Posts stored as plain text
+    // No decryption needed
+    const decryptedPosts = posts;
 
     res.status(200).json({
       success: true,
@@ -853,22 +825,8 @@ const getSavedPosts = async (req, res) => {
     .limit(limit)
     .lean();
 
-    // 🔓 Decrypt all posts before returning
-    const postEncryption = getPostEncryption();
-    const decryptedPosts = await Promise.all(savedPosts.map(async post => {
-      const decrypted = { ...post };
-      try {
-        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
-          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-        }
-        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
-          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-        }
-      } catch (decryptError) {
-        console.error('❌ Decryption error for saved post:', decrypted._id, decryptError);
-      }
-      return decrypted;
-    }));
+    // ENCRYPTION DISABLED - Posts stored as plain text
+    const decryptedPosts = savedPosts;
 
     console.log(`📚 Retrieved ${decryptedPosts.length} saved posts for ${userId} (${validPostIds.length} valid IDs)`);
 
@@ -914,22 +872,8 @@ const getLikedPosts = async (req, res) => {
       isActive: true
     });
 
-    // 🔓 Decrypt all posts before returning
-    const postEncryption = getPostEncryption();
-    const decryptedPosts = await Promise.all(likedPosts.map(async post => {
-      const decrypted = { ...post };
-      try {
-        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
-          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-        }
-        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
-          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-        }
-      } catch (decryptError) {
-        console.error('❌ Decryption error for liked post:', decrypted._id, decryptError);
-      }
-      return decrypted;
-    }));
+    // ENCRYPTION DISABLED - Posts stored as plain text
+    const decryptedPosts = likedPosts;
 
     console.log(`❤️ Retrieved ${decryptedPosts.length} liked posts for ${userId}`);
 
@@ -989,22 +933,8 @@ const getCommentedPosts = async (req, res) => {
     .limit(limit)
     .lean();
 
-    // 🔓 Decrypt all posts before returning
-    const postEncryption = getPostEncryption();
-    const decryptedPosts = await Promise.all(commentedPosts.map(async post => {
-      const decrypted = { ...post };
-      try {
-        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
-          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-        }
-        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
-          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-        }
-      } catch (decryptError) {
-        console.error('❌ Decryption error for commented post:', decrypted._id, decryptError);
-      }
-      return decrypted;
-    }));
+    // ENCRYPTION DISABLED - Posts stored as plain text
+    const decryptedPosts = commentedPosts;
 
     console.log(`💬 Retrieved ${decryptedPosts.length} commented posts for ${userId}`);
 
@@ -1083,22 +1013,8 @@ const getPagePosts = async (req, res) => {
 
     const posts = await FeedPost.getPagePosts(pageId, page, limit);
 
-    // 🔓 Decrypt all posts before returning
-    const postEncryption = getPostEncryption();
-    const decryptedPosts = await Promise.all(posts.map(async post => {
-      const decrypted = { ...post };
-      try {
-        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
-          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-        }
-        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
-          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-        }
-      } catch (decryptError) {
-        console.error('❌ Decryption error for page post:', decrypted._id, decryptError);
-      }
-      return decrypted;
-    }));
+    // ENCRYPTION DISABLED - Posts stored as plain text
+    const decryptedPosts = posts;
 
     console.log(`✅ Returning ${decryptedPosts.length} page posts`);
 
@@ -1182,35 +1098,16 @@ const getExplorePosts = async (req, res) => {
       posts = await FeedPost.getExplorePosts(userId, page, limit, friendUserIds, allPageIds);
     }
 
-    // 🔓 Decrypt all posts before returning
-    const postEncryption = getPostEncryption();
-    const decryptedPosts = await Promise.all(posts.map(async post => {
-      const decrypted = { ...post };
-      try {
-        // Check if caption is encrypted (format: salt:iv:authTag:ciphertext)
-        if (decrypted.caption && postEncryption.isEncrypted(decrypted.caption)) {
-          decrypted.caption = await postEncryption.decryptText(decrypted.caption);
-        }
-        // Check if location name is encrypted
-        if (decrypted.location?.name && postEncryption.isEncrypted(decrypted.location.name)) {
-          decrypted.location.name = await postEncryption.decryptText(decrypted.location.name);
-        }
-      } catch (decryptError) {
-        console.error('❌ Decryption error for explore post:', decrypted._id, decryptError);
-      }
-      return decrypted;
-    }));
-
-    console.log(`✅ Returning ${decryptedPosts.length} EXPLORE posts (${usePersonalization ? 'personalized' : 'chronological'})`);
+    console.log(`✅ Returning ${posts.length} EXPLORE posts (${usePersonalization ? 'personalized' : 'chronological'})`);
 
     res.status(200).json({
       success: true,
-      data: decryptedPosts,
+      data: posts,
       personalized: usePersonalization,
       pagination: {
         page,
         limit,
-        total: decryptedPosts.length
+        total: posts.length
       }
     });
 

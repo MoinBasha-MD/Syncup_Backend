@@ -183,14 +183,12 @@ feedPostSchema.index({ pageVisibility: 1 });
 feedPostSchema.index({ targetUserId: 1, createdAt: -1 });
 feedPostSchema.index({ pageId: 1, pageVisibility: 1, targetUserId: 1 });
 
-// 🔐 ENCRYPTION: Encrypt sensitive fields before saving
+// 🔐 ENCRYPTION DISABLED - Captions and locations stored as plain text for better performance
 feedPostSchema.pre('save', async function(next) {
   try {
-    const postEncryption = getPostEncryption();
-    
-    // Encrypt caption if modified and not already encrypted
-    if (this.isModified('caption') && this.caption && !this._captionEncrypted) {
-      // Extract hashtags BEFORE encryption
+    // Extract hashtags and mentions (no encryption)
+    if (this.isModified('caption') && this.caption) {
+      // Extract hashtags
       const hashtagRegex = /#(\w+)/g;
       const hashtags = [];
       let match;
@@ -201,7 +199,7 @@ feedPostSchema.pre('save', async function(next) {
       
       this.hashtags = [...new Set(hashtags)];
       
-      // Extract mentions BEFORE encryption
+      // Extract mentions
       const mentionRegex = /@(\w+)/g;
       const mentions = [];
       
@@ -211,25 +209,12 @@ feedPostSchema.pre('save', async function(next) {
       
       this.mentions = [...new Set(mentions)];
       
-      // Now encrypt the caption (async)
-      this.caption = await postEncryption.encryptText(this.caption);
-      this._captionEncrypted = true;
-      
-      console.log('🔒 [FEED POST] Caption encrypted');
-    }
-    
-    // Encrypt location name if modified and not already encrypted
-    if (this.isModified('location.name') && this.location && this.location.name && !this.location._nameEncrypted) {
-      this.location.name = await postEncryption.encryptText(this.location.name);
-      this.location._nameEncrypted = true;
-      
-      console.log('🔒 [FEED POST] Location name encrypted');
+      console.log('✅ [FEED POST] Caption saved (encryption disabled)');
     }
     
     next();
   } catch (error) {
-    console.error('❌ [FEED POST] Encryption error:', error);
-    // Continue without encryption on error (graceful degradation)
+    console.error('❌ [FEED POST] Save error:', error);
     next();
   }
 });

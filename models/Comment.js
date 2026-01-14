@@ -106,14 +106,12 @@ commentSchema.index({ postId: 1, isActive: 1, createdAt: -1 });
 commentSchema.index({ mentions: 1 });
 commentSchema.index({ hashtags: 1 });
 
-// 🔐 ENCRYPTION: Encrypt comment text before saving
+// 🔐 ENCRYPTION DISABLED - Comments stored as plain text for better performance
 commentSchema.pre('save', async function(next) {
   try {
-    const postEncryption = getPostEncryption();
-    
-    // Encrypt main comment text if modified and not already encrypted
-    if (this.isModified('text') && this.text && !this._textEncrypted) {
-      // Extract mentions BEFORE encryption
+    // Extract mentions and hashtags (no encryption)
+    if (this.isModified('text') && this.text) {
+      // Extract mentions
       const mentionRegex = /@(\w+)/g;
       const mentions = [];
       let match;
@@ -124,7 +122,7 @@ commentSchema.pre('save', async function(next) {
       
       this.mentions = [...new Set(mentions)];
       
-      // Extract hashtags BEFORE encryption
+      // Extract hashtags
       const hashtagRegex = /#(\w+)/g;
       const hashtags = [];
       
@@ -134,28 +132,12 @@ commentSchema.pre('save', async function(next) {
       
       this.hashtags = [...new Set(hashtags)];
       
-      // Now encrypt the text
-      this.text = await postEncryption.encryptText(this.text);
-      this._textEncrypted = true;
-      
-      console.log('🔒 [COMMENT] Comment text encrypted');
-    }
-    
-    // Encrypt reply texts if modified
-    if (this.isModified('replies') && this.replies && this.replies.length > 0) {
-      for (let reply of this.replies) {
-        if (reply.text && !reply._textEncrypted) {
-          reply.text = await postEncryption.encryptText(reply.text);
-          reply._textEncrypted = true;
-          console.log('🔒 [COMMENT] Reply text encrypted');
-        }
-      }
+      console.log('✅ [COMMENT] Comment text saved (encryption disabled)');
     }
     
     next();
   } catch (error) {
-    console.error('❌ [COMMENT] Encryption error:', error);
-    // Continue without encryption on error (graceful degradation)
+    console.error('❌ [COMMENT] Save error:', error);
     next();
   }
 });

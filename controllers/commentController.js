@@ -47,16 +47,8 @@ const createComment = async (req, res) => {
 
     await comment.save();
 
-    // 🔓 Decrypt comment before returning to client
+    // ENCRYPTION DISABLED - Comments stored as plain text
     const decryptedComment = comment.toObject();
-    try {
-      const postEncryption = getPostEncryption();
-      if (decryptedComment._textEncrypted && decryptedComment.text) {
-        decryptedComment.text = await postEncryption.decryptText(decryptedComment.text);
-      }
-    } catch (decryptError) {
-      console.error('❌ Comment decryption error:', decryptError);
-    }
 
     // Update post comment count (recalculate total including replies)
     const totalComments = await Comment.aggregate([
@@ -210,16 +202,8 @@ const updateComment = async (req, res) => {
     comment.isEdited = true;
     await comment.save();
 
-    // 🔓 Decrypt comment before returning to client
+    // ENCRYPTION DISABLED - Comments stored as plain text
     const decryptedComment = comment.toObject();
-    try {
-      const postEncryption = getPostEncryption();
-      if (decryptedComment._textEncrypted && decryptedComment.text) {
-        decryptedComment.text = await postEncryption.decryptText(decryptedComment.text);
-      }
-    } catch (decryptError) {
-      console.error('❌ Comment decryption error:', decryptError);
-    }
 
     console.log(`✏️ Comment updated: ${commentId}`);
 
