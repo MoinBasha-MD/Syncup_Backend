@@ -235,15 +235,25 @@ friendSchema.statics.getFriends = async function(userId, options = {}) {
   // App connections (friend requests) should always be shown if accepted
   const mutualFriends = [];
   
+  console.log(`🔍 [GET FRIENDS] Processing ${friends.length} friendships for user: ${userId}`);
+  
   for (const friend of friends) {
+    console.log(`🔍 [GET FRIENDS] Checking friendship: ${userId} → ${friend.friendUserId}`);
+    console.log(`   - Status: ${friend.status}`);
+    console.log(`   - isDeviceContact: ${friend.isDeviceContact}`);
+    console.log(`   - isDeleted: ${friend.isDeleted}`);
+    console.log(`   - Source: ${friend.source}`);
+    
     // If this is an app connection (friend request), always include it
     if (!friend.isDeviceContact) {
       mutualFriends.push(friend);
       console.log(`✅ [APP CONNECTION] ${userId} ↔ ${friend.friendUserId}: Friend request (always shown)`);
+      console.log(`   - This friendship WILL BE VISIBLE to user ${userId}`);
       continue;
     }
     
     // For device contacts, check if reciprocal friendship exists
+    console.log(`🔍 [DEVICE CONTACT] Checking reciprocal for ${userId} → ${friend.friendUserId}`);
     const reciprocal = await this.findOne({
       userId: friend.friendUserId,
       friendUserId: userId,
@@ -256,10 +266,14 @@ friendSchema.statics.getFriends = async function(userId, options = {}) {
     if (reciprocal) {
       mutualFriends.push(friend);
       console.log(`✅ [MUTUAL CHECK] ${userId} ↔ ${friend.friendUserId}: Mutual device contact`);
+      console.log(`   - This friendship WILL BE VISIBLE to user ${userId}`);
     } else {
       console.log(`⚠️ [MUTUAL CHECK] ${userId} → ${friend.friendUserId}: One-way device contact, excluded`);
+      console.log(`   - This friendship WILL NOT BE VISIBLE to user ${userId}`);
     }
   }
+  
+  console.log(`✅ [GET FRIENDS] Returning ${mutualFriends.length} visible friends for user: ${userId}`);
   
   return mutualFriends;
 };
