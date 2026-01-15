@@ -227,6 +227,55 @@ exports.clearIntent = async (req, res) => {
 };
 
 /**
+ * Get all intents SENT by current user (to show colors on sender's side)
+ * GET /api/intent-notifications/sent
+ */
+exports.getSentIntents = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Cleanup expired intents first
+    await IntentNotification.cleanupExpired();
+
+    // Get all pending intents FROM this user
+    const intents = await IntentNotification.find({
+      fromUserId: userId,
+      status: 'pending',
+      expiresAt: { $gt: new Date() }
+    })
+    .populate('toUserId', 'name phoneNumber profileImage')
+    .sort({ createdAt: -1 });
+
+    // Format response
+    const formattedIntents = intents.map(intent => ({
+      id: intent._id,
+      toUserId: intent.toUserId._id,
+      toUserName: intent.toUserId.name,
+      toUserPhone: intent.toUserId.phoneNumber,
+      toUserImage: intent.toUserId.profileImage,
+      intentType: intent.intentType,
+      createdAt: intent.createdAt,
+      expiresAt: intent.expiresAt
+    }));
+
+    console.log(`📤 [INTENT CONTROLLER] User ${userId} has ${formattedIntents.length} sent intents`);
+
+    res.json({
+      success: true,
+      data: formattedIntents
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching sent intents:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch sent intents',
+      error: error.message 
+    });
+  }
+};
+
+/**
  * Check if contact's status has expired and auto-clear intents
  * This is called periodically or when status updates are received
  * POST /api/intent-notifications/check-expiry

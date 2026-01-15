@@ -483,11 +483,45 @@ class FriendService {
       console.log(`   - ${friendRequest.userId} → ${friendRequest.friendUserId} (original request)`);
       console.log(`   - ${friendRequest.friendUserId} → ${friendRequest.userId} (reciprocal)`);
       
-      // ✅ FIX: Add 150ms delay to ensure database writes are fully committed
+      // ✅ FIX: Add 300ms delay to ensure database writes are fully committed
       // This prevents race condition where frontend queries before data is available
-      console.log(`⏳ [FRIEND SERVICE] Waiting 150ms for database write completion...`);
-      await new Promise(resolve => setTimeout(resolve, 150));
+      console.log(`⏳ [FRIEND SERVICE] Waiting 300ms for database write completion...`);
+      await new Promise(resolve => setTimeout(resolve, 300));
       console.log(`✅ [FRIEND SERVICE] Database writes confirmed, broadcasting events...`);
+      
+      // ✅ ADDITIONAL VERIFICATION: Query both friendships to ensure they're visible
+      console.log(`🔍 [FRIEND SERVICE] FINAL VERIFICATION - Querying both friendships...`);
+      const finalVerifyOriginal = await Friend.findOne({
+        userId: friendRequest.userId,
+        friendUserId: friendRequest.friendUserId,
+        status: 'accepted',
+        isDeleted: false
+      });
+      const finalVerifyReciprocal = await Friend.findOne({
+        userId: friendRequest.friendUserId,
+        friendUserId: friendRequest.userId,
+        status: 'accepted',
+        isDeleted: false
+      });
+      
+      console.log(`📊 [FRIEND SERVICE] FINAL STATE VERIFICATION:`);
+      console.log(`   - Original (${friendRequest.userId} → ${friendRequest.friendUserId}):`, {
+        exists: !!finalVerifyOriginal,
+        status: finalVerifyOriginal?.status,
+        isDeleted: finalVerifyOriginal?.isDeleted,
+        isDeviceContact: finalVerifyOriginal?.isDeviceContact
+      });
+      console.log(`   - Reciprocal (${friendRequest.friendUserId} → ${friendRequest.userId}):`, {
+        exists: !!finalVerifyReciprocal,
+        status: finalVerifyReciprocal?.status,
+        isDeleted: finalVerifyReciprocal?.isDeleted,
+        isDeviceContact: finalVerifyReciprocal?.isDeviceContact
+      });
+      
+      if (!finalVerifyOriginal || !finalVerifyReciprocal) {
+        console.error(`❌ [FRIEND SERVICE] CRITICAL: One or both friendships missing after delay!`);
+        throw new Error('Friendship verification failed - database inconsistency detected');
+      }
       
       // Broadcast to requester via WebSocket
       console.log(`📡 [FRIEND SERVICE] Broadcasting acceptance to requester: ${friendRequest.userId}`);
