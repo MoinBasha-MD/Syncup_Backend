@@ -21,7 +21,8 @@ const {
   deleteViewedGhostMessages, // ✅ FIX #3
   markBurnViewed,
   cleanupExpiredMessages,
-  clearMessages
+  clearMessages,
+  deleteConversation
 } = require('../controllers/chatController');
 
 // All chat routes require authentication
@@ -76,5 +77,8 @@ router.post('/timer/cleanup', cleanupExpiredMessages);
 
 // Clear all messages in a conversation
 router.delete('/clear/:contactId', clearMessages);
+
+// Delete entire conversation from chat list
+router.delete('/conversation/:contactId', deleteConversation);
 
 module.exports = router;

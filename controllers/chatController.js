@@ -1460,6 +1460,48 @@ const clearMessages = async (req, res) => {
   }
 };
 
+// Delete entire conversation (WhatsApp-style: removes from chat list)
+const deleteConversation = async (req, res) => {
+  try {
+    const { contactId } = req.params;
+    const currentUserId = req.user.userId;
+
+    console.log('🗑️ [CHAT] Deleting conversation for user:', {
+      currentUserId,
+      contactId
+    });
+
+    // Mark all messages as deleted for current user (same as clearMessages)
+    const result = await Message.updateMany(
+      {
+        $or: [
+          { senderId: currentUserId, receiverId: contactId },
+          { senderId: contactId, receiverId: currentUserId }
+        ],
+        deletedFor: { $ne: currentUserId }
+      },
+      {
+        $addToSet: { deletedFor: currentUserId }
+      }
+    );
+
+    console.log('✅ [CHAT] Conversation deleted for user:', result.modifiedCount);
+
+    res.status(200).json({
+      success: true,
+      message: 'Conversation deleted from your chat list',
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('❌ [CHAT] Error deleting conversation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete conversation',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   sendMessage,
   getChatHistory,
@@ -1480,5 +1522,6 @@ module.exports = {
   deleteViewedGhostMessages, // ✅ FIX #3
   markBurnViewed,
   cleanupExpiredMessages,
-  clearMessages
+  clearMessages,
+  deleteConversation
 };
