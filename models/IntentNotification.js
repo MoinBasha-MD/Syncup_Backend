@@ -2,14 +2,12 @@ const mongoose = require('mongoose');
 
 const intentNotificationSchema = new mongoose.Schema({
   fromUserId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String,
     required: true,
     index: true
   },
   toUserId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String,
     required: true,
     index: true
   },
@@ -69,13 +67,25 @@ intentNotificationSchema.statics.getActiveIntent = async function(fromUserId, to
 
 // Static method to get all pending intents for a user
 intentNotificationSchema.statics.getPendingIntents = async function(userId) {
-  return this.find({
+  const User = mongoose.model('User');
+  const intents = await this.find({
     toUserId: userId,
     status: 'pending',
     expiresAt: { $gt: new Date() }
-  })
-  .populate('fromUserId', 'name phoneNumber profileImage')
-  .sort({ createdAt: -1 });
+  }).sort({ createdAt: -1 });
+  
+  // Manually populate user data using userId field
+  const populatedIntents = await Promise.all(
+    intents.map(async (intent) => {
+      const fromUser = await User.findOne({ userId: intent.fromUserId }).select('name phoneNumber profileImage userId');
+      return {
+        ...intent.toObject(),
+        fromUserId: fromUser
+      };
+    })
+  );
+  
+  return populatedIntents;
 };
 
 // Static method to cleanup expired intents

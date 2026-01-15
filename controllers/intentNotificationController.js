@@ -8,7 +8,7 @@ const { broadcastToUser } = require('../socketManager');
  */
 exports.sendIntentNotification = async (req, res) => {
   try {
-    const fromUserId = req.user._id;
+    const fromUserId = req.user.userId;
     const { toUserId, intentType } = req.body;
 
     // Validate intent type
@@ -71,7 +71,7 @@ exports.sendIntentNotification = async (req, res) => {
     // Broadcast to target user via WebSocket (no push notification)
     const broadcastData = {
       type: 'intent_notification',
-      fromUserId: fromUserId.toString(),
+      fromUserId: fromUserId,
       fromUserName: fromUser.name,
       fromUserPhone: fromUser.phoneNumber,
       fromUserImage: fromUser.profileImage,
@@ -79,7 +79,7 @@ exports.sendIntentNotification = async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
-    broadcastToUser(toUserId.toString(), 'intent:new', broadcastData);
+    broadcastToUser(toUserId, 'intent:new', broadcastData);
     console.log(`📡 Broadcasted intent notification to user ${toUserId}`);
 
     res.json({
@@ -87,7 +87,7 @@ exports.sendIntentNotification = async (req, res) => {
       message: 'Intent notification sent successfully',
       data: {
         intentType,
-        toUserId: toUserId.toString()
+        toUserId: toUserId
       }
     });
 
@@ -107,7 +107,7 @@ exports.sendIntentNotification = async (req, res) => {
  */
 exports.getPendingIntents = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
 
     // Cleanup expired intents first
     await IntentNotification.cleanupExpired();
@@ -118,7 +118,7 @@ exports.getPendingIntents = async (req, res) => {
     // Format response
     const formattedIntents = intents.map(intent => ({
       id: intent._id,
-      fromUserId: intent.fromUserId._id,
+      fromUserId: intent.fromUserId.userId || intent.fromUserId._id,
       fromUserName: intent.fromUserId.name,
       fromUserPhone: intent.fromUserId.phoneNumber,
       fromUserImage: intent.fromUserId.profileImage,
@@ -148,7 +148,7 @@ exports.getPendingIntents = async (req, res) => {
  */
 exports.markAllAsRead = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
 
     // Update all pending intents to acknowledged
     const result = await IntentNotification.updateMany(
@@ -190,7 +190,7 @@ exports.markAllAsRead = async (req, res) => {
  */
 exports.clearIntent = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     const { intentId } = req.params;
 
     const intent = await IntentNotification.findOne({
@@ -232,7 +232,7 @@ exports.clearIntent = async (req, res) => {
  */
 exports.getSentIntents = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
 
     // Cleanup expired intents first
     await IntentNotification.cleanupExpired();
@@ -242,21 +242,24 @@ exports.getSentIntents = async (req, res) => {
       fromUserId: userId,
       status: 'pending',
       expiresAt: { $gt: new Date() }
-    })
-    .populate('toUserId', 'name phoneNumber profileImage')
-    .sort({ createdAt: -1 });
+    }).sort({ createdAt: -1 });
 
-    // Format response
-    const formattedIntents = intents.map(intent => ({
-      id: intent._id,
-      toUserId: intent.toUserId._id,
-      toUserName: intent.toUserId.name,
-      toUserPhone: intent.toUserId.phoneNumber,
-      toUserImage: intent.toUserId.profileImage,
-      intentType: intent.intentType,
-      createdAt: intent.createdAt,
-      expiresAt: intent.expiresAt
-    }));
+    // Manually populate user data
+    const formattedIntents = await Promise.all(
+      intents.map(async (intent) => {
+        const toUser = await User.findOne({ userId: intent.toUserId }).select('name phoneNumber profileImage userId');
+        return {
+          id: intent._id,
+          toUserId: toUser?.userId || intent.toUserId,
+          toUserName: toUser?.name || 'Unknown',
+          toUserPhone: toUser?.phoneNumber || '',
+          toUserImage: toUser?.profileImage || '',
+          intentType: intent.intentType,
+          createdAt: intent.createdAt,
+          expiresAt: intent.expiresAt
+        };
+      })
+    );
 
     console.log(`📤 [INTENT CONTROLLER] User ${userId} has ${formattedIntents.length} sent intents`);
 
@@ -282,7 +285,7 @@ exports.getSentIntents = async (req, res) => {
  */
 exports.checkStatusExpiry = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     const { contactUserId, statusEndTime } = req.body;
 
     if (!statusEndTime) {
