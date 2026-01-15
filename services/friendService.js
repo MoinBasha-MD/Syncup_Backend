@@ -826,19 +826,46 @@ class FriendService {
         });
         
         if (existingFriendship) {
-          // Update existing friendship
-          existingFriendship.isDeviceContact = true;
-          existingFriendship.lastDeviceSync = now;
-          existingFriendship.phoneNumber = registeredUser.phoneNumber;
+          // ✅ CRITICAL FIX: Don't overwrite app connections (friend requests) with device contact data
+          // This was causing the reciprocal deletion bug where User A disappears from User B's list
           
-          // Update cache
-          await existingFriendship.updateCache({
-            name: registeredUser.name,
-            profileImage: registeredUser.profileImage,
-            username: registeredUser.username
-          });
+          console.log(`🔍 [FRIEND SERVICE] Found existing friendship with ${registeredUser.userId}:`);
+          console.log(`   - Current source: ${existingFriendship.source}`);
+          console.log(`   - Current status: ${existingFriendship.status}`);
+          console.log(`   - Current isDeviceContact: ${existingFriendship.isDeviceContact}`);
           
-          console.log(`🔄 [FRIEND SERVICE] Updated existing friendship with ${registeredUser.userId}`);
+          // Skip pending or removed friendships - don't convert them to device contacts
+          if (existingFriendship.status === 'pending' || existingFriendship.status === 'removed') {
+            console.log(`⚠️ [FRIEND SERVICE] Skipping ${existingFriendship.status} friendship - not converting to device contact`);
+            continue;
+          }
+          
+          // Only mark as device contact if it was originally a device contact
+          // Don't overwrite app connections (app_search, qr_code, etc.)
+          if (existingFriendship.source === 'device_contact') {
+            existingFriendship.isDeviceContact = true;
+            existingFriendship.lastDeviceSync = now;
+            existingFriendship.phoneNumber = registeredUser.phoneNumber;
+            
+            await existingFriendship.updateCache({
+              name: registeredUser.name,
+              profileImage: registeredUser.profileImage,
+              username: registeredUser.username
+            });
+            
+            console.log(`🔄 [FRIEND SERVICE] Updated existing device contact with ${registeredUser.userId}`);
+          } else {
+            // For app connections, just update cache but DON'T change isDeviceContact or source
+            await existingFriendship.updateCache({
+              name: registeredUser.name,
+              profileImage: registeredUser.profileImage,
+              username: registeredUser.username
+            });
+            
+            console.log(`🔄 [FRIEND SERVICE] Updated cache for app connection with ${registeredUser.userId}`);
+            console.log(`   - Keeping source: ${existingFriendship.source}`);
+            console.log(`   - Keeping isDeviceContact: ${existingFriendship.isDeviceContact}`);
+          }
         } else {
           // Create new friendship (auto-accepted for device contacts)
           // ✅ FIX: Use upsert to avoid duplicate key error
