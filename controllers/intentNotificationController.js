@@ -20,7 +20,7 @@ exports.sendIntentNotification = async (req, res) => {
     }
 
     // Check if target user exists and get their status
-    const toUser = await User.findById(toUserId);
+    const toUser = await User.findOne({ userId: toUserId });
     if (!toUser) {
       return res.status(404).json({ 
         success: false, 
@@ -66,7 +66,7 @@ exports.sendIntentNotification = async (req, res) => {
     }
 
     // Get sender info for WebSocket broadcast
-    const fromUser = await User.findById(fromUserId).select('name phoneNumber profileImage');
+    const fromUser = await User.findOne({ userId: fromUserId }).select('name phoneNumber profileImage');
 
     // Broadcast to target user via WebSocket (no push notification)
     const broadcastData = {
