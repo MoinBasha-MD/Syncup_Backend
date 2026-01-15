@@ -359,9 +359,19 @@ const getChatHistory = async (req, res) => {
     }
 
     // Filter out messages deleted by current user (for optimized loading too)
+    const beforeFilterCount = messages.length;
     const filteredMessages = messages.filter(msg => 
       !msg.deletedFor || !msg.deletedFor.includes(userId)
     );
+    const afterFilterCount = filteredMessages.length;
+    const filteredOutCount = beforeFilterCount - afterFilterCount;
+
+    console.log('📊 [CHAT HISTORY] Filter results:', {
+      beforeFilter: beforeFilterCount,
+      afterFilter: afterFilterCount,
+      filteredOut: filteredOutCount,
+      userId: userId
+    });
 
     // Reverse to get chronological order (oldest first)
     const chronologicalMessages = filteredMessages.reverse();
@@ -1423,10 +1433,31 @@ const clearMessages = async (req, res) => {
     const { contactId } = req.params;
     const currentUserId = req.user.userId;
 
-    console.log('🗑️ [CHAT] Marking messages as deleted for user:', {
-      currentUserId,
-      contactId
+    console.log('🗑️ [CHAT] ========================================');
+    console.log('🗑️ [CHAT] CLEARING MESSAGES');
+    console.log('🗑️ [CHAT] Current User:', currentUserId);
+    console.log('🗑️ [CHAT] Contact ID:', contactId);
+    console.log('🗑️ [CHAT] ========================================');
+
+    // First, count how many messages exist
+    const totalMessages = await Message.countDocuments({
+      $or: [
+        { senderId: currentUserId, receiverId: contactId },
+        { senderId: contactId, receiverId: currentUserId }
+      ]
     });
+    console.log('📊 [CHAT] Total messages in conversation:', totalMessages);
+
+    // Count messages already deleted for this user
+    const alreadyDeleted = await Message.countDocuments({
+      $or: [
+        { senderId: currentUserId, receiverId: contactId },
+        { senderId: contactId, receiverId: currentUserId }
+      ],
+      deletedFor: currentUserId
+    });
+    console.log('📊 [CHAT] Already deleted for this user:', alreadyDeleted);
+    console.log('📊 [CHAT] Messages to be deleted:', totalMessages - alreadyDeleted);
 
     // Mark all messages between these two users as deleted for current user only
     // Messages stay in database but won't show for this user
@@ -1443,12 +1474,16 @@ const clearMessages = async (req, res) => {
       }
     );
 
-    console.log('✅ [CHAT] Messages marked as deleted for user:', result.modifiedCount);
+    console.log('✅ [CHAT] Messages marked as deleted:', result.modifiedCount);
+    console.log('✅ [CHAT] Matched count:', result.matchedCount);
+    console.log('🗑️ [CHAT] ========================================');
 
     res.status(200).json({
       success: true,
       message: 'Messages cleared from your chat',
-      modifiedCount: result.modifiedCount
+      modifiedCount: result.modifiedCount,
+      totalMessages,
+      alreadyDeleted
     });
   } catch (error) {
     console.error('❌ [CHAT] Error clearing messages:', error);

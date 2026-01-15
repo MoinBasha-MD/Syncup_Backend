@@ -537,7 +537,9 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
         $or: [
           { senderId: userId1, receiverId: userId2 },
           { senderId: userId2, receiverId: userId1 }
-        ]
+        ],
+        // ✅ CRITICAL FIX: Exclude messages deleted by current user (userId1)
+        deletedFor: { $ne: userId1 }
       }
     },
     {
@@ -593,7 +595,8 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
         burnViewDuration: 1,
         burnViewedAt: 1,
         burnViewedBy: 1,
-        reaction: 1
+        reaction: 1,
+        deletedFor: 1  // ✅ Include deletedFor for controller filtering
       }
     }
   ];
