@@ -269,13 +269,16 @@ class StoryService {
       if (storyCheck) {
         console.log('📋 Story owner:', storyCheck.userId);
         console.log('📋 Requesting user:', userId);
-        console.log('📋 Ownership match:', storyCheck.userId === userId);
+        // Ensure both are strings for comparison
+        const storyUserId = storyCheck.userId?.toString() || storyCheck.userId;
+        const requestUserId = userId?.toString() || userId;
+        console.log('📋 Ownership match:', storyUserId === requestUserId);
       }
       
-      // Find story by ObjectId and verify ownership
+      // Find story by ObjectId and verify ownership (ensure userId is string)
       const story = await Story.findOne({
         _id: storyId,
-        userId: userId
+        userId: userId?.toString() || userId
       });
 
       if (!story) {
