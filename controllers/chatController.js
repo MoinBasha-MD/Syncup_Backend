@@ -246,7 +246,15 @@ const sendMessage = async (req, res) => {
       }
       
       // Strategy 1: Primary WebSocket broadcast
+      console.log('📡 [BROADCAST] Attempting to broadcast message:new to receiver:', receiverId);
+      console.log('📡 [BROADCAST] Message data:', {
+        messageId: messageData._id,
+        status: messageData.status,
+        messageType: messageData.messageType
+      });
+      
       const broadcastSuccess = broadcastToUser(receiverId, 'message:new', messageData);
+      console.log('📡 [BROADCAST] Broadcast result:', broadcastSuccess ? 'SUCCESS' : 'FAILED');
       
       // CRITICAL: Send notification via enhancedNotificationService
       try {
@@ -263,19 +271,30 @@ const sendMessage = async (req, res) => {
       }
       
       if (broadcastSuccess) {
-        console.log('✅ Message successfully broadcasted via primary WebSocket');
+        console.log('✅ [STATUS UPDATE] Message successfully broadcasted via primary WebSocket');
+        console.log('✅ [STATUS UPDATE] Updating message status from "sent" to "delivered"');
         savedMessage.status = 'delivered';
         await savedMessage.save();
+        console.log('✅ [STATUS UPDATE] Message status saved to database as "delivered"');
         
         // ✅ Emit delivery confirmation to sender
+        console.log('📤 [DELIVERY CONFIRM] Emitting message:delivered to sender:', senderId);
+        console.log('📤 [DELIVERY CONFIRM] Message ID:', savedMessage._id.toString());
+        
         const deliveryConfirmation = broadcastToUser(senderId, 'message:delivered', { 
           messageId: savedMessage._id.toString() 
         });
+        
+        console.log('📤 [DELIVERY CONFIRM] Delivery confirmation result:', deliveryConfirmation ? 'SUCCESS' : 'FAILED');
+        
         if (deliveryConfirmation) {
-          console.log('✅ Delivery confirmation sent to sender:', senderId);
+          console.log('✅ [DELIVERY CONFIRM] Delivery confirmation sent to sender:', senderId);
+        } else {
+          console.log('⚠️ [DELIVERY CONFIRM] Failed to send delivery confirmation - sender may be offline');
         }
       } else {
-        console.log('⚠️ Primary WebSocket failed - user offline');
+        console.log('⚠️ [BROADCAST] Primary WebSocket failed - receiver offline');
+        console.log('⚠️ [STATUS UPDATE] Message status remains "sent" (not delivered)');
         // FCM notification already sent by enhancedNotificationService
         // No need for additional device-specific broadcasts
         console.log('📱 [MESSAGE] FCM notification will wake the app when delivered');
@@ -284,6 +303,15 @@ const sendMessage = async (req, res) => {
       console.error('❌ Error broadcasting message:', socketError);
       // Message is still saved, just not delivered in real-time
     }
+
+    // ✅ CRITICAL: Log the response being sent to frontend
+    console.log('📤 [RESPONSE] Sending response to frontend:', {
+      messageId: savedMessage._id,
+      status: savedMessage.status,
+      senderId: savedMessage.senderId,
+      receiverId: savedMessage.receiverId,
+      messageType: savedMessage.messageType
+    });
 
     res.status(201).json({
       success: true,
