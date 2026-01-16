@@ -14,6 +14,7 @@
 
 const mongoose = require('mongoose');
 require('dotenv').config();
+const connectDB = require('./config/db');
 
 const Friend = require('./models/Friend');
 const User = require('./models/userModel');
@@ -187,7 +188,7 @@ async function syncReciprocal(friendship, reciprocal, userName) {
 async function fixAllReciprocalFriendships() {
   try {
     console.log('🔧 [FIX] Connecting to database...');
-    await mongoose.connect(process.env.MONGODB_URI);
+    await connectDB();
     console.log('✅ [FIX] Connected to database\n');
     
     console.log('═══════════════════════════════════════════════════════════');

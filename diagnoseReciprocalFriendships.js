@@ -14,6 +14,7 @@
 
 const mongoose = require('mongoose');
 require('dotenv').config();
+const connectDB = require('./config/db');
 
 const Friend = require('./models/Friend');
 const User = require('./models/userModel');
@@ -180,7 +181,7 @@ async function analyzeFriendship(friendship, user) {
 async function diagnoseReciprocalFriendships() {
   try {
     console.log('🔧 [DIAGNOSTIC] Connecting to database...');
-    await mongoose.connect(process.env.MONGODB_URI);
+    await connectDB();
     console.log('✅ [DIAGNOSTIC] Connected to database\n');
     
     console.log('═══════════════════════════════════════════════════════════');
