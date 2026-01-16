@@ -228,7 +228,7 @@ const sendMessage = async (req, res) => {
         message: savedMessage.message,
         messageType: savedMessage.messageType,
         timestamp: savedMessage.timestamp,
-        status: 'delivered',
+        status: 'sent', // ✅ Start with 'sent', will update to 'delivered' if broadcast succeeds
         sharedPost: savedMessage.sharedPost,     // ✅ Include shared post
         imageUrl: savedMessage.imageUrl,         // ✅ Include image URL
         fileMetadata: savedMessage.fileMetadata, // ✅ Include file metadata
@@ -861,7 +861,7 @@ const sendReply = async (req, res) => {
         messageType: savedMessage.messageType,
         replyTo: savedMessage.replyTo,
         timestamp: savedMessage.timestamp,
-        status: 'delivered',
+        status: 'sent', // ✅ Start with 'sent', will update to 'delivered' if broadcast succeeds
         sharedPost: savedMessage.sharedPost,     // ✅ Include shared post
         imageUrl: savedMessage.imageUrl,         // ✅ Include image URL
         fileMetadata: savedMessage.fileMetadata  // ✅ Include file metadata
@@ -1049,10 +1049,10 @@ const testNotificationFlow = async (req, res) => {
         message: savedMessage.message,
         messageType: savedMessage.messageType,
         timestamp: savedMessage.timestamp,
-        status: 'delivered'
+        status: 'sent'
       });
       
-      console.log('🧪 Broadcast result:', broadcastResult);
+      console.log(' Broadcast result:', broadcastResult);
       
       if (broadcastResult) {
         // Update message status
@@ -1176,7 +1176,7 @@ const sendVoiceMessage = async (req, res) => {
         encrypted: savedMessage.encrypted,
         encryptionData: savedMessage.encryptionData,
         timestamp: savedMessage.timestamp,
-        status: 'delivered'
+        status: 'sent' // ✅ Start with 'sent', will update to 'delivered' if broadcast succeeds
       });
 
       if (broadcastResult) {
