@@ -490,22 +490,43 @@ const markMessagesAsRead = async (req, res) => {
 
     // Broadcast read status to sender via WebSocket using userId (NOT MongoDB _id)
     try {
-      console.log('📡 Broadcasting read receipts to contact...');
-      console.log('🔍 Broadcasting to contactId (userId):', contactId);
-      console.log('🔍 Contact MongoDB ObjectId:', contactObjectId);
+      console.log('📡 [READ RECEIPT] Broadcasting read receipts to contact...');
+      console.log('📡 [READ RECEIPT] Broadcasting to contactId (userId):', contactId);
+      console.log('📡 [READ RECEIPT] Contact MongoDB ObjectId:', contactObjectId);
+      console.log('📡 [READ RECEIPT] Number of messages marked as read:', messageIds.length);
+      
+      let successCount = 0;
+      let failCount = 0;
       
       messageIds.forEach(messageId => {
+        console.log(`📤 [READ RECEIPT] Attempting to broadcast for message: ${messageId}`);
         const broadcastSuccess = broadcastToUser(contactId, 'message:read', { messageId });
+        
         if (broadcastSuccess) {
-          console.log(`✅ Read receipt broadcasted for message ${messageId}`);
+          successCount++;
+          console.log(`✅ [READ RECEIPT] Successfully broadcasted for message ${messageId}`);
         } else {
-          console.log(`⚠️ Read receipt not delivered for message ${messageId} (contact offline)`);
+          failCount++;
+          console.log(`⚠️ [READ RECEIPT] Failed to broadcast for message ${messageId}`);
+          console.log(`⚠️ [READ RECEIPT] Reason: Contact is offline or not connected`);
+          console.log(`⚠️ [READ RECEIPT] Status saved to DB - will be loaded when contact reopens chat`);
         }
       });
       
-      console.log('📡 Read status broadcasting completed');
+      console.log('📡 [READ RECEIPT] Broadcasting summary:', {
+        total: messageIds.length,
+        success: successCount,
+        failed: failCount
+      });
+      
+      if (failCount > 0) {
+        console.log('💾 [READ RECEIPT] Failed broadcasts saved to database');
+        console.log('💾 [READ RECEIPT] Contact will see updated status when they reopen the chat');
+      }
+      
+      console.log('📡 [READ RECEIPT] Read status broadcasting completed');
     } catch (socketError) {
-      console.error('❌ Error broadcasting read status:', socketError);
+      console.error('❌ [READ RECEIPT] Error broadcasting read status:', socketError);
     }
 
     res.status(200).json({
