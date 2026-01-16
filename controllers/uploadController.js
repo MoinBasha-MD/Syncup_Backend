@@ -528,19 +528,26 @@ const uploadChatFile = async (req, res) => {
     }
 
     // Get file info
-    const fileUrl = `/uploads/chat-files/${req.file.filename}`;
+    const relativePath = `/uploads/chat-files/${req.file.filename}`;
+    
+    // Construct full URL for client access
+    const protocol = req.protocol; // http or https
+    const host = req.get('host'); // includes port if present
+    const fullUrl = `${protocol}://${host}${relativePath}`;
+    
     const fileSize = req.file.size;
     const mimeType = req.file.mimetype;
     const originalName = req.file.originalname;
     
-    console.log('📁 Chat file upload - File URL:', fileUrl);
+    console.log('📁 Chat file upload - Relative path:', relativePath);
+    console.log('📁 Chat file upload - Full URL:', fullUrl);
     console.log('📁 Chat file upload - File saved successfully');
 
-    // Return file information
+    // Return file information with full URL
     res.status(200).json({
       success: true,
       data: {
-        fileUrl: fileUrl,
+        fileUrl: fullUrl, // ✅ Return full URL instead of relative path
         fileName: originalName,
         fileSize: fileSize,
         mimeType: mimeType,

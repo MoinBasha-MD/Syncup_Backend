@@ -114,7 +114,26 @@ const storySchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  items: [storyItemSchema]
+  items: [storyItemSchema],
+  // Mentions/Tags - users tagged in this story
+  mentions: [{
+    userId: {
+      type: String,
+      required: true
+    },
+    userName: {
+      type: String,
+      required: true
+    },
+    x: {
+      type: Number,
+      default: 0
+    },
+    y: {
+      type: Number,
+      default: 0
+    }
+  }]
 }, {
   timestamps: true
 });

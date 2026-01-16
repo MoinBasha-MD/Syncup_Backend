@@ -239,31 +239,46 @@ commentSchema.statics.getPostComments = async function(postId, page = 1, limit =
   .lean();
   
   // Decrypt comments before returning
+  console.log(`🔍 [COMMENT] Found ${comments.length} comments for post ${postId}`);
+  
   const postEncryption = getPostEncryption();
-  const decryptedComments = await Promise.all(comments.map(async comment => {
+  const decryptedComments = await Promise.all(comments.map(async (comment, index) => {
     const decrypted = { ...comment };
     
     try {
+      // Log encryption status
+      console.log(`🔐 [COMMENT ${index + 1}] Encrypted: ${decrypted._textEncrypted}, Text preview: ${decrypted.text?.substring(0, 50)}...`);
+      
       // Decrypt main comment text
       if (decrypted._textEncrypted && decrypted.text) {
+        const originalText = decrypted.text;
         decrypted.text = await postEncryption.decryptText(decrypted.text);
+        console.log(`✅ [COMMENT ${index + 1}] Decrypted: "${originalText.substring(0, 30)}..." → "${decrypted.text.substring(0, 30)}..."`);
+      } else {
+        console.log(`ℹ️ [COMMENT ${index + 1}] No decryption needed (plain text)`);
       }
       
       // Decrypt replies
       if (decrypted.replies && decrypted.replies.length > 0) {
-        decrypted.replies = await Promise.all(decrypted.replies.map(async reply => {
+        console.log(`💬 [COMMENT ${index + 1}] Processing ${decrypted.replies.length} replies`);
+        decrypted.replies = await Promise.all(decrypted.replies.map(async (reply, replyIndex) => {
           if (reply._textEncrypted && reply.text) {
+            const originalReplyText = reply.text;
             reply.text = await postEncryption.decryptText(reply.text);
+            console.log(`✅ [REPLY ${replyIndex + 1}] Decrypted: "${originalReplyText.substring(0, 20)}..." → "${reply.text.substring(0, 20)}..."`);
           }
           return reply;
         }));
       }
     } catch (decryptError) {
-      console.error('❌ [COMMENT] Decryption error:', decryptError);
+      console.error(`❌ [COMMENT ${index + 1}] Decryption error:`, decryptError);
+      console.error(`❌ [COMMENT ${index + 1}] Failed text:`, decrypted.text?.substring(0, 100));
     }
     
     return decrypted;
   }));
+  
+  console.log(`✅ [COMMENT] Returning ${decryptedComments.length} decrypted comments`);
   
   return decryptedComments;
 };
