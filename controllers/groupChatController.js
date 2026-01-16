@@ -366,35 +366,37 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
       
       console.log(`📊 [GROUP MESSAGE] Successfully broadcast to ${successfulBroadcasts}/${activeMembers.length} members`);
       
-      // 🔔 Send notifications to group members
-      const { enhancedNotificationService } = require('../services/enhancedNotificationService');
-      
+      // 🔔 Send notifications to group members via socket
       console.log('🔔 [GROUP MESSAGE] Sending notifications to group members...');
       let notificationsSent = 0;
       
       for (const member of activeMembers) {
         try {
-          await enhancedNotificationService.sendNotification(
-            member.userId,
-            'group_message',
-            {
-              title: `${groupChat.groupName} - ${sender.name}`,
-              body: groupMessage.message || 'Sent a message',
-              data: {
-                type: 'group_message',
-                groupId: groupId,
-                groupName: groupChat.groupName,
-                senderId: senderId,
-                senderName: sender.name,
-                messageId: groupMessage._id.toString(),
-                chatId: groupId,
-                timestamp: groupMessage.createdAt.toISOString(),
-                isGroupMessage: true
-              }
+          const notificationData = {
+            type: 'group_message',
+            title: `${groupChat.groupName} - ${sender.name}`,
+            body: groupMessage.message || 'Sent a message',
+            data: {
+              type: 'group_message',
+              groupId: groupId,
+              groupName: groupChat.groupName,
+              senderId: senderId,
+              senderName: sender.name,
+              messageId: groupMessage._id.toString(),
+              chatId: groupId,
+              timestamp: groupMessage.createdAt.toISOString(),
+              isGroupMessage: true
             }
-          );
-          notificationsSent++;
-          console.log(`✅ [GROUP MESSAGE] Notification sent to member: ${member.userId}`);
+          };
+          
+          // Broadcast notification event to member
+          const notifSuccess = broadcastToUser(member.userId, 'notification:new', notificationData);
+          if (notifSuccess) {
+            notificationsSent++;
+            console.log(`✅ [GROUP MESSAGE] Notification sent to member: ${member.userId}`);
+          } else {
+            console.log(`⚠️ [GROUP MESSAGE] Member ${member.userId} offline, notification queued`);
+          }
         } catch (notifError) {
           console.error(`❌ [GROUP MESSAGE] Failed to send notification to ${member.userId}:`, notifError.message);
         }
