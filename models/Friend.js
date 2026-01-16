@@ -258,7 +258,8 @@ friendSchema.statics.getFriends = async function(userId, options = {}) {
       userId: friend.friendUserId,
       friendUserId: userId,
       status: 'accepted',
-      isDeviceContact: true, // Must be from device contacts
+      // CRITICAL FIX: Don't require isDeviceContact match - just check if reciprocal exists
+      // This fixes the issue where Shivaji (isDeviceContact=true) can't see Moin (isDeviceContact=false)
       isDeleted: false
     }).lean();
     
