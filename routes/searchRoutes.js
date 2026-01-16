@@ -263,7 +263,7 @@ async function searchPeople(userId, query, limit) {
         name: user.name,
         username: user.username,
         profileImage: user.profileImage,
-        subtitle: mutualCount > 0 ? `${mutualCount} mutual friend${mutualCount > 1 ? 's' : ''}` : 'Connect to see more',
+        subtitle: mutualCount > 0 ? `${mutualCount} mutual friend${mutualCount > 1 ? 's' : ''}` : '',
         badge,
         action: {
           text: actionText,
