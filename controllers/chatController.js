@@ -266,6 +266,14 @@ const sendMessage = async (req, res) => {
         console.log('✅ Message successfully broadcasted via primary WebSocket');
         savedMessage.status = 'delivered';
         await savedMessage.save();
+        
+        // ✅ Emit delivery confirmation to sender
+        const deliveryConfirmation = broadcastToUser(senderId, 'message:delivered', { 
+          messageId: savedMessage._id.toString() 
+        });
+        if (deliveryConfirmation) {
+          console.log('✅ Delivery confirmation sent to sender:', senderId);
+        }
       } else {
         console.log('⚠️ Primary WebSocket failed - user offline');
         // FCM notification already sent by enhancedNotificationService
@@ -862,6 +870,14 @@ const sendReply = async (req, res) => {
       if (broadcastSuccess) {
         savedMessage.status = 'delivered';
         await savedMessage.save();
+        
+        // ✅ Emit delivery confirmation to sender
+        const deliveryConfirmation = broadcastToUser(senderId, 'message:delivered', { 
+          messageId: savedMessage._id.toString() 
+        });
+        if (deliveryConfirmation) {
+          console.log('✅ Reply delivery confirmation sent to sender:', senderId);
+        }
       }
     } catch (socketError) {
       console.error('❌ Error broadcasting reply:', socketError);
@@ -1042,6 +1058,14 @@ const testNotificationFlow = async (req, res) => {
         // Update message status
         savedMessage.status = 'delivered';
         await savedMessage.save();
+        
+        // ✅ Emit delivery confirmation to sender
+        const deliveryConfirmation = broadcastToUser(senderId, 'message:delivered', { 
+          messageId: savedMessage._id.toString() 
+        });
+        if (deliveryConfirmation) {
+          console.log('✅ Forwarded message delivery confirmation sent to sender:', senderId);
+        }
       }
     } catch (broadcastError) {
       console.error('🧪 Broadcast error:', broadcastError);
@@ -1158,6 +1182,14 @@ const sendVoiceMessage = async (req, res) => {
       if (broadcastResult) {
         savedMessage.status = 'delivered';
         await savedMessage.save();
+        
+        // ✅ Emit delivery confirmation to sender
+        const deliveryConfirmation = broadcastToUser(senderId, 'message:delivered', { 
+          messageId: savedMessage._id.toString() 
+        });
+        if (deliveryConfirmation) {
+          console.log('✅ Game message delivery confirmation sent to sender:', senderId);
+        }
       }
     } catch (broadcastError) {
       console.error('❌ [VOICE MESSAGE] Broadcast error:', broadcastError);
