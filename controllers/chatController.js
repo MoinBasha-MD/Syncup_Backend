@@ -1205,6 +1205,7 @@ const sendVoiceMessage = async (req, res) => {
     const savedMessage = await newMessage.save();
 
     console.log('✅ [VOICE MESSAGE] Voice message saved:', savedMessage._id);
+    console.log('🎵 [VOICE MESSAGE] Voice metadata:', JSON.stringify(savedMessage.voiceMetadata, null, 2));
 
     // Broadcast to receiver via WebSocket
     try {
@@ -1212,6 +1213,11 @@ const sendVoiceMessage = async (req, res) => {
       const sender = await User.findOne({ userId: senderId }).select('name profileImage');
       const senderName = sender ? sender.name : 'Unknown User';
       const senderProfileImage = sender ? sender.profileImage : null;
+      
+      console.log('📡 [VOICE MESSAGE] Broadcasting to receiver with metadata:', {
+        messageId: savedMessage._id,
+        voiceMetadata: savedMessage.voiceMetadata
+      });
       
       const broadcastResult = await broadcastToUser(receiverId, 'message:new', {
         _id: savedMessage._id,
