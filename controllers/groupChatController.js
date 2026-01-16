@@ -366,6 +366,42 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
       
       console.log(`📊 [GROUP MESSAGE] Successfully broadcast to ${successfulBroadcasts}/${activeMembers.length} members`);
       
+      // 🔔 Send notifications to group members
+      const { enhancedNotificationService } = require('../services/enhancedNotificationService');
+      
+      console.log('🔔 [GROUP MESSAGE] Sending notifications to group members...');
+      let notificationsSent = 0;
+      
+      for (const member of activeMembers) {
+        try {
+          await enhancedNotificationService.sendNotification(
+            member.userId,
+            'group_message',
+            {
+              title: `${groupChat.groupName} - ${sender.name}`,
+              body: groupMessage.message || 'Sent a message',
+              data: {
+                type: 'group_message',
+                groupId: groupId,
+                groupName: groupChat.groupName,
+                senderId: senderId,
+                senderName: sender.name,
+                messageId: groupMessage._id.toString(),
+                chatId: groupId,
+                timestamp: groupMessage.createdAt.toISOString(),
+                isGroupMessage: true
+              }
+            }
+          );
+          notificationsSent++;
+          console.log(`✅ [GROUP MESSAGE] Notification sent to member: ${member.userId}`);
+        } catch (notifError) {
+          console.error(`❌ [GROUP MESSAGE] Failed to send notification to ${member.userId}:`, notifError.message);
+        }
+      }
+      
+      console.log(`🔔 [GROUP MESSAGE] Sent ${notificationsSent}/${activeMembers.length} notifications`);
+      
     } catch (broadcastError) {
       console.error('❌ [GROUP MESSAGE] Error broadcasting group message:', broadcastError);
       // Don't fail the request if broadcasting fails - message is still saved
