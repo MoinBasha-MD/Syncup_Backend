@@ -16,7 +16,7 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 const Friend = require('./models/Friend');
-const User = require('./models/User');
+const User = require('./models/userModel');
 
 // Statistics tracking
 const stats = {
