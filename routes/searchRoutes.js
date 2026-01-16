@@ -237,14 +237,8 @@ async function searchPeople(userId, query, limit) {
       
       console.log(`👤 [SEARCH DEBUG] User: ${user.name} (${userIdStr}), Status: ${status || 'null'}`);
       
-      // Count mutual friends
-      const mutualCount = await Friend.countDocuments({
-        $or: [
-          { userId: userId, friendUserId: { $in: await getMutualFriendIds(userId, user._id) } },
-          { userId: { $in: await getMutualFriendIds(userId, user._id) }, friendUserId: userId }
-        ],
-        status: 'accepted'
-      });
+      // Count mutual friends using the helper function
+      const mutualCount = await countMutualFriends(userId, userIdStr);
 
       let badge = null;
       let actionText = 'Connect';
