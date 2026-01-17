@@ -38,7 +38,7 @@ const connectDB = async (customOptions = {}) => {
       
       // Write concern - CRITICAL for data persistence
       writeConcern: {
-        w: 'majority', // Wait for majority of replica set members to acknowledge
+        w: 1,          // Wait for primary to acknowledge (works with standalone MongoDB)
         j: true,       // Wait for journal commit (ensures durability)
         wtimeout: 5000 // Timeout after 5 seconds
       }

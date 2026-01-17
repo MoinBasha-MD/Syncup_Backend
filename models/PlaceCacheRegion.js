@@ -154,8 +154,8 @@ placeCacheRegionSchema.statics.createOrUpdate = async function(longitude, latitu
     upsert: true, 
     new: true, 
     setDefaultsOnInsert: true,
-    // Force write concern to ensure data persistence
-    writeConcern: { w: 'majority', j: true }
+    // Force write concern to ensure data persistence (w:1 for standalone MongoDB)
+    writeConcern: { w: 1, j: true }
   };
   
   return this.findOneAndUpdate(filter, update, options);
