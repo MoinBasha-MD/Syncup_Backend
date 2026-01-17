@@ -83,71 +83,94 @@ class PlacesService {
       console.log(`📏 [PLACES SERVICE] Radius: ${radiusMeters}m`);
       console.log(`🏷️ [PLACES SERVICE] Categories: ${categories.join(', ')}`);
 
-      // Upsert each place with proper error handling
-      console.log(`🔄 [PLACES SERVICE] Starting upserts...`);
+      // Prepare places with metadata
+      const now = new Date();
+      const placesWithMetadata = places.map(place => ({
+        ...place,
+        cacheMetadata: {
+          firstCachedAt: now,
+          lastUpdatedAt: now,
+          lastVerifiedAt: now,
+          source: 'geoapify',
+          updateCount: 1
+        },
+        createdAt: now,
+        updatedAt: now,
+        verified: false,
+        qualityScore: 1
+      }));
+
+      console.log(`🔄 [PLACES SERVICE] Inserting ${placesWithMetadata.length} places...`);
       
+      // Use insertMany with ordered:false to continue on duplicate key errors
       let successCount = 0;
-      let failCount = 0;
+      let duplicateCount = 0;
       
-      // Process in batches of 10 to avoid overwhelming MongoDB
-      const batchSize = 10;
-      for (let i = 0; i < places.length; i += batchSize) {
-        const batch = places.slice(i, i + batchSize);
-        console.log(`📦 [PLACES SERVICE] Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(places.length/batchSize)} (${batch.length} places)`);
-        
-        const batchPromises = batch.map(async (place) => {
-          try {
-            const result = await Place.upsertPlace(place);
-            if (!result) {
-              console.error(`❌ [PLACES SERVICE] Failed to upsert: ${place.name} - No result returned`);
-              return { success: false, place: place.name };
-            }
-            return { success: true, place: place.name, id: result._id };
-          } catch (err) {
-            console.error(`❌ [PLACES SERVICE] Error upserting ${place.name}:`, err.message);
-            return { success: false, place: place.name, error: err.message };
-          }
+      try {
+        const result = await Place.insertMany(placesWithMetadata, { 
+          ordered: false,
+          writeConcern: { w: 1, j: true }
         });
-        
-        const batchResults = await Promise.all(batchPromises);
-        
-        batchResults.forEach(result => {
-          if (result.success) {
-            successCount++;
-          } else {
-            failCount++;
-            console.error(`❌ Failed: ${result.place}${result.error ? ` - ${result.error}` : ''}`);
-          }
-        });
-        
-        // Small delay between batches to let MongoDB commit
-        if (i + batchSize < places.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+        successCount = result.length;
+        console.log(`✅ [PLACES SERVICE] Inserted ${successCount} new places`);
+      } catch (error) {
+        if (error.code === 11000) {
+          // Duplicate key errors - some places already exist
+          successCount = error.insertedDocs ? error.insertedDocs.length : 0;
+          duplicateCount = places.length - successCount;
+          console.log(`✅ [PLACES SERVICE] Inserted ${successCount} new places`);
+          console.log(`ℹ️  [PLACES SERVICE] Skipped ${duplicateCount} duplicates`);
+        } else {
+          throw error;
         }
       }
 
-      console.log(`✅ [PLACES SERVICE] Upsert complete: ${successCount} succeeded, ${failCount} failed`);
-
-      if (successCount === 0) {
-        throw new Error('All place upserts failed - aborting cache region creation');
+      // Update existing places
+      if (duplicateCount > 0) {
+        console.log(`🔄 [PLACES SERVICE] Updating ${duplicateCount} existing places...`);
+        const updatePromises = places.map(place => 
+          Place.updateOne(
+            { geoapifyPlaceId: place.geoapifyPlaceId },
+            { 
+              $set: {
+                ...place,
+                'cacheMetadata.lastUpdatedAt': now,
+                'cacheMetadata.lastVerifiedAt': now,
+                updatedAt: now
+              },
+              $inc: { 'cacheMetadata.updateCount': 1 }
+            },
+            { writeConcern: { w: 1, j: true } }
+          )
+        );
+        await Promise.all(updatePromises);
+        console.log(`✅ [PLACES SERVICE] Updated ${duplicateCount} existing places`);
       }
+
+      const totalSaved = successCount + duplicateCount;
+      console.log(`✅ [PLACES SERVICE] Total places saved: ${totalSaved}/${places.length}`);
 
       // Create/update cache region
       console.log(`🗺️ [PLACES SERVICE] Creating/updating cache region...`);
-      const region = await PlaceCacheRegion.createOrUpdate(
-        longitude,
-        latitude,
+      
+      const regionData = {
+        location: {
+          type: 'Point',
+          coordinates: [longitude, latitude]
+        },
         radiusMeters,
         categories,
-        successCount // Use actual success count, not total
-      );
-      
-      if (!region) {
-        throw new Error('Failed to create cache region - no result returned');
-      }
-      
+        placeCount: totalSaved,
+        cachedAt: now,
+        expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+        lastRefreshedAt: now,
+        refreshCount: 1,
+        status: 'active'
+      };
+
+      const region = await PlaceCacheRegion.create(regionData);
       console.log(`✅ [PLACES SERVICE] Cache region saved: ${region._id}`);
-      console.log(`✅ [PLACES SERVICE] All operations completed: ${successCount}/${places.length} places saved`);
+      console.log(`✅ [PLACES SERVICE] All operations completed successfully`);
       
     } catch (error) {
       console.error('❌ [PLACES SERVICE] Error saving to DB:', error.message);
