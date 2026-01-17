@@ -125,10 +125,12 @@ placeCacheRegionSchema.statics.findCachedRegion = function(longitude, latitude, 
 placeCacheRegionSchema.statics.createOrUpdate = async function(longitude, latitude, radiusMeters, categories, placeCount) {
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
   
+  // Fix: Don't use categories in filter to avoid MongoDB "matched twice" error
+  // Instead, find by location and radius, then update everything including categories
   const filter = {
     'location.coordinates': [longitude, latitude],
-    radiusMeters: radiusMeters,
-    categories: { $all: categories, $size: categories.length }
+    radiusMeters: radiusMeters
+    // Removed categories from filter to avoid conflict with $set
   };
   
   const update = {
@@ -138,7 +140,7 @@ placeCacheRegionSchema.statics.createOrUpdate = async function(longitude, latitu
         coordinates: [longitude, latitude]
       },
       radiusMeters,
-      categories,
+      categories, // Now safe to set since not in filter
       placeCount,
       expiresAt,
       lastRefreshedAt: new Date(),
