@@ -180,7 +180,13 @@ placeSchema.statics.upsertPlace = async function(placeData) {
     }
   };
   
-  const options = { upsert: true, new: true, setDefaultsOnInsert: true };
+  const options = { 
+    upsert: true, 
+    new: true, 
+    setDefaultsOnInsert: true,
+    // Force write concern to ensure data persistence
+    writeConcern: { w: 'majority', j: true }
+  };
   
   return this.findOneAndUpdate(filter, update, options);
 };

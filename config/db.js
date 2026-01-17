@@ -35,6 +35,13 @@ const connectDB = async (customOptions = {}) => {
       
       // Monitoring and debugging
       heartbeatFrequencyMS: 10000, // Heartbeat every 10 seconds
+      
+      // Write concern - CRITICAL for data persistence
+      writeConcern: {
+        w: 'majority', // Wait for majority of replica set members to acknowledge
+        j: true,       // Wait for journal commit (ensures durability)
+        wtimeout: 5000 // Timeout after 5 seconds
+      }
     };
 
     // Merge custom options with defaults (custom options take precedence)
