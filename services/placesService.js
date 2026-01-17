@@ -83,16 +83,54 @@ class PlacesService {
       console.log(`📏 [PLACES SERVICE] Radius: ${radiusMeters}m`);
       console.log(`🏷️ [PLACES SERVICE] Categories: ${categories.join(', ')}`);
 
-      // Upsert each place
-      console.log(`🔄 [PLACES SERVICE] Creating ${places.length} upsert promises...`);
-      const savePromises = places.map((place, index) => {
-        console.log(`   ${index + 1}/${places.length} Queuing: ${place.name}`);
-        return Place.upsertPlace(place);
-      });
+      // Upsert each place with proper error handling
+      console.log(`🔄 [PLACES SERVICE] Starting upserts...`);
+      
+      let successCount = 0;
+      let failCount = 0;
+      
+      // Process in batches of 10 to avoid overwhelming MongoDB
+      const batchSize = 10;
+      for (let i = 0; i < places.length; i += batchSize) {
+        const batch = places.slice(i, i + batchSize);
+        console.log(`📦 [PLACES SERVICE] Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(places.length/batchSize)} (${batch.length} places)`);
+        
+        const batchPromises = batch.map(async (place) => {
+          try {
+            const result = await Place.upsertPlace(place);
+            if (!result) {
+              console.error(`❌ [PLACES SERVICE] Failed to upsert: ${place.name} - No result returned`);
+              return { success: false, place: place.name };
+            }
+            return { success: true, place: place.name, id: result._id };
+          } catch (err) {
+            console.error(`❌ [PLACES SERVICE] Error upserting ${place.name}:`, err.message);
+            return { success: false, place: place.name, error: err.message };
+          }
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        
+        batchResults.forEach(result => {
+          if (result.success) {
+            successCount++;
+          } else {
+            failCount++;
+            console.error(`❌ Failed: ${result.place}${result.error ? ` - ${result.error}` : ''}`);
+          }
+        });
+        
+        // Small delay between batches to let MongoDB commit
+        if (i + batchSize < places.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
 
-      console.log(`⏳ [PLACES SERVICE] Executing ${savePromises.length} upserts in parallel...`);
-      const results = await Promise.all(savePromises);
-      console.log(`✅ [PLACES SERVICE] Successfully upserted ${results.length} places`);
+      console.log(`✅ [PLACES SERVICE] Upsert complete: ${successCount} succeeded, ${failCount} failed`);
+
+      if (successCount === 0) {
+        throw new Error('All place upserts failed - aborting cache region creation');
+      }
 
       // Create/update cache region
       console.log(`🗺️ [PLACES SERVICE] Creating/updating cache region...`);
@@ -101,13 +139,18 @@ class PlacesService {
         latitude,
         radiusMeters,
         categories,
-        places.length
+        successCount // Use actual success count, not total
       );
-      console.log(`✅ [PLACES SERVICE] Cache region saved:`, region._id);
-
-      console.log('✅ [PLACES SERVICE] All operations completed successfully');
+      
+      if (!region) {
+        throw new Error('Failed to create cache region - no result returned');
+      }
+      
+      console.log(`✅ [PLACES SERVICE] Cache region saved: ${region._id}`);
+      console.log(`✅ [PLACES SERVICE] All operations completed: ${successCount}/${places.length} places saved`);
+      
     } catch (error) {
-      console.error('❌ [PLACES SERVICE] Error saving to DB:', error);
+      console.error('❌ [PLACES SERVICE] Error saving to DB:', error.message);
       console.error('❌ [PLACES SERVICE] Error stack:', error.stack);
       // Don't throw - caching failure shouldn't break the request
     }
