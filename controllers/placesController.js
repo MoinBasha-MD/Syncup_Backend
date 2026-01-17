@@ -89,6 +89,7 @@ class PlacesController {
       console.log('💾 [PLACES API] POST /api/places/cache');
       console.log('   Places count:', places.length);
       console.log('   Region:', lat, lng, radius);
+      console.log('   Sample place data:', JSON.stringify(places[0], null, 2));
 
       // Save to database
       await placesService.savePlacesToDB(

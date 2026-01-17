@@ -161,10 +161,23 @@ placeSchema.statics.findStale = function(maxAgeHours = 24) {
 
 placeSchema.statics.upsertPlace = async function(placeData) {
   const filter = { geoapifyPlaceId: placeData.geoapifyPlaceId };
+  
+  // Separate the data to avoid conflicts
+  // Remove any fields that might conflict with $inc or $setOnInsert
+  const dataToSet = { ...placeData };
+  delete dataToSet.cacheMetadata; // Don't set this directly, handle it separately
+  
   const update = {
-    $set: placeData,
+    $set: {
+      ...dataToSet,
+      'cacheMetadata.lastUpdatedAt': new Date(),
+      'cacheMetadata.lastVerifiedAt': new Date()
+    },
     $inc: { 'cacheMetadata.updateCount': 1 },
-    $setOnInsert: { 'cacheMetadata.firstCachedAt': new Date() }
+    $setOnInsert: { 
+      'cacheMetadata.firstCachedAt': new Date(),
+      'cacheMetadata.source': 'geoapify'
+    }
   };
   const options = { upsert: true, new: true, setDefaultsOnInsert: true };
   
