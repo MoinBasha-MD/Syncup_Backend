@@ -135,7 +135,8 @@ const getUserGroupChats = asyncHandler(async (req, res) => {
 
   try {
     const groupChats = await GroupChat.findUserGroups(userId);
-    const baseUrl = process.env.API_BASE_URL || 'https://api.crackman.in/api';
+    // ✅ Use base URL without /api for image URLs (images are served from root domain)
+    const imageBaseUrl = process.env.IMAGE_BASE_URL || 'https://api.crackman.in';
 
     // Get unread counts for each group and transform image URLs
     const groupsWithUnread = await Promise.all(
@@ -145,7 +146,7 @@ const getUserGroupChats = asyncHandler(async (req, res) => {
         
         // Transform groupImage to full URL
         if (groupObj.groupImage && !groupObj.groupImage.startsWith('http')) {
-          groupObj.groupImage = `${baseUrl}${groupObj.groupImage}`;
+          groupObj.groupImage = `${imageBaseUrl}${groupObj.groupImage}`;
         }
         
         return {
@@ -200,7 +201,7 @@ const getGroupChatDetails = asyncHandler(async (req, res) => {
     const users = await User.find({ userId: { $in: memberUserIds } }).select('userId name profileImage phoneNumber');
     
     // Combine member records with user details
-    const baseUrl = process.env.API_BASE_URL || 'https://api.crackman.in/api';
+    const imageBaseUrl = process.env.IMAGE_BASE_URL || 'https://api.crackman.in';
     const members = memberRecords.map(member => {
       const user = users.find(u => u.userId === member.userId);
       return {
@@ -715,8 +716,8 @@ const uploadGroupImage = asyncHandler(async (req, res) => {
     console.log(`✅ [GROUP IMAGE] Group ${groupId} image updated by admin ${userId}`);
 
     // Return full URL
-    const baseUrl = process.env.API_BASE_URL || 'https://api.crackman.in/api';
-    const fullImageUrl = `${baseUrl}${imagePath}`;
+    const imageBaseUrl = process.env.IMAGE_BASE_URL || 'https://api.crackman.in';
+    const fullImageUrl = `${imageBaseUrl}${imagePath}`;
 
     res.status(200).json({
       success: true,
@@ -787,10 +788,10 @@ const updateGroupChat = asyncHandler(async (req, res) => {
     console.log(`📝 [GROUP UPDATE] Group ${groupId} updated by admin ${userId}`);
 
     // Transform groupImage to full URL
-    const baseUrl = process.env.API_BASE_URL || 'https://api.crackman.in/api';
+    const imageBaseUrl = process.env.IMAGE_BASE_URL || 'https://api.crackman.in';
     const groupObj = updatedGroup.toObject();
     if (groupObj.groupImage && !groupObj.groupImage.startsWith('http')) {
-      groupObj.groupImage = `${baseUrl}${groupObj.groupImage}`;
+      groupObj.groupImage = `${imageBaseUrl}${groupObj.groupImage}`;
     }
 
     res.status(200).json({
