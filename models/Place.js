@@ -167,10 +167,6 @@ placeSchema.statics.upsertPlace = async function(placeData) {
   const dataToSet = { ...placeData };
   delete dataToSet.cacheMetadata; // Don't set this directly, handle it separately
   
-  // Log what we're about to set
-  console.log('🔍 [PLACE MODEL] Upserting place:', placeData.name);
-  console.log('🔍 [PLACE MODEL] Fields in dataToSet:', Object.keys(dataToSet));
-  
   const update = {
     $set: {
       ...dataToSet,
@@ -183,8 +179,6 @@ placeSchema.statics.upsertPlace = async function(placeData) {
       'cacheMetadata.source': 'geoapify'
     }
   };
-  
-  console.log('🔍 [PLACE MODEL] $set fields:', Object.keys(update.$set));
   
   const options = { upsert: true, new: true, setDefaultsOnInsert: true };
   

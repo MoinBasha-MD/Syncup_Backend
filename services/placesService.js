@@ -79,26 +79,36 @@ class PlacesService {
   async savePlacesToDB(places, longitude, latitude, radiusMeters, categories) {
     try {
       console.log(`💾 [PLACES SERVICE] Saving ${places.length} places to DB...`);
+      console.log(`📍 [PLACES SERVICE] Location: ${latitude}, ${longitude}`);
+      console.log(`📏 [PLACES SERVICE] Radius: ${radiusMeters}m`);
+      console.log(`🏷️ [PLACES SERVICE] Categories: ${categories.join(', ')}`);
 
       // Upsert each place
-      const savePromises = places.map(place => 
-        Place.upsertPlace(place)
-      );
+      console.log(`🔄 [PLACES SERVICE] Creating ${places.length} upsert promises...`);
+      const savePromises = places.map((place, index) => {
+        console.log(`   ${index + 1}/${places.length} Queuing: ${place.name}`);
+        return Place.upsertPlace(place);
+      });
 
-      await Promise.all(savePromises);
+      console.log(`⏳ [PLACES SERVICE] Executing ${savePromises.length} upserts in parallel...`);
+      const results = await Promise.all(savePromises);
+      console.log(`✅ [PLACES SERVICE] Successfully upserted ${results.length} places`);
 
       // Create/update cache region
-      await PlaceCacheRegion.createOrUpdate(
+      console.log(`🗺️ [PLACES SERVICE] Creating/updating cache region...`);
+      const region = await PlaceCacheRegion.createOrUpdate(
         longitude,
         latitude,
         radiusMeters,
         categories,
         places.length
       );
+      console.log(`✅ [PLACES SERVICE] Cache region saved:`, region._id);
 
-      console.log('✅ [PLACES SERVICE] Places saved to DB successfully');
+      console.log('✅ [PLACES SERVICE] All operations completed successfully');
     } catch (error) {
       console.error('❌ [PLACES SERVICE] Error saving to DB:', error);
+      console.error('❌ [PLACES SERVICE] Error stack:', error.stack);
       // Don't throw - caching failure shouldn't break the request
     }
   }
