@@ -258,7 +258,7 @@ groupMessageSchema.statics.findGroupMessages = function(groupId, page = 1, limit
     groupId,
     deletedAt: null 
   })
-  .sort({ createdAt: -1 })
+  .sort({ createdAt: 1 }) // ✅ FIX: Sort ASCENDING (oldest first) for inverted FlatList
   .skip(skip)
   .limit(limit);
 };
