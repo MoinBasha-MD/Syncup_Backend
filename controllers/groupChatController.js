@@ -568,6 +568,38 @@ const addGroupMembers = asyncHandler(async (req, res) => {
 
     console.log(`👥 [GROUP MEMBERS] Added ${newMemberIds.length} members to group ${groupId}`);
 
+    // Create system message for each added member (like WhatsApp)
+    const adderUser = await User.findOne({ userId }).select('name');
+    const adderName = adderUser?.name || 'Someone';
+
+    for (const memberId of newMemberIds) {
+      const addedUser = await User.findOne({ userId: memberId }).select('name');
+      const addedName = addedUser?.name || 'Unknown';
+
+      // Create system message
+      const systemMessage = await GroupMessage.create({
+        groupId,
+        senderId: 'system',
+        senderName: 'System',
+        message: `${adderName} added ${addedName}`,
+        messageType: 'system',
+        timestamp: new Date()
+      });
+
+      // Broadcast system message to all group members
+      try {
+        groupChat.members.forEach(member => {
+          broadcastToUser(member, 'group:message', {
+            groupId,
+            message: systemMessage,
+            messageType: 'system'
+          });
+        });
+      } catch (broadcastError) {
+        console.error('❌ [GROUP MEMBERS] Failed to broadcast system message:', broadcastError);
+      }
+    }
+
     res.status(200).json({
       success: true,
       data: {

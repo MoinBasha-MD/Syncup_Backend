@@ -367,19 +367,19 @@ class PlacesService {
 
       const popularPlaces = [];
 
-      // Define what to fetch: [category, count] - UPDATED FOR INDIA
+      // Define what to fetch: [simplified category, geoapify categories, count]
       const categoriesToFetch = [
-        ['restaurants', 3],
-        ['hospitals', 2],
-        ['malls', 1],
-        ['supermarkets', 1],
-        ['petrol_pumps', 1],
-        ['banks', 1]
+        ['restaurants', ['catering.restaurant', 'catering.cafe', 'catering.fast_food', 'catering'], 3],
+        ['hospitals', ['healthcare.hospital', 'healthcare.clinic', 'healthcare.doctor', 'healthcare.pharmacy', 'healthcare'], 2],
+        ['malls', ['commercial.shopping_mall', 'commercial.department_store', 'commercial.marketplace'], 1],
+        ['supermarkets', ['commercial.supermarket', 'commercial.marketplace'], 1],
+        ['petrol_pumps', ['service.fuel', 'service.vehicle'], 1],
+        ['banks', ['commercial.bank', 'service.financial'], 1]
       ];
 
-      for (const [category, count] of categoriesToFetch) {
+      for (const [categoryName, geoapifyCategories, count] of categoriesToFetch) {
         const places = await Place.find({
-          category: category,
+          geoapifyCategories: { $in: geoapifyCategories },
           location: {
             $near: {
               $geometry: {
@@ -392,10 +392,10 @@ class PlacesService {
         }).limit(count);
 
         if (places.length > 0) {
-          console.log(`✅ [PLACES SERVICE] Found ${places.length} ${category}`);
+          console.log(`✅ [PLACES SERVICE] Found ${places.length} ${categoryName}`);
           popularPlaces.push(...this.formatPlaces(places));
         } else {
-          console.log(`⚠️ [PLACES SERVICE] No ${category} found in cache`);
+          console.log(`⚠️ [PLACES SERVICE] No ${categoryName} found in cache`);
         }
       }
 
