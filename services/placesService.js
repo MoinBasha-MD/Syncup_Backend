@@ -165,7 +165,6 @@ class PlacesService {
               $setOnInsert: {
                 'cacheMetadata.firstCachedAt': now,
                 'cacheMetadata.source': 'geoapify',
-                'cacheMetadata.updateCount': 0,
                 createdAt: now,
                 verified: false,
                 qualityScore: 1
