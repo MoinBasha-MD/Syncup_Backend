@@ -74,107 +74,193 @@ class PlacesService {
   // Geoapify API fetching and parsing removed - frontend handles this directly
 
   /**
-   * Save places to database
+   * Save places to database - ROBUST VERSION
+   * Handles errors gracefully, saves places one by one if batch fails
    */
   async savePlacesToDB(places, longitude, latitude, radiusMeters, categories) {
     try {
-      console.log(`💾 [PLACES SERVICE] Saving ${places.length} places to DB...`);
+      console.log('\n' + '='.repeat(80));
+      console.log(`💾 [PLACES SERVICE] Starting robust save operation...`);
       console.log(`📍 [PLACES SERVICE] Location: ${latitude}, ${longitude}`);
       console.log(`📏 [PLACES SERVICE] Radius: ${radiusMeters}m`);
       console.log(`🏷️ [PLACES SERVICE] Categories: ${categories.join(', ')}`);
+      console.log(`📦 [PLACES SERVICE] Total places to save: ${places.length}`);
+      console.log('='.repeat(80) + '\n');
 
-      // Prepare places with metadata
+      if (!places || places.length === 0) {
+        console.warn('⚠️ [PLACES SERVICE] No places to save');
+        return;
+      }
+
       const now = new Date();
-      const placesWithMetadata = places.map(place => ({
-        ...place,
-        cacheMetadata: {
-          firstCachedAt: now,
-          lastUpdatedAt: now,
-          lastVerifiedAt: now,
-          source: 'geoapify',
-          updateCount: 1
-        },
-        createdAt: now,
-        updatedAt: now,
-        verified: false,
-        qualityScore: 1
-      }));
-
-      console.log(`🔄 [PLACES SERVICE] Inserting ${placesWithMetadata.length} places...`);
-      
-      // Use insertMany with ordered:false to continue on duplicate key errors
       let successCount = 0;
-      let duplicateCount = 0;
-      
+      let updateCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      // Strategy 1: Try batch insert first (fastest)
+      console.log('🚀 [PLACES SERVICE] Attempting batch insert...');
       try {
+        const placesWithMetadata = places.map(place => ({
+          ...place,
+          cacheMetadata: {
+            firstCachedAt: now,
+            lastUpdatedAt: now,
+            lastVerifiedAt: now,
+            source: 'geoapify',
+            updateCount: 1
+          },
+          createdAt: now,
+          updatedAt: now,
+          verified: false,
+          qualityScore: 1
+        }));
+
         const result = await Place.insertMany(placesWithMetadata, { 
-          ordered: false,
+          ordered: false, // Continue on errors
           writeConcern: { w: 1, j: true }
         });
+        
         successCount = result.length;
-        console.log(`✅ [PLACES SERVICE] Inserted ${successCount} new places`);
+        console.log(`✅ [PLACES SERVICE] Batch insert successful: ${successCount} places`);
       } catch (error) {
-        if (error.code === 11000) {
-          // Duplicate key errors - some places already exist
-          successCount = error.insertedDocs ? error.insertedDocs.length : 0;
-          duplicateCount = places.length - successCount;
-          console.log(`✅ [PLACES SERVICE] Inserted ${successCount} new places`);
-          console.log(`ℹ️  [PLACES SERVICE] Skipped ${duplicateCount} duplicates`);
+        if (error.code === 11000 || error.name === 'BulkWriteError') {
+          // Some places inserted, some duplicates
+          const insertedCount = error.insertedDocs ? error.insertedDocs.length : 0;
+          successCount = insertedCount;
+          console.log(`✅ [PLACES SERVICE] Batch insert partial success: ${insertedCount} new places`);
+          console.log(`ℹ️  [PLACES SERVICE] Some places already exist (duplicates)`);
         } else {
-          throw error;
+          console.error('❌ [PLACES SERVICE] Batch insert failed:', error.message);
+          console.log('🔄 [PLACES SERVICE] Falling back to individual saves...');
         }
       }
 
-      // Update existing places
-      if (duplicateCount > 0) {
-        console.log(`🔄 [PLACES SERVICE] Updating ${duplicateCount} existing places...`);
-        const updatePromises = places.map(place => 
-          Place.updateOne(
+      // Strategy 2: Save/Update places individually (more robust)
+      console.log('\n🔄 [PLACES SERVICE] Processing places individually...');
+      
+      for (let i = 0; i < places.length; i++) {
+        const place = places[i];
+        
+        try {
+          // Use upsert to handle both insert and update
+          const result = await Place.findOneAndUpdate(
             { geoapifyPlaceId: place.geoapifyPlaceId },
-            { 
+            {
               $set: {
-                ...place,
+                name: place.name,
+                category: place.category,
+                categoryName: place.categoryName,
+                location: place.location,
+                address: place.address,
+                contact: place.contact,
+                icon: place.icon,
+                color: place.color,
+                geoapifyCategories: place.geoapifyCategories,
+                openingHours: place.openingHours,
                 'cacheMetadata.lastUpdatedAt': now,
                 'cacheMetadata.lastVerifiedAt': now,
                 updatedAt: now
               },
+              $setOnInsert: {
+                'cacheMetadata.firstCachedAt': now,
+                'cacheMetadata.source': 'geoapify',
+                'cacheMetadata.updateCount': 0,
+                createdAt: now,
+                verified: false,
+                qualityScore: 1
+              },
               $inc: { 'cacheMetadata.updateCount': 1 }
             },
-            { writeConcern: { w: 1, j: true } }
-          )
-        );
-        await Promise.all(updatePromises);
-        console.log(`✅ [PLACES SERVICE] Updated ${duplicateCount} existing places`);
+            { 
+              upsert: true, 
+              new: true,
+              setDefaultsOnInsert: true,
+              writeConcern: { w: 1, j: true }
+            }
+          );
+
+          if (result) {
+            updateCount++;
+            if ((i + 1) % 10 === 0) {
+              console.log(`📊 [PLACES SERVICE] Progress: ${i + 1}/${places.length} places processed`);
+            }
+          }
+        } catch (placeError) {
+          errorCount++;
+          errors.push({
+            place: place.name,
+            id: place.geoapifyPlaceId,
+            error: placeError.message
+          });
+          console.error(`❌ [PLACES SERVICE] Failed to save place: ${place.name}`, placeError.message);
+          // Continue with next place - don't stop on error
+        }
       }
 
-      const totalSaved = successCount + duplicateCount;
-      console.log(`✅ [PLACES SERVICE] Total places saved: ${totalSaved}/${places.length}`);
+      console.log('\n' + '='.repeat(80));
+      console.log('📊 [PLACES SERVICE] Save operation summary:');
+      console.log(`   ✅ New places inserted: ${successCount}`);
+      console.log(`   🔄 Places updated/upserted: ${updateCount}`);
+      console.log(`   ❌ Failed: ${errorCount}`);
+      console.log(`   📦 Total processed: ${places.length}`);
+      console.log(`   ✨ Success rate: ${((successCount + updateCount) / places.length * 100).toFixed(1)}%`);
+      console.log('='.repeat(80) + '\n');
 
-      // Create/update cache region
-      console.log(`🗺️ [PLACES SERVICE] Creating/updating cache region...`);
-      
-      const regionData = {
-        location: {
-          type: 'Point',
-          coordinates: [longitude, latitude]
-        },
-        radiusMeters,
-        categories,
-        placeCount: totalSaved,
-        cachedAt: now,
-        expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
-        lastRefreshedAt: now,
-        refreshCount: 1,
-        status: 'active'
-      };
+      if (errors.length > 0 && errors.length <= 5) {
+        console.log('⚠️ [PLACES SERVICE] Error details:');
+        errors.forEach((err, idx) => {
+          console.log(`   ${idx + 1}. ${err.place}: ${err.error}`);
+        });
+      }
 
-      const region = await PlaceCacheRegion.create(regionData);
-      console.log(`✅ [PLACES SERVICE] Cache region saved: ${region._id}`);
-      console.log(`✅ [PLACES SERVICE] All operations completed successfully`);
+      // Create/update cache region (even if some places failed)
+      const totalSaved = successCount + updateCount;
+      if (totalSaved > 0) {
+        console.log(`🗺️ [PLACES SERVICE] Creating/updating cache region...`);
+        
+        try {
+          const region = await PlaceCacheRegion.findOneAndUpdate(
+            {
+              'location.coordinates': [longitude, latitude],
+              radiusMeters: radiusMeters
+            },
+            {
+              $set: {
+                location: {
+                  type: 'Point',
+                  coordinates: [longitude, latitude]
+                },
+                radiusMeters,
+                categories,
+                placeCount: totalSaved,
+                expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+                lastRefreshedAt: now,
+                status: 'active'
+              },
+              $inc: { refreshCount: 1 },
+              $setOnInsert: { cachedAt: now }
+            },
+            { 
+              upsert: true, 
+              new: true,
+              setDefaultsOnInsert: true,
+              writeConcern: { w: 1, j: true }
+            }
+          );
+
+          console.log(`✅ [PLACES SERVICE] Cache region saved: ${region._id}`);
+        } catch (regionError) {
+          console.error('❌ [PLACES SERVICE] Failed to save cache region:', regionError.message);
+          // Don't throw - places are saved, region is just metadata
+        }
+      }
+
+      console.log('✅ [PLACES SERVICE] Save operation completed\n');
       
     } catch (error) {
-      console.error('❌ [PLACES SERVICE] Error saving to DB:', error.message);
-      console.error('❌ [PLACES SERVICE] Error stack:', error.stack);
+      console.error('❌ [PLACES SERVICE] Critical error in savePlacesToDB:', error.message);
+      console.error('❌ [PLACES SERVICE] Stack:', error.stack);
       // Don't throw - caching failure shouldn't break the request
     }
   }
@@ -247,6 +333,72 @@ class PlacesService {
       return result;
     } catch (error) {
       console.error('❌ [PLACES SERVICE] Cleanup error:', error);
+    }
+  }
+
+  /**
+   * Get popular places to show on map load (without category selection)
+   * Returns: 3 restaurants, 2 hospitals, 1 supermarket, 1 gas station, 1 bank
+   */
+  async getPopularPlaces(latitude, longitude, radiusMeters = 5000) {
+    try {
+      console.log('⭐ [PLACES SERVICE] Fetching popular places...');
+      console.log('📍 Location:', latitude, longitude);
+      console.log('📏 Radius:', radiusMeters, 'meters');
+
+      const popularPlaces = [];
+
+      // Define what to fetch: [category, count] - UPDATED FOR INDIA
+      const categoriesToFetch = [
+        ['restaurants', 3],
+        ['hospitals', 2],
+        ['malls', 1],
+        ['supermarkets', 1],
+        ['petrol_pumps', 1],
+        ['banks', 1]
+      ];
+
+      for (const [category, count] of categoriesToFetch) {
+        const places = await Place.find({
+          category: category,
+          location: {
+            $near: {
+              $geometry: {
+                type: 'Point',
+                coordinates: [longitude, latitude]
+              },
+              $maxDistance: radiusMeters
+            }
+          }
+        }).limit(count);
+
+        if (places.length > 0) {
+          console.log(`✅ [PLACES SERVICE] Found ${places.length} ${category}`);
+          popularPlaces.push(...this.formatPlaces(places));
+        } else {
+          console.log(`⚠️ [PLACES SERVICE] No ${category} found in cache`);
+        }
+      }
+
+      console.log(`✅ [PLACES SERVICE] Total popular places: ${popularPlaces.length}`);
+
+      return {
+        success: true,
+        source: 'database',
+        places: popularPlaces,
+        count: popularPlaces.length,
+        cached: true
+      };
+    } catch (error) {
+      console.error('❌ [PLACES SERVICE] Error fetching popular places:', error);
+      return {
+        success: false,
+        source: 'none',
+        places: [],
+        count: 0,
+        cached: false,
+        error: error.message
+      };
     }
   }
 }

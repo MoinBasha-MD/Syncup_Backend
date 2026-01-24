@@ -1,0 +1,8 @@
+# Check if node-cron is installed in package.json
+
+Required dependency: node-cron
+
+If not present, run:
+npm install node-cron
+
+This is needed for the places refresh job background scheduler.

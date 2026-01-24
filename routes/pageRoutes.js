@@ -14,6 +14,9 @@ const {
 // ✅ WEEK 2 FIX: Import validation middleware
 const { validatePageCreation } = require('../middleware/validatePagePost');
 
+// ✅ PERMANENT FIX: Import page image handler middleware
+const { processPageImages, constructImageUrl } = require('../middleware/pageImageHandler');
+
 // @route   POST /api/pages
 // @desc    Create a new page
 // @access  Private
@@ -322,7 +325,7 @@ router.get('/suggested', protect, async (req, res) => {
 // @route   GET /api/pages/my/pages
 // @desc    Get current user's pages
 // @access  Private
-router.get('/my/pages', protect, async (req, res) => {
+router.get('/my/pages', protect, processPageImages, async (req, res) => {
   try {
     console.log('📄 [PAGES] Fetching pages for user:', req.user._id);
     
@@ -356,7 +359,7 @@ router.get('/my/pages', protect, async (req, res) => {
 // @route   GET /api/pages/following
 // @desc    Get pages user is following
 // @access  Private
-router.get('/following', protect, async (req, res) => {
+router.get('/following', protect, processPageImages, async (req, res) => {
   try {
     console.log('📄 [PAGES] Fetching following pages for user:', req.user._id);
     
@@ -393,7 +396,7 @@ router.get('/following', protect, async (req, res) => {
 // @route   GET /api/pages/:id
 // @desc    Get page by ID
 // @access  Public
-router.get('/:id', async (req, res) => {
+router.get('/:id', processPageImages, async (req, res) => {
   try {
     const page = await Page.findById(req.params.id)
       .populate('owner', 'name username profileImage')

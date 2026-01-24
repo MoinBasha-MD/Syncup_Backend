@@ -182,6 +182,53 @@ class PlacesController {
       });
     }
   }
+
+  /**
+   * GET /api/places/popular
+   * Get popular places to show on map load (3 restaurants, 2 hospitals, etc.)
+   */
+  async getPopularPlaces(req, res) {
+    try {
+      const { lat, lng, radius } = req.query;
+
+      if (!lat || !lng) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required parameters: lat, lng'
+        });
+      }
+
+      const latitude = parseFloat(lat);
+      const longitude = parseFloat(lng);
+      const radiusMeters = parseInt(radius) || 5000;
+
+      if (isNaN(latitude) || isNaN(longitude)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid coordinates'
+        });
+      }
+
+      console.log('⭐ [PLACES API] GET /api/places/popular');
+      console.log('   Location:', latitude, longitude);
+      console.log('   Radius:', radiusMeters);
+
+      const result = await placesService.getPopularPlaces(
+        latitude,
+        longitude,
+        radiusMeters
+      );
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error('❌ [PLACES API] Popular places error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch popular places',
+        message: error.message
+      });
+    }
+  }
 }
 
 module.exports = new PlacesController();

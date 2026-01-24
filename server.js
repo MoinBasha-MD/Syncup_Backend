@@ -78,6 +78,7 @@ const agentIntegrationService = require('./services/agentIntegrationService');
 const SelfHealingService = require('./services/selfHealingService');
 const DynamicScalingService = require('./services/dynamicScalingService');
 const AgentIntelligenceService = require('./services/agentIntelligenceService');
+const placesRefreshJob = require('./jobs/placesRefreshJob');
 // Admin dependencies removed for production
 
 // Load environment variables
@@ -467,6 +468,10 @@ const messageCleanupScheduler = require('./services/messageCleanupScheduler');
 global.io = io;
 messageCleanupScheduler.start();
 console.log('✅ Message cleanup scheduler started');
+
+// Start places refresh job for automatic cache updates
+placesRefreshJob.start();
+console.log('✅ Places refresh job started');
 
 // Start the auto-status service for daily schedules
 const autoStatusService = require('./services/autoStatusService');
