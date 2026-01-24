@@ -580,7 +580,7 @@ const addGroupMembers = asyncHandler(async (req, res) => {
       const systemMessage = await GroupMessage.create({
         groupId,
         senderId: 'system',
-        senderName: 'System',
+        senderName: adderName,
         message: `${adderName} added ${addedName}`,
         messageType: 'system',
         timestamp: new Date()
