@@ -145,8 +145,10 @@ placeSchema.statics.findNearby = function(longitude, latitude, radiusMeters = 30
     }
   };
   
+  // Match against geoapifyCategories array (contains full Geoapify category names)
+  // This allows matching categories like 'commercial.shopping_mall' sent from frontend
   if (categories && categories.length > 0) {
-    query.category = { $in: categories };
+    query.geoapifyCategories = { $in: categories };
   }
   
   return this.find(query).limit(100);
