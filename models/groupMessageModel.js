@@ -33,7 +33,7 @@ const groupMessageSchema = mongoose.Schema(
     },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice'],
+      enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice', 'system'],
       default: 'text'
     },
     // File/media metadata
