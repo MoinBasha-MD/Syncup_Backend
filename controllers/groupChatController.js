@@ -616,6 +616,54 @@ const addGroupMembers = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc    Mark group messages as read
+ * @route   POST /api/group-chats/:groupId/mark-read
+ * @access  Private
+ */
+const markGroupMessagesAsRead = asyncHandler(async (req, res) => {
+  const { groupId } = req.params;
+  const userId = req.user.userId;
+
+  try {
+    // Find the member record
+    const member = await GroupMember.findOne({
+      groupId,
+      userId,
+      isActive: true
+    });
+
+    if (!member) {
+      res.status(404);
+      throw new Error('You are not a member of this group');
+    }
+
+    // Get the latest message in the group
+    const latestMessage = await GroupMessage.findOne({
+      groupId,
+      deletedAt: null
+    }).sort({ createdAt: -1 });
+
+    if (latestMessage) {
+      // Update lastSeenMessageId to the latest message
+      member.lastSeenMessageId = latestMessage._id;
+      member.lastSeenAt = new Date();
+      await member.save();
+
+      console.log(`✅ [GROUP CHAT] Marked messages as read for user ${userId} in group ${groupId}`);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Messages marked as read'
+    });
+  } catch (error) {
+    console.error('❌ [GROUP CHAT] Error marking messages as read:', error);
+    res.status(500);
+    throw new Error('Failed to mark messages as read');
+  }
+});
+
+/**
  * @desc    Remove member from group chat
  * @route   DELETE /api/group-chats/:groupId/members/:memberId
  * @access  Private
@@ -1225,6 +1273,7 @@ module.exports = {
   uploadGroupImage,
   deleteGroupChat,
   addGroupMembers,
+  markGroupMessagesAsRead,
   removeGroupMember,
   updateMemberRole,
   getGroupMessages,

@@ -12,6 +12,7 @@ const {
   uploadGroupImage,
   deleteGroupChat,
   addGroupMembers,
+  markGroupMessagesAsRead,
   removeGroupMember,
   updateMemberRole,
   getGroupMessages,
@@ -79,6 +80,7 @@ router.post('/:groupId/upload-image', upload.single('groupImage'), uploadGroupIm
 router.post('/:groupId/messages/search', searchGroupMessages);
 
 // Group Member Actions
+router.post('/:groupId/mark-read', markGroupMessagesAsRead); // POST /api/group-chats/:groupId/mark-read - Mark messages as read
 router.post('/:groupId/mute', muteGroupNotifications);     // POST /api/group-chats/:groupId/mute - Mute group notifications
 router.post('/:groupId/leave', leaveGroup);                // POST /api/group-chats/:groupId/leave - Leave group
 
