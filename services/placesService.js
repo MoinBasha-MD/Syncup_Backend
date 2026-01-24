@@ -40,11 +40,15 @@ class PlacesService {
 
       if (cachedRegion && !cachedRegion.isExpired()) {
         console.log('✅ [PLACES SERVICE] Found cached region in DB');
+        console.log('📅 [PLACES SERVICE] Cached at:', cachedRegion.cachedAt);
+        console.log('⏰ [PLACES SERVICE] Expires at:', cachedRegion.expiresAt);
+        console.log('🔄 [PLACES SERVICE] Is expired?', cachedRegion.isExpired());
         
         // Fetch places from DB
         const places = await Place.findNearby(longitude, latitude, radiusMeters, categories);
+        console.log(`📦 [PLACES SERVICE] Found ${places.length} places in DB`);
         
-        return {
+        const result = {
           success: true,
           source: 'database',
           places: this.formatPlaces(places),
@@ -53,10 +57,26 @@ class PlacesService {
           cachedAt: cachedRegion.cachedAt,
           expiresAt: cachedRegion.expiresAt
         };
+        
+        console.log('✅ [PLACES SERVICE] Returning cached data:', {
+          success: result.success,
+          source: result.source,
+          count: result.count,
+          cached: result.cached
+        });
+        
+        return result;
       }
 
-      // No cache found - return empty, frontend will call API
-      console.log('⚠️ [PLACES SERVICE] No cache found in DB');
+      // No cache found or expired - return empty, frontend will call API
+      if (cachedRegion) {
+        console.log('⚠️ [PLACES SERVICE] Cache found but EXPIRED');
+        console.log('📅 [PLACES SERVICE] Cached at:', cachedRegion.cachedAt);
+        console.log('⏰ [PLACES SERVICE] Expired at:', cachedRegion.expiresAt);
+      } else {
+        console.log('⚠️ [PLACES SERVICE] No cache found in DB');
+      }
+      
       return {
         success: false,
         source: 'none',
