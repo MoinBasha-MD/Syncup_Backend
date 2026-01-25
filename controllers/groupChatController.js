@@ -471,12 +471,14 @@ const getGroupMessages = asyncHandler(async (req, res) => {
       parseInt(limit)
     );
 
-    // Update user's last seen
+    // Only update lastSeenAt, NOT lastSeenMessageId
+    // lastSeenMessageId should only be updated by markGroupAsRead endpoint
     await GroupMember.findOneAndUpdate(
       { groupId, userId },
       { 
-        lastSeenAt: new Date(),
-        lastSeenMessageId: messages[0]?._id || null
+        lastSeenAt: new Date()
+        // REMOVED: lastSeenMessageId update - this was causing the bug
+        // It was overwriting the correct value set by markGroupAsRead
       }
     );
 
