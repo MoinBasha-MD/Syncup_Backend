@@ -133,15 +133,35 @@ const createGroupChat = asyncHandler(async (req, res) => {
 const getUserGroupChats = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
 
+  console.log('📱 [GET GROUPS] ========================================');
+  console.log('📱 [GET GROUPS] API Called');
+  console.log('📱 [GET GROUPS] User ID:', userId);
+
   try {
     const groupChats = await GroupChat.findUserGroups(userId);
+    console.log('📱 [GET GROUPS] Found', groupChats.length, 'groups');
+    
     // ✅ Use base URL without /api for image URLs (images are served from root domain)
     const imageBaseUrl = process.env.IMAGE_BASE_URL || 'https://api.crackman.in';
 
     // Get unread counts for each group and transform image URLs
     const groupsWithUnread = await Promise.all(
       groupChats.map(async (group) => {
+        console.log('📱 [GET GROUPS] Processing group:', group.groupName);
+        
+        // Get member record to check lastSeenMessageId
+        const member = await GroupMember.findOne({
+          groupId: group._id,
+          userId,
+          isActive: true
+        });
+        
+        console.log('📱 [GET GROUPS] Member lastSeenMessageId:', member?.lastSeenMessageId);
+        console.log('📱 [GET GROUPS] Member lastSeenAt:', member?.lastSeenAt);
+        
         const unreadCount = await GroupMember.getUnreadCount(group._id, userId);
+        console.log('📱 [GET GROUPS] Calculated unread count:', unreadCount);
+        
         const groupObj = group.toObject();
         
         // Transform groupImage to full URL
@@ -156,7 +176,11 @@ const getUserGroupChats = asyncHandler(async (req, res) => {
       })
     );
 
-    console.log(`📱 [GROUP CHAT] Retrieved ${groupChats.length} groups for user ${userId}`);
+    console.log('📱 [GET GROUPS] Groups with unread counts:');
+    groupsWithUnread.forEach(g => {
+      console.log(`   - ${g.groupName}: ${g.unreadCount} unread`);
+    });
+    console.log('📱 [GET GROUPS] ========================================');
 
     res.status(200).json({
       success: true,
@@ -164,7 +188,8 @@ const getUserGroupChats = asyncHandler(async (req, res) => {
       count: groupChats.length
     });
   } catch (error) {
-    console.error('❌ [GROUP CHAT] Error fetching user groups:', error);
+    console.error('❌ [GET GROUPS] Error fetching user groups:', error);
+    console.error('❌ [GET GROUPS] Error stack:', error.stack);
     res.status(500);
     throw new Error('Failed to fetch group chats');
   }
@@ -624,6 +649,11 @@ const markGroupMessagesAsRead = asyncHandler(async (req, res) => {
   const { groupId } = req.params;
   const userId = req.user.userId;
 
+  console.log('🔵 [MARK READ] ========================================');
+  console.log('🔵 [MARK READ] API Called');
+  console.log('🔵 [MARK READ] Group ID:', groupId);
+  console.log('🔵 [MARK READ] User ID:', userId);
+
   try {
     // Find the member record
     const member = await GroupMember.findOne({
@@ -632,7 +662,14 @@ const markGroupMessagesAsRead = asyncHandler(async (req, res) => {
       isActive: true
     });
 
+    console.log('🔵 [MARK READ] Member found:', !!member);
+    if (member) {
+      console.log('🔵 [MARK READ] Current lastSeenMessageId:', member.lastSeenMessageId);
+      console.log('🔵 [MARK READ] Current lastSeenAt:', member.lastSeenAt);
+    }
+
     if (!member) {
+      console.error('❌ [MARK READ] User is not a member of this group');
       res.status(404);
       throw new Error('You are not a member of this group');
     }
@@ -643,21 +680,48 @@ const markGroupMessagesAsRead = asyncHandler(async (req, res) => {
       deletedAt: null
     }).sort({ createdAt: -1 });
 
+    console.log('🔵 [MARK READ] Latest message found:', !!latestMessage);
+    if (latestMessage) {
+      console.log('🔵 [MARK READ] Latest message ID:', latestMessage._id);
+      console.log('🔵 [MARK READ] Latest message text:', latestMessage.message?.substring(0, 50));
+      console.log('🔵 [MARK READ] Latest message createdAt:', latestMessage.createdAt);
+    }
+
     if (latestMessage) {
       // Update lastSeenMessageId to the latest message
+      const oldLastSeenMessageId = member.lastSeenMessageId;
       member.lastSeenMessageId = latestMessage._id;
       member.lastSeenAt = new Date();
+      
+      console.log('🔵 [MARK READ] Updating member record...');
+      console.log('🔵 [MARK READ] Old lastSeenMessageId:', oldLastSeenMessageId);
+      console.log('🔵 [MARK READ] New lastSeenMessageId:', member.lastSeenMessageId);
+      
       await member.save();
 
-      console.log(`✅ [GROUP CHAT] Marked messages as read for user ${userId} in group ${groupId}`);
+      console.log('✅ [MARK READ] Member record saved successfully');
+      console.log(`✅ [MARK READ] Marked messages as read for user ${userId} in group ${groupId}`);
+      
+      // Verify the save
+      const verifyMember = await GroupMember.findOne({
+        groupId,
+        userId,
+        isActive: true
+      });
+      console.log('🔵 [MARK READ] Verification - lastSeenMessageId after save:', verifyMember?.lastSeenMessageId);
+    } else {
+      console.log('⚠️ [MARK READ] No messages in group to mark as read');
     }
+
+    console.log('🔵 [MARK READ] ========================================');
 
     res.status(200).json({
       success: true,
       message: 'Messages marked as read'
     });
   } catch (error) {
-    console.error('❌ [GROUP CHAT] Error marking messages as read:', error);
+    console.error('❌ [MARK READ] Error marking messages as read:', error);
+    console.error('❌ [MARK READ] Error stack:', error.stack);
     res.status(500);
     throw new Error('Failed to mark messages as read');
   }
