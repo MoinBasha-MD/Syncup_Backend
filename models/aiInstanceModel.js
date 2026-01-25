@@ -163,11 +163,9 @@ const aiInstanceSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes for performance optimization
+// Indexes for performance optimization (field-level indexes already defined)
 aiInstanceSchema.index({ userId: 1, isActive: 1 });
 aiInstanceSchema.index({ status: 1, lastActive: -1 });
-aiInstanceSchema.index({ 'networkSettings.trustedAIs': 1 });
-aiInstanceSchema.index({ 'networkSettings.allowedGroups': 1 });
 aiInstanceSchema.index({ createdAt: -1 });
 
 // Virtual for checking if AI is online (heartbeat within last 2 minutes)

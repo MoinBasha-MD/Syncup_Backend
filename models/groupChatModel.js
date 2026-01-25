@@ -134,7 +134,7 @@ groupChatSchema.pre('save', function(next) {
   next();
 });
 
-// Create indexes for efficient queries
+// Create indexes for efficient queries (field-level indexes already defined)
 groupChatSchema.index({ createdBy: 1, createdAt: -1 }); // Creator's groups by creation date
 groupChatSchema.index({ members: 1, lastActivity: -1 }); // User's groups by activity
 groupChatSchema.index({ admins: 1 }); // Find groups by admin

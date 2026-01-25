@@ -1,6 +1,6 @@
 const cluster = require('cluster');
 const os = require('os');
-const winston = require('winston');
+const { serverLogger } = require('../utils/loggerSetup');
 
 /**
  * Performance Optimization Middleware
@@ -48,7 +48,7 @@ const performanceTracker = (req, res, next) => {
     
     // Log slow requests (>1000ms)
     if (responseTime > 1000) {
-      winston.warn('Slow request detected', {
+      serverLogger.warn('Slow request detected', {
         requestId: req.requestId,
         method: req.method,
         url: req.url,
@@ -216,7 +216,7 @@ const memoryMonitor = () => {
     const memoryUsagePercent = usedMemory / totalMemory;
     
     if (memoryUsagePercent > memoryThreshold) {
-      winston.warn('High memory usage detected', {
+      serverLogger.warn('High memory usage detected', {
         usedMemory: `${Math.round(usedMemory / 1024 / 1024)}MB`,
         totalMemory: `${Math.round(totalMemory / 1024 / 1024)}MB`,
         percentage: `${(memoryUsagePercent * 100).toFixed(2)}%`
@@ -225,7 +225,7 @@ const memoryMonitor = () => {
       // Force garbage collection if available
       if (global.gc) {
         global.gc();
-        winston.info('Forced garbage collection executed');
+        serverLogger.info('Forced garbage collection executed');
       }
     }
   }, checkInterval);

@@ -507,16 +507,11 @@ userSchema.methods.getResetPasswordToken = function () {
   return resetToken;
 };
 
-// Create indexes for frequently queried fields
-userSchema.index({ userId: 1 }, { unique: true });
-userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ phoneNumber: 1 }, { unique: true });
+// Indexes are already defined at field level with 'index: true'
+// Additional compound indexes only
 userSchema.index({ status: 1 }); // For status-based queries
 userSchema.index({ statusUntil: 1 }); // For status expiration queries
 userSchema.index({ contacts: 1 }); // For contact-based queries
-// Global discovery indexes
-userSchema.index({ username: 1 }, { unique: true, sparse: true });
-userSchema.index({ searchableName: 1 }); // For name-based searches
 userSchema.index({ isPublic: 1 }); // For public profile queries
 userSchema.index({ 'appConnections.userId': 1 }); // For app connection queries
 

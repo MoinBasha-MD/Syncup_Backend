@@ -14,6 +14,7 @@ const {
   getPerformanceStats,
   optimizeConnectionPool 
 } = require('./middleware/performanceMiddleware');
+const { videoStreamingHandler, mediaCacheControl } = require('./middleware/videoStreamingMiddleware');
 const connectDB = require('./config/db');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const { 
@@ -325,8 +326,9 @@ app.use('/api', encryptedFileRoutes);
 // app.use('/uploads', mediaDecryptionMiddleware);
 // app.use('/api/uploads', mediaDecryptionMiddleware);
 
-// ✅ Serve uploads directory directly (encryption disabled)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// ✅ Serve uploads directory with optimized video streaming
+app.use('/uploads/post-media', mediaCacheControl, videoStreamingHandler('post-media'));
+app.use('/uploads', mediaCacheControl, express.static(path.join(__dirname, 'uploads')));
 
 // Serve static files from public directory (for JS, CSS, images)
 app.use(express.static(path.join(__dirname, 'public')));
