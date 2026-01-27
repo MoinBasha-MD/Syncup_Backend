@@ -210,6 +210,21 @@ exports.startSession = async (req, res) => {
         const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000);
         const durationLabel = formatDurationLabel(durationMinutes);
 
+        // CRITICAL FIX: Delete old location messages from this sender to this receiver
+        // This prevents duplicate location shares in the UI
+        try {
+          const deleteResult = await Message.deleteMany({
+            senderId: userId,
+            receiverId: friendId,
+            messageType: 'location',
+            'locationData.isLiveLocation': true
+          });
+          console.log(`🧹 [LOCATION SHARING] Deleted ${deleteResult.deletedCount} old location message(s) from ${userId} to ${friendId}`);
+        } catch (deleteError) {
+          console.error('⚠️ [LOCATION SHARING] Error deleting old messages:', deleteError);
+          // Continue anyway - don't fail if cleanup fails
+        }
+
         // Create location message
         createdLocationMessage = await Message.create({
           senderId: userId,
@@ -341,6 +356,20 @@ exports.stopSession = async (req, res) => {
     await settings.stopSession(friendUser._id);
     
     console.log(`✅ [LOCATION SHARING] Stopped session: ${userId} → ${friendId}`);
+    
+    // CRITICAL FIX: Delete location messages when stopping
+    try {
+      const deleteResult = await Message.deleteMany({
+        senderId: req.user.userId,
+        receiverId: friendId,
+        messageType: 'location',
+        'locationData.isLiveLocation': true
+      });
+      console.log(`🧹 [LOCATION SHARING] Deleted ${deleteResult.deletedCount} location message(s) when stopping`);
+    } catch (deleteError) {
+      console.error('⚠️ [LOCATION SHARING] Error deleting messages on stop:', deleteError);
+      // Continue anyway
+    }
     
     // Notify the friend via WebSocket that location sharing stopped
     try {
