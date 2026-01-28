@@ -1946,7 +1946,7 @@ const initializeSocketIO = (server) => {
       try {
         console.log(`📍 [LOCATION] Location update received from ${userName} (${userId}):`, locationData);
         
-        const { latitude, longitude, timestamp } = locationData;
+        const { latitude, longitude, timestamp, recipientIds, speed } = locationData;
         
         // Validate coordinates
         if (!latitude || !longitude || 
@@ -1975,30 +1975,39 @@ const initializeSocketIO = (server) => {
         await user.save();
         console.log(`✅ [LOCATION] Location saved for ${userName}: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
         
-        // Broadcast location update to user's contacts/friends
-        // This will be used in Phase 2 to show friends on map
+        // PHASE 1 FIX #2: Targeted broadcasting - only to active sharing recipients
         const locationUpdateData = {
           userId: userId,
           userName: userName,
           profileImage: user.profileImage,
           latitude,
           longitude,
-          timestamp: timestamp || Date.now()
+          timestamp: timestamp || Date.now(),
+          speed: speed || 0 // PHASE 2 FIX #2: Include speed for adaptive intervals
         };
         
-        // Get user's contacts to broadcast location
-        const contacts = userContactsMap.get(userId) || [];
         let broadcastCount = 0;
         
-        contacts.forEach(contactId => {
-          const contactSocket = userSockets.get(contactId);
-          if (contactSocket) {
-            contactSocket.emit('location:friend_update', locationUpdateData);
-            broadcastCount++;
-          }
-        });
-        
-        console.log(`📡 [LOCATION] Location broadcasted to ${broadcastCount} contacts`);
+        if (recipientIds && Array.isArray(recipientIds) && recipientIds.length > 0) {
+          // TARGETED BROADCASTING: Only send to specified recipients
+          console.log(`📡 [LOCATION] Targeted broadcast to ${recipientIds.length} active recipient(s)`);
+          
+          recipientIds.forEach(recipientId => {
+            const recipientSocket = userSockets.get(recipientId);
+            if (recipientSocket) {
+              recipientSocket.emit('location:friend_update', locationUpdateData);
+              broadcastCount++;
+              console.log(`  ✅ Sent to ${recipientId}`);
+            } else {
+              console.log(`  ⚠️ ${recipientId} not connected`);
+            }
+          });
+          
+          console.log(`📡 [LOCATION] Location broadcasted to ${broadcastCount}/${recipientIds.length} active recipient(s)`);
+        } else {
+          // FALLBACK: No active sessions - don't broadcast
+          console.log(`📡 [LOCATION] No active sharing sessions - location not broadcasted`);
+        }
         
       } catch (error) {
         console.error(`❌ [LOCATION] Error processing location update from ${userName}:`, error);

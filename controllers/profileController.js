@@ -89,7 +89,7 @@ exports.getPublicProfile = async (req, res) => {
     
     console.log('🤝 [PROFILE] Are friends?', isFriend);
 
-    // Check if can send friend request
+    // Check friendship/request status (matching /friends/status endpoint)
     const existingRequest = await Friend.findOne({
       $or: [
         { userId: currentUserId, friendUserId: targetUserId },
@@ -97,9 +97,38 @@ exports.getPublicProfile = async (req, res) => {
       ],
       isDeleted: { $ne: true }
     });
-    const canSendRequest = !existingRequest;
     
-    console.log('📤 [PROFILE] Can send request?', canSendRequest);
+    // Determine detailed connection status
+    let canSendRequest = !existingRequest;
+    let hasPendingRequest = false;
+    let hasReceivedRequest = false;
+    let connectionStatus = 'none';
+    let requestId = null;
+    
+    if (existingRequest) {
+      requestId = existingRequest._id;
+      if (existingRequest.status === 'accepted') {
+        connectionStatus = 'connected';
+      } else if (existingRequest.status === 'pending') {
+        if (existingRequest.userId === currentUserId) {
+          // Current user sent the request
+          hasPendingRequest = true;
+          connectionStatus = 'pending';
+        } else {
+          // Current user received the request
+          hasReceivedRequest = true;
+          connectionStatus = 'received';
+        }
+      }
+    }
+    
+    console.log('📤 [PROFILE] Connection status:', {
+      canSendRequest,
+      hasPendingRequest,
+      hasReceivedRequest,
+      connectionStatus,
+      requestId
+    });
 
     // Get posts count - all posts for friends, public only for strangers
     const postsCountQuery = isFriend 
@@ -138,13 +167,17 @@ exports.getPublicProfile = async (req, res) => {
       profileImage: user.profileImage,
       bio: user.bio,
       postsCount,
-      friendsCount,  // ✅ ADDED: Now includes friends count
+      friendsCount,
       followersCount,
       followingCount,
       mutualCount,
       isFollowing: !!isFollowing,
       isFriend,
       canSendRequest,
+      hasPendingRequest,
+      hasReceivedRequest,
+      connectionStatus,
+      requestId,
       isOnline: user.isOnline,
       lastSeen: user.lastSeen
     };

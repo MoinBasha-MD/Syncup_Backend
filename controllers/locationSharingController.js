@@ -20,6 +20,46 @@ const formatDurationLabel = (minutes) => {
 };
 
 /**
+ * PHASE 1 FIX #2: Get active location sharing sessions
+ */
+exports.getActiveSessions = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    const settings = await LocationSettings.findOne({ userId })
+      .populate('activeSessions.friendId', 'userId name profileImage');
+    
+    if (!settings) {
+      return res.json({
+        success: true,
+        sessions: []
+      });
+    }
+    
+    // Filter only active sessions that haven't expired
+    const now = new Date();
+    const activeSessions = settings.activeSessions.filter(session => 
+      session.isActive && new Date(session.expiresAt) > now
+    );
+    
+    console.log(`✅ [LOCATION SHARING] Found ${activeSessions.length} active session(s) for user ${req.user.userId}`);
+    
+    res.json({
+      success: true,
+      sessions: activeSessions
+    });
+    
+  } catch (error) {
+    console.error('❌ [LOCATION SHARING] Error getting active sessions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting active sessions',
+      error: error.message
+    });
+  }
+};
+
+/**
  * Get user's location sharing settings
  */
 exports.getSettings = async (req, res) => {
