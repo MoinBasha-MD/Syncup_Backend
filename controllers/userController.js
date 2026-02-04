@@ -1318,12 +1318,16 @@ const verifyUserPassword = async (req, res) => {
     if (isValidPassword) {
       console.log(`✅ [BACKEND] Password verified for PIN reset: ${user.name} (ID: ${user.userId})`);
       res.status(200).json({
+        success: true,
         message: 'Password verified successfully',
         verified: true
       });
     } else {
       console.log(`❌ [BACKEND] Invalid password attempt for PIN reset: ${user.name} (ID: ${user.userId})`);
-      res.status(401).json({ message: 'Invalid password' });
+      res.status(401).json({ 
+        success: false,
+        message: 'Invalid password' 
+      });
     }
   } catch (error) {
     console.error('❌ [BACKEND] Error verifying password:', error);
