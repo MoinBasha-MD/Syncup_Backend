@@ -11,6 +11,7 @@ class PrimaryTimeSchedulerService {
   constructor() {
     this.cronJob = null;
     this.isRunning = false;
+    this.initialCheckTimeout = null;
   }
 
   /**
@@ -376,7 +377,7 @@ class PrimaryTimeSchedulerService {
 
     // Run immediately on startup
     console.log('🚀 [PRIMARY TIME SCHEDULER] Running initial check...');
-    setTimeout(() => {
+    this.initialCheckTimeout = setTimeout(() => {
       this.checkAllUsers();
     }, 10000); // Wait 10 seconds after server start
   }
@@ -387,9 +388,17 @@ class PrimaryTimeSchedulerService {
   stop() {
     if (this.cronJob) {
       this.cronJob.stop();
-      this.isRunning = false;
-      console.log('🛑 [PRIMARY TIME SCHEDULER] Cron job stopped');
+      this.cronJob = null;
     }
+    
+    // Clear the initial check timeout to prevent memory leak
+    if (this.initialCheckTimeout) {
+      clearTimeout(this.initialCheckTimeout);
+      this.initialCheckTimeout = null;
+    }
+    
+    this.isRunning = false;
+    console.log('🛑 [PRIMARY TIME SCHEDULER] Cron job stopped');
   }
 
   /**
