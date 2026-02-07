@@ -123,6 +123,12 @@ const userSchema = mongoose.Schema(
       type: Date,
       default: null
     },
+    // Primary Time tracking
+    primaryTimeProfileId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PrimaryTimeProfile',
+      default: null
+    },
     // Location data for status updates
     statusLocation: {
       placeName: {

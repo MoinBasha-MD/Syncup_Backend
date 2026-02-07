@@ -258,6 +258,7 @@ app.use('/api/users', userDataLimiter, userDataRoutes); // User data routes with
 app.use('/api/status', statusLimiter, statusRoutes); // Status history, templates, schedules
 app.use('/api/status-management', statusLimiter, statusManagementRoutes); // Current status management
 app.use('/api/status-privacy', statusLimiter, statusPrivacyRoutes); // Current status management
+app.use('/api/primary-time', apiLimiter, require('./routes/primaryTimeRoutes')); // Primary Time profiles
 app.use('/api/location', apiLimiter, locationRoutes); // Location and geocoding services
 app.use('/api/location-sharing', apiLimiter, require('./routes/locationSharingRoutes')); // Location sharing controls
 app.use('/api/bulk', apiLimiter, bulkOperationsRoutes); // Bulk operations
@@ -480,6 +481,11 @@ const autoStatusService = require('./services/autoStatusService');
 autoStatusService.start();
 console.log('✅ Auto-status service started (daily schedule)');
 
+// Start the Primary Time scheduler for automatic profile activation
+const primaryTimeScheduler = require('./services/primaryTimeScheduler');
+primaryTimeScheduler.start();
+console.log('✅ Primary Time scheduler started (auto-activation)');
+
 // Start the status expiration service for clearing expired sub-statuses
 const statusExpirationService = require('./services/statusExpirationService');
 statusExpirationService.start();
@@ -572,6 +578,10 @@ process.on('SIGTERM', () => {
     autoStatusService.stop();
     console.log('✅ Auto-status service stopped');
   }
+  if (primaryTimeScheduler) {
+    primaryTimeScheduler.stop();
+    console.log('✅ Primary Time scheduler stopped');
+  }
   if (statusExpirationService) {
     statusExpirationService.stop();
     console.log('✅ Status expiration service stopped');
@@ -626,6 +636,14 @@ process.on('SIGINT', () => {
   if (locationSharingCleanupScheduler) {
     locationSharingCleanupScheduler.stop();
     console.log('✅ Location sharing cleanup scheduler stopped');
+  }
+  if (autoStatusService) {
+    autoStatusService.stop();
+    console.log('✅ Auto-status service stopped');
+  }
+  if (primaryTimeScheduler) {
+    primaryTimeScheduler.stop();
+    console.log('✅ Primary Time scheduler stopped');
   }
   // Shutdown agent system
   if (agentIntegrationService) {

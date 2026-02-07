@@ -224,8 +224,8 @@ class FCMNotificationService {
         android: {
           priority: 'high',
           notification: {
-            sound: 'default',
-            channelId: 'chat_messages'
+            sound: notification.sound || 'default',
+            channelId: notification.channelId || 'syncup-general-channel'
           }
         }
       };
