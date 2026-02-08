@@ -55,7 +55,7 @@ exports.getProfiles = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const profiles = await PrimaryTimeProfile.find({ userId }).sort({ priority: -1, createdAt: -1 });
+    const profiles = await PrimaryTimeProfile.find({ userId }).sort({ startTime: 1, priority: -1 });
 
     console.log(`📋 [PRIMARY TIME] Retrieved ${profiles.length} profiles for user ${userId}`);
 
@@ -164,6 +164,8 @@ exports.deleteProfile = async (req, res) => {
 };
 
 // Enable a profile schedule (user taps "activate")
+// Multiple profiles can be isEnabled simultaneously — the scheduler picks the
+// correct one based on the current time window and priority.
 // This does NOT immediately change the user's status unless the current time
 // falls within the profile's scheduled time window.
 exports.activateProfile = async (req, res) => {
@@ -171,13 +173,8 @@ exports.activateProfile = async (req, res) => {
     const { id } = req.params;
     const userId = req.user._id;
 
-    // Disable all other enabled profiles for this user (only one schedule active at a time)
-    await PrimaryTimeProfile.updateMany(
-      { userId, isEnabled: true },
-      { $set: { isEnabled: false, isActive: false } }
-    );
-
-    // Enable the requested profile
+    // Enable the requested profile (do NOT disable other profiles —
+    // multiple schedules can be enabled for different time windows)
     const profile = await PrimaryTimeProfile.findOneAndUpdate(
       { _id: id, userId },
       { $set: { isEnabled: true } },
@@ -201,6 +198,12 @@ exports.activateProfile = async (req, res) => {
     // Only apply status immediately if the current time is within the schedule window
     if (isWithinWindow) {
       try {
+        // Deactivate any other currently-active profile first (only one status at a time)
+        await PrimaryTimeProfile.updateMany(
+          { userId, isActive: true, _id: { $ne: profile._id } },
+          { $set: { isActive: false } }
+        );
+
         profile.isActive = true;
         await profile.save();
 
@@ -354,21 +357,27 @@ exports.deactivateProfile = async (req, res) => {
   }
 };
 
-// Get the currently enabled profile (and whether it's actively applied)
+// Get the currently active profile (status is applied right now)
+// With multiple profiles enabled, this only returns the one whose status is live.
 exports.getActiveProfile = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // First check for a profile that is currently active (status applied)
+    // Return the profile that is currently active (status applied)
     const activeProfile = await PrimaryTimeProfile.findOne({ userId, isActive: true });
     if (activeProfile) {
       return res.json(activeProfile);
     }
 
-    // Otherwise return the enabled profile (schedule is on but not in time window)
-    const enabledProfile = await PrimaryTimeProfile.findOne({ userId, isEnabled: true });
-    if (enabledProfile) {
-      return res.json(enabledProfile);
+    // No profile is currently active — check if any are enabled (scheduled for later)
+    // Return the next upcoming enabled profile so the UI can show "SCHEDULED" state
+    const enabledProfiles = await PrimaryTimeProfile.find({ userId, isEnabled: true }).sort({ startTime: 1 });
+    if (enabledProfiles.length > 0) {
+      // Find the next upcoming profile based on current time
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const nextProfile = enabledProfiles.find(p => p.startTime > currentTime) || enabledProfiles[0];
+      return res.json(nextProfile);
     }
 
     return res.json(null);
