@@ -191,6 +191,56 @@ exports.activateProfile = async (req, res) => {
 
     console.log(`✅ [PRIMARY TIME] Profile activated: ${profile.name}`);
 
+    // Also update user status immediately so it takes effect right away
+    try {
+      const now = new Date();
+      const [endH, endM] = profile.endTime.split(':').map(Number);
+      const endTime = new Date(now);
+      endTime.setHours(endH, endM, 0, 0);
+      if (endTime <= now) endTime.setDate(endTime.getDate() + 1);
+
+      const user = await User.findOne({ userId });
+      if (user) {
+        user.status = profile.status;
+        user.customStatus = profile.status;
+        user.statusUpdatedAt = now;
+        user.statusUntil = endTime;
+        user.wasAutoApplied = false;
+        user.primaryTimeProfileId = profile._id;
+        if (profile.location && profile.location.placeName) {
+          user.currentLocation = {
+            placeName: profile.location.placeName,
+            coordinates: profile.location.coordinates,
+            address: profile.location.address,
+            timestamp: now,
+          };
+        }
+        await user.save();
+
+        // Broadcast via WebSocket
+        try {
+          const io = require('../socketManager').getIO();
+          if (io) {
+            const statusData = {
+              userId: user.userId,
+              status: user.status,
+              customStatus: user.customStatus,
+              statusUntil: user.statusUntil,
+              location: user.currentLocation,
+              timestamp: now,
+              primaryTime: { profileId: profile._id.toString(), profileName: profile.name, isActive: true },
+            };
+            io.emit('status_update', statusData);
+            io.emit('contact_status_update', statusData);
+          }
+        } catch (socketErr) {
+          console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
+        }
+      }
+    } catch (statusErr) {
+      console.error('⚠️ [PRIMARY TIME] Status update error (profile still activated):', statusErr.message);
+    }
+
     res.json({
       success: true,
       message: 'Profile activated successfully',
@@ -226,6 +276,43 @@ exports.deactivateProfile = async (req, res) => {
     }
 
     console.log(`✅ [PRIMARY TIME] Profile deactivated: ${profile.name}`);
+
+    // Also reset user status to Available immediately
+    try {
+      const now = new Date();
+      const user = await User.findOne({ userId });
+      if (user) {
+        user.status = 'Available';
+        user.customStatus = '';
+        user.statusUpdatedAt = now;
+        user.statusUntil = null;
+        user.wasAutoApplied = false;
+        user.primaryTimeProfileId = null;
+        await user.save();
+
+        // Broadcast via WebSocket
+        try {
+          const io = require('../socketManager').getIO();
+          if (io) {
+            const statusData = {
+              userId: user.userId,
+              status: 'Available',
+              customStatus: '',
+              statusUntil: null,
+              location: user.currentLocation,
+              timestamp: now,
+              primaryTime: null,
+            };
+            io.emit('status_update', statusData);
+            io.emit('contact_status_update', statusData);
+          }
+        } catch (socketErr) {
+          console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
+        }
+      }
+    } catch (statusErr) {
+      console.error('⚠️ [PRIMARY TIME] Status reset error (profile still deactivated):', statusErr.message);
+    }
 
     res.json({
       success: true,
