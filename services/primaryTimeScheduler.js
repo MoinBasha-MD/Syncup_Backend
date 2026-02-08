@@ -42,29 +42,32 @@ class PrimaryTimeSchedulerService {
 
   /**
    * Check and update Primary Time status for a single user
+   * Only processes profiles where isEnabled=true.
+   * isEnabled = user wants this schedule to run
+   * isActive  = the schedule is currently within its time window and status is applied
    */
   async checkAndUpdateUserPrimaryTime(userId) {
     try {
       const now = new Date();
 
-      // Get all user's Primary Time profiles
-      const profiles = await PrimaryTimeProfile.find({ userId }).sort({ priority: -1 });
+      // Only get ENABLED profiles (user has turned on the schedule)
+      const enabledProfiles = await PrimaryTimeProfile.find({ userId, isEnabled: true }).sort({ priority: -1 });
 
-      if (profiles.length === 0) {
+      if (enabledProfiles.length === 0) {
         return null;
       }
 
       console.log(`🔍 [PRIMARY TIME SCHEDULER] Checking user ${userId}`);
-      console.log(`   📊 Found ${profiles.length} profile(s)`);
+      console.log(`   📊 Found ${enabledProfiles.length} enabled profile(s)`);
 
-      // Find profiles that should be active right now
-      const activeProfiles = profiles.filter(p => this.shouldProfileBeActive(p, now));
+      // Find enabled profiles that should be active right now (within time window)
+      const shouldBeActiveProfiles = enabledProfiles.filter(p => this.shouldProfileBeActive(p, now));
 
-      if (activeProfiles.length === 0) {
-        // No profiles should be active - deactivate any active ones
-        const currentlyActive = profiles.find(p => p.isActive);
+      if (shouldBeActiveProfiles.length === 0) {
+        // No profiles should be active right now — deactivate any that are currently active
+        const currentlyActive = enabledProfiles.find(p => p.isActive);
         if (currentlyActive) {
-          console.log(`   ⏹️ Deactivating profile: "${currentlyActive.name}"`);
+          console.log(`   ⏹️ Time window ended for: "${currentlyActive.name}" — deactivating`);
           await this.deactivateProfile(currentlyActive, userId);
           return {
             userId,
@@ -76,22 +79,21 @@ class PrimaryTimeSchedulerService {
       }
 
       // Get highest priority profile that should be active
-      const targetProfile = activeProfiles[0]; // Already sorted by priority desc
+      const targetProfile = shouldBeActiveProfiles[0]; // Already sorted by priority desc
 
       // Check if this profile is already active
       if (targetProfile.isActive) {
-        console.log(`   ℹ️ Profile "${targetProfile.name}" already active`);
-        return null;
+        return null; // Already running, nothing to do
       }
 
-      // Deactivate any other active profiles
-      const otherActive = profiles.find(p => p.isActive && p.id !== targetProfile.id);
+      // Deactivate any other active profiles first
+      const otherActive = enabledProfiles.find(p => p.isActive && p._id.toString() !== targetProfile._id.toString());
       if (otherActive) {
         await this.deactivateProfile(otherActive, userId);
       }
 
-      // Activate the target profile
-      console.log(`   🎯 Activating profile: "${targetProfile.name}"`);
+      // Activate the target profile (apply status)
+      console.log(`   🎯 Time window active for: "${targetProfile.name}" — activating`);
       await this.activateProfile(targetProfile, userId);
 
       return {
@@ -317,8 +319,8 @@ class PrimaryTimeSchedulerService {
       console.log('\n⏰ [PRIMARY TIME SCHEDULER] ========== CRON JOB STARTED ==========');
       console.log(`🕐 [PRIMARY TIME SCHEDULER] Time: ${new Date().toLocaleString()}`);
 
-      // Get all unique user IDs with Primary Time profiles
-      const userIds = await PrimaryTimeProfile.find().distinct('userId');
+      // Get all unique user IDs with ENABLED Primary Time profiles
+      const userIds = await PrimaryTimeProfile.find({ isEnabled: true }).distinct('userId');
 
       console.log(`📊 [PRIMARY TIME SCHEDULER] Found ${userIds.length} users with Primary Time profiles`);
 

@@ -163,22 +163,24 @@ exports.deleteProfile = async (req, res) => {
   }
 };
 
-// Manually activate a profile
+// Enable a profile schedule (user taps "activate")
+// This does NOT immediately change the user's status unless the current time
+// falls within the profile's scheduled time window.
 exports.activateProfile = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
 
-    // Deactivate all other profiles for this user
+    // Disable all other enabled profiles for this user (only one schedule active at a time)
     await PrimaryTimeProfile.updateMany(
-      { userId, isActive: true },
-      { $set: { isActive: false } }
+      { userId, isEnabled: true },
+      { $set: { isEnabled: false, isActive: false } }
     );
 
-    // Activate the requested profile
+    // Enable the requested profile
     const profile = await PrimaryTimeProfile.findOneAndUpdate(
       { _id: id, userId },
-      { $set: { isActive: true } },
+      { $set: { isEnabled: true } },
       { new: true }
     );
 
@@ -189,84 +191,96 @@ exports.activateProfile = async (req, res) => {
       });
     }
 
-    console.log(`✅ [PRIMARY TIME] Profile activated: ${profile.name}`);
+    const now = new Date();
+    const isWithinWindow = profile.shouldBeActive(now);
 
-    // Also update user status immediately so it takes effect right away
-    try {
-      const now = new Date();
-      const [endH, endM] = profile.endTime.split(':').map(Number);
-      const endTime = new Date(now);
-      endTime.setHours(endH, endM, 0, 0);
-      if (endTime <= now) endTime.setDate(endTime.getDate() + 1);
+    console.log(`✅ [PRIMARY TIME] Profile enabled: ${profile.name} (within time window: ${isWithinWindow})`);
 
-      const user = await User.findById(userId);
-      if (user) {
-        user.status = profile.status;
-        user.customStatus = profile.status;
-        user.statusUpdatedAt = now;
-        user.statusUntil = endTime;
-        user.wasAutoApplied = false;
-        user.primaryTimeProfileId = profile._id;
-        if (profile.location && profile.location.placeName) {
-          user.currentLocation = {
-            placeName: profile.location.placeName,
-            coordinates: profile.location.coordinates,
-            address: profile.location.address,
-            timestamp: now,
-          };
-        }
-        await user.save();
+    let statusApplied = false;
 
-        // Broadcast via WebSocket
-        try {
-          const io = require('../socketManager').getIO();
-          if (io) {
-            const statusData = {
-              userId: user.userId,
-              status: user.status,
-              customStatus: user.customStatus,
-              statusUntil: user.statusUntil,
-              location: user.currentLocation,
+    // Only apply status immediately if the current time is within the schedule window
+    if (isWithinWindow) {
+      try {
+        profile.isActive = true;
+        await profile.save();
+
+        const [endH, endM] = profile.endTime.split(':').map(Number);
+        const endTime = new Date(now);
+        endTime.setHours(endH, endM, 0, 0);
+        if (endTime <= now) endTime.setDate(endTime.getDate() + 1);
+
+        const user = await User.findById(userId);
+        if (user) {
+          user.status = profile.status;
+          user.customStatus = profile.status;
+          user.statusUpdatedAt = now;
+          user.statusUntil = endTime;
+          user.wasAutoApplied = false;
+          user.primaryTimeProfileId = profile._id;
+          if (profile.location && profile.location.placeName) {
+            user.currentLocation = {
+              placeName: profile.location.placeName,
+              coordinates: profile.location.coordinates,
+              address: profile.location.address,
               timestamp: now,
-              primaryTime: { profileId: profile._id.toString(), profileName: profile.name, isActive: true },
             };
-            io.emit('status_update', statusData);
-            io.emit('contact_status_update', statusData);
           }
-        } catch (socketErr) {
-          console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
+          await user.save();
+          statusApplied = true;
+
+          // Broadcast via WebSocket
+          try {
+            const io = require('../socketManager').getIO();
+            if (io) {
+              const statusData = {
+                userId: user.userId,
+                status: user.status,
+                customStatus: user.customStatus,
+                statusUntil: user.statusUntil,
+                location: user.currentLocation,
+                timestamp: now,
+                primaryTime: { profileId: profile._id.toString(), profileName: profile.name, isActive: true },
+              };
+              io.emit('status_update', statusData);
+              io.emit('contact_status_update', statusData);
+            }
+          } catch (socketErr) {
+            console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
+          }
         }
+      } catch (statusErr) {
+        console.error('⚠️ [PRIMARY TIME] Status update error (profile still enabled):', statusErr.message);
       }
-    } catch (statusErr) {
-      console.error('⚠️ [PRIMARY TIME] Status update error (profile still activated):', statusErr.message);
     }
 
     res.json({
       success: true,
-      message: 'Profile activated successfully',
+      message: statusApplied
+        ? 'Schedule enabled and status applied (within time window)'
+        : 'Schedule enabled — status will apply automatically at the scheduled time',
       profile,
+      statusApplied,
     });
   } catch (error) {
     console.error('❌ [PRIMARY TIME] Activate profile error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to activate profile',
+      message: 'Failed to enable profile',
       error: error.message,
     });
   }
 };
 
-// Deactivate a profile
+// Disable a profile schedule (user taps "deactivate")
+// Sets isEnabled=false and isActive=false.
+// Only resets user status if the profile was currently active (status was applied).
 exports.deactivateProfile = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
 
-    const profile = await PrimaryTimeProfile.findOneAndUpdate(
-      { _id: id, userId },
-      { $set: { isActive: false } },
-      { new: true }
-    );
+    // Get the profile first to check if it was actively applied
+    const profile = await PrimaryTimeProfile.findOne({ _id: id, userId });
 
     if (!profile) {
       return res.status(404).json({
@@ -275,72 +289,89 @@ exports.deactivateProfile = async (req, res) => {
       });
     }
 
-    console.log(`✅ [PRIMARY TIME] Profile deactivated: ${profile.name}`);
+    const wasActive = profile.isActive; // Was status currently applied?
 
-    // Also reset user status to Available immediately
-    try {
-      const now = new Date();
-      const user = await User.findById(userId);
-      if (user) {
-        user.status = 'Available';
-        user.customStatus = '';
-        user.statusUpdatedAt = now;
-        user.statusUntil = null;
-        user.wasAutoApplied = false;
-        user.primaryTimeProfileId = null;
-        await user.save();
+    // Disable and deactivate
+    profile.isEnabled = false;
+    profile.isActive = false;
+    await profile.save();
 
-        // Broadcast via WebSocket
-        try {
-          const io = require('../socketManager').getIO();
-          if (io) {
-            const statusData = {
-              userId: user.userId,
-              status: 'Available',
-              customStatus: '',
-              statusUntil: null,
-              location: user.currentLocation,
-              timestamp: now,
-              primaryTime: null,
-            };
-            io.emit('status_update', statusData);
-            io.emit('contact_status_update', statusData);
+    console.log(`✅ [PRIMARY TIME] Profile disabled: ${profile.name} (was active: ${wasActive})`);
+
+    // Only reset user status if the profile was currently active (status was applied)
+    if (wasActive) {
+      try {
+        const now = new Date();
+        const user = await User.findById(userId);
+        if (user) {
+          user.status = 'Available';
+          user.customStatus = '';
+          user.statusUpdatedAt = now;
+          user.statusUntil = null;
+          user.wasAutoApplied = false;
+          user.primaryTimeProfileId = null;
+          await user.save();
+
+          // Broadcast via WebSocket
+          try {
+            const io = require('../socketManager').getIO();
+            if (io) {
+              const statusData = {
+                userId: user.userId,
+                status: 'Available',
+                customStatus: '',
+                statusUntil: null,
+                location: user.currentLocation,
+                timestamp: now,
+                primaryTime: null,
+              };
+              io.emit('status_update', statusData);
+              io.emit('contact_status_update', statusData);
+            }
+          } catch (socketErr) {
+            console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
           }
-        } catch (socketErr) {
-          console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
         }
+      } catch (statusErr) {
+        console.error('⚠️ [PRIMARY TIME] Status reset error (profile still disabled):', statusErr.message);
       }
-    } catch (statusErr) {
-      console.error('⚠️ [PRIMARY TIME] Status reset error (profile still deactivated):', statusErr.message);
     }
 
     res.json({
       success: true,
-      message: 'Profile deactivated successfully',
+      message: wasActive
+        ? 'Schedule disabled and status reset to Available'
+        : 'Schedule disabled',
       profile,
     });
   } catch (error) {
     console.error('❌ [PRIMARY TIME] Deactivate profile error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to deactivate profile',
+      message: 'Failed to disable profile',
       error: error.message,
     });
   }
 };
 
-// Get currently active profile
+// Get the currently enabled profile (and whether it's actively applied)
 exports.getActiveProfile = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const profile = await PrimaryTimeProfile.findOne({ userId, isActive: true });
-
-    if (!profile) {
-      return res.json(null);
+    // First check for a profile that is currently active (status applied)
+    const activeProfile = await PrimaryTimeProfile.findOne({ userId, isActive: true });
+    if (activeProfile) {
+      return res.json(activeProfile);
     }
 
-    res.json(profile);
+    // Otherwise return the enabled profile (schedule is on but not in time window)
+    const enabledProfile = await PrimaryTimeProfile.findOne({ userId, isEnabled: true });
+    if (enabledProfile) {
+      return res.json(enabledProfile);
+    }
+
+    return res.json(null);
   } catch (error) {
     console.error('❌ [PRIMARY TIME] Get active profile error:', error);
     res.status(500).json({

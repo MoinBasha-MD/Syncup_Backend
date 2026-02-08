@@ -55,6 +55,10 @@ const primaryTimeProfileSchema = new mongoose.Schema({
     },
     address: String,
   },
+  isEnabled: {
+    type: Boolean,
+    default: true,
+  },
   isActive: {
     type: Boolean,
     default: false,
@@ -94,6 +98,7 @@ const primaryTimeProfileSchema = new mongoose.Schema({
 
 // Index for efficient queries
 primaryTimeProfileSchema.index({ userId: 1, isActive: 1 });
+primaryTimeProfileSchema.index({ userId: 1, isEnabled: 1 });
 primaryTimeProfileSchema.index({ userId: 1, days: 1 });
 
 // Method to check if profile should be active at a given time

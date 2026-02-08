@@ -299,7 +299,7 @@ const getUserStatus = async (req, res) => {
         status: user.status,
         customStatus: user.customStatus,
         statusUntil: user.statusUntil,
-        // NEW: Hierarchical status fields for sub-activity persistence
+        // Hierarchical status fields for sub-activity persistence
         mainStatus: user.mainStatus,
         mainDuration: user.mainDuration,
         mainDurationLabel: user.mainDurationLabel,
@@ -309,7 +309,9 @@ const getUserStatus = async (req, res) => {
         subDuration: user.subDuration,
         subDurationLabel: user.subDurationLabel,
         subStartTime: user.subStartTime,
-        subEndTime: user.subEndTime
+        subEndTime: user.subEndTime,
+        // Primary Time tracking
+        primaryTimeProfileId: user.primaryTimeProfileId || null,
       }
     });
   } catch (error) {
