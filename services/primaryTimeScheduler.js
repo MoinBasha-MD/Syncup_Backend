@@ -1,5 +1,6 @@
 const PrimaryTimeProfile = require('../models/PrimaryTimeProfile');
 const User = require('../models/userModel');
+const StatusHistory = require('../models/statusHistoryModel');
 const cron = require('node-cron');
 
 /**
@@ -143,21 +144,40 @@ class PrimaryTimeSchedulerService {
 
       const oldStatus = user.status;
 
-      // Update user status with Primary Time
+      // Save previous status for history
+      if (user.status && user.status.toLowerCase() !== 'available' && user.status !== '') {
+        user.previousStatus = user.customStatus || user.status;
+        user.previousStatusEndTime = user.statusUntil || new Date();
+      }
+
+      // Update user status with Primary Time (same fields as Quick tab)
       user.status = profile.status;
       user.customStatus = profile.status;
       user.statusUpdatedAt = now;
       user.statusUntil = endTime;
       user.wasAutoApplied = true;
-      user.primaryTimeProfileId = profile._id; // Track which profile is active
+      user.primaryTimeProfileId = profile._id;
+
+      // Set hierarchical fields so DPN page and contacts see full data
+      user.mainStatus = profile.status;
+      user.mainDuration = durationMinutes;
+      user.mainDurationLabel = `${durationMinutes} minutes`;
+      user.mainStartTime = now;
+      user.mainEndTime = endTime;
+      user.subStatus = null;
+      user.subDuration = 0;
+      user.subDurationLabel = '';
+      user.subStartTime = null;
+      user.subEndTime = null;
 
       // Update location if profile has one
       if (profile.location && profile.location.placeName) {
-        user.currentLocation = {
+        user.statusLocation = {
           placeName: profile.location.placeName,
-          coordinates: profile.location.coordinates,
-          address: profile.location.address,
-          timestamp: now
+          coordinates: profile.location.coordinates || {},
+          address: profile.location.address || '',
+          shareWithContacts: true,
+          timestamp: now,
         };
       }
 
@@ -165,8 +185,44 @@ class PrimaryTimeSchedulerService {
 
       console.log(`   ✅ Status updated: "${oldStatus}" → "${profile.status}"`);
 
-      // Broadcast via WebSocket
-      await this.broadcastStatusUpdate(user, profile);
+      // Create StatusHistory entry (same as Quick tab)
+      try {
+        await StatusHistory.create({
+          user: user._id,
+          userId: user.userId,
+          status: profile.status,
+          customStatus: profile.status,
+          startTime: now,
+          endTime: endTime,
+          duration: durationMinutes,
+        });
+      } catch (histErr) {
+        console.error(`   ⚠️ StatusHistory error:`, histErr.message);
+      }
+
+      // Broadcast via socketManager (same path as Quick tab — contact-filtered)
+      try {
+        const socketManager = require('../socketManager');
+        const statusData = {
+          status: user.status,
+          customStatus: user.customStatus,
+          statusUntil: user.statusUntil,
+          statusLocation: user.statusLocation,
+          mainStatus: user.mainStatus,
+          mainDuration: user.mainDuration,
+          mainDurationLabel: user.mainDurationLabel,
+          mainStartTime: user.mainStartTime,
+          mainEndTime: user.mainEndTime,
+          subStatus: user.subStatus,
+          subDuration: user.subDuration,
+          subDurationLabel: user.subDurationLabel,
+          subStartTime: user.subStartTime,
+          subEndTime: user.subEndTime,
+        };
+        socketManager.broadcastStatusUpdate(user, statusData);
+      } catch (socketErr) {
+        console.error(`   ⚠️ Socket broadcast error:`, socketErr.message);
+      }
 
       // Send notification if enabled
       if (profile.notifications.onStart) {
@@ -206,6 +262,12 @@ class PrimaryTimeSchedulerService {
         return;
       }
 
+      // Save previous status for history
+      if (user.status && user.status.toLowerCase() !== 'available') {
+        user.previousStatus = user.customStatus || user.status;
+        user.previousStatusEndTime = now;
+      }
+
       user.status = 'Available';
       user.customStatus = '';
       user.statusUpdatedAt = now;
@@ -213,18 +275,57 @@ class PrimaryTimeSchedulerService {
       user.wasAutoApplied = false;
       user.primaryTimeProfileId = null;
 
+      // Clear hierarchical fields
+      user.mainStatus = 'Available';
+      user.mainDuration = 0;
+      user.mainDurationLabel = '';
+      user.mainStartTime = null;
+      user.mainEndTime = null;
+      user.subStatus = null;
+      user.subDuration = 0;
+      user.subDurationLabel = '';
+      user.subStartTime = null;
+      user.subEndTime = null;
+
       // Clear location if it was set by Primary Time
-      if (user.currentLocation && profile.location && 
-          user.currentLocation.placeName === profile.location.placeName) {
-        user.currentLocation = null;
+      if (user.statusLocation && profile.location &&
+          user.statusLocation.placeName === profile.location.placeName) {
+        user.statusLocation = {
+          placeName: '',
+          coordinates: {},
+          address: '',
+          shareWithContacts: false,
+          timestamp: now,
+        };
       }
 
       await user.save();
 
       console.log(`   ✅ Status cleared to "Available"`);
 
-      // Broadcast via WebSocket
-      await this.broadcastStatusUpdate(user, null);
+      // Broadcast via socketManager (same path as Quick tab)
+      try {
+        const socketManager = require('../socketManager');
+        const statusData = {
+          status: 'Available',
+          customStatus: '',
+          statusUntil: null,
+          statusLocation: user.statusLocation,
+          mainStatus: 'Available',
+          mainDuration: 0,
+          mainDurationLabel: '',
+          mainStartTime: null,
+          mainEndTime: null,
+          subStatus: null,
+          subDuration: 0,
+          subDurationLabel: '',
+          subStartTime: null,
+          subEndTime: null,
+        };
+        socketManager.broadcastStatusUpdate(user, statusData);
+      } catch (socketErr) {
+        console.error(`   ⚠️ Socket broadcast error:`, socketErr.message);
+      }
 
       // Send notification if enabled
       if (profile.notifications.onEnd) {
@@ -245,44 +346,8 @@ class PrimaryTimeSchedulerService {
     }
   }
 
-  /**
-   * Broadcast status update via WebSocket
-   */
-  async broadcastStatusUpdate(user, profile) {
-    try {
-      const io = require('../socketManager').getIO();
-      if (!io) {
-        console.log(`   ⚠️ Socket.IO not available`);
-        return;
-      }
-
-      const statusData = {
-        userId: user.userId,
-        status: user.status,
-        customStatus: user.customStatus,
-        subStatus: user.subStatus,
-        statusUntil: user.statusUntil,
-        location: user.currentLocation,
-        timestamp: new Date(),
-        wasAutoApplied: user.wasAutoApplied,
-        primaryTime: profile ? {
-          profileId: profile._id.toString(),
-          profileName: profile.name,
-          isActive: true
-        } : null
-      };
-
-      // Broadcast to all connected clients
-      io.emit('status:update', statusData);
-      io.emit('status_update', statusData); // Legacy event
-      io.emit('contact_status_update', statusData); // For HomeTab
-
-      console.log(`   📡 Broadcasted status update via WebSocket`);
-
-    } catch (error) {
-      console.error(`   ❌ Socket broadcast error:`, error.message);
-    }
-  }
+  // broadcastStatusUpdate is now handled by socketManager.broadcastStatusUpdate
+  // which does proper contact-level filtering (same as Quick tab)
 
   /**
    * Send push notification
