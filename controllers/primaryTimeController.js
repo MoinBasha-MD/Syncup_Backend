@@ -199,7 +199,7 @@ exports.activateProfile = async (req, res) => {
       endTime.setHours(endH, endM, 0, 0);
       if (endTime <= now) endTime.setDate(endTime.getDate() + 1);
 
-      const user = await User.findOne({ userId });
+      const user = await User.findById(userId);
       if (user) {
         user.status = profile.status;
         user.customStatus = profile.status;
@@ -280,7 +280,7 @@ exports.deactivateProfile = async (req, res) => {
     // Also reset user status to Available immediately
     try {
       const now = new Date();
-      const user = await User.findOne({ userId });
+      const user = await User.findById(userId);
       if (user) {
         user.status = 'Available';
         user.customStatus = '';

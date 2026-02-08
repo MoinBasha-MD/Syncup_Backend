@@ -133,7 +133,7 @@ class PrimaryTimeSchedulerService {
       await profile.save();
 
       // Update user status
-      const user = await User.findOne({ userId });
+      const user = await User.findById(userId);
       if (!user) {
         console.error(`   ❌ User ${userId} not found`);
         return;
@@ -198,7 +198,7 @@ class PrimaryTimeSchedulerService {
       await profile.save();
 
       // Update user status back to Available
-      const user = await User.findOne({ userId });
+      const user = await User.findById(userId);
       if (!user) {
         console.error(`   ❌ User ${userId} not found`);
         return;
