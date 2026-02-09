@@ -55,6 +55,10 @@ const primaryTimeProfileSchema = new mongoose.Schema({
     },
     address: String,
   },
+  timezoneOffset: {
+    type: Number,
+    default: 0, // Minutes offset from UTC (e.g., -330 for IST/UTC+05:30)
+  },
   isEnabled: {
     type: Boolean,
     default: true,
@@ -103,8 +107,12 @@ primaryTimeProfileSchema.index({ userId: 1, days: 1 });
 
 // Method to check if profile should be active at a given time
 primaryTimeProfileSchema.methods.shouldBeActive = function(date = new Date()) {
-  const currentDay = date.getDay();
-  const currentTime = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  // Convert UTC to user's local time using stored timezoneOffset
+  const offsetMs = (this.timezoneOffset || 0) * 60 * 1000;
+  const localDate = new Date(date.getTime() - offsetMs);
+
+  const currentDay = localDate.getDay();
+  const currentTime = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
 
   // Check if today is in the days array
   if (!this.days.includes(currentDay)) {
@@ -113,10 +121,10 @@ primaryTimeProfileSchema.methods.shouldBeActive = function(date = new Date()) {
 
   // Check date range if applicable
   if (this.recurrence.type === 'date_range') {
-    if (this.recurrence.startDate && date < this.recurrence.startDate) {
+    if (this.recurrence.startDate && localDate < this.recurrence.startDate) {
       return false;
     }
-    if (this.recurrence.endDate && date > this.recurrence.endDate) {
+    if (this.recurrence.endDate && localDate > this.recurrence.endDate) {
       return false;
     }
   }

@@ -4,7 +4,7 @@ const User = require('../models/userModel');
 // Create a new Primary Time profile
 exports.createProfile = async (req, res) => {
   try {
-    const { name, status, days, startTime, endTime, location, notifications, recurrence, priority } = req.body;
+    const { name, status, days, startTime, endTime, location, timezoneOffset, notifications, recurrence, priority } = req.body;
     const userId = req.user._id;
 
     // Validate required fields
@@ -24,6 +24,7 @@ exports.createProfile = async (req, res) => {
       startTime,
       endTime,
       location,
+      timezoneOffset: timezoneOffset != null ? timezoneOffset : new Date().getTimezoneOffset(),
       notifications: notifications || {
         beforeStart: true,
         onStart: true,
@@ -56,6 +57,22 @@ exports.getProfiles = async (req, res) => {
     const userId = req.user._id;
 
     const profiles = await PrimaryTimeProfile.find({ userId }).sort({ startTime: 1, priority: -1 });
+
+    // Auto-patch legacy profiles created before timezone support was added.
+    // Those profiles have timezoneOffset=0 (the schema default).
+    // The frontend sends its real offset via query param so we can backfill.
+    const clientOffset = req.query.timezoneOffset != null ? Number(req.query.timezoneOffset) : null;
+    if (clientOffset != null && clientOffset !== 0) {
+      const needsPatch = profiles.filter(p => p.timezoneOffset === 0 || p.timezoneOffset == null);
+      if (needsPatch.length > 0) {
+        await PrimaryTimeProfile.updateMany(
+          { _id: { $in: needsPatch.map(p => p._id) } },
+          { $set: { timezoneOffset: clientOffset } }
+        );
+        needsPatch.forEach(p => { p.timezoneOffset = clientOffset; });
+        console.log(`🔧 [PRIMARY TIME] Auto-patched timezoneOffset=${clientOffset} on ${needsPatch.length} legacy profile(s)`);
+      }
+    }
 
     console.log(`📋 [PRIMARY TIME] Retrieved ${profiles.length} profiles for user ${userId}`);
 
@@ -207,10 +224,17 @@ exports.activateProfile = async (req, res) => {
         profile.isActive = true;
         await profile.save();
 
+        // Calculate end time in UTC using the profile's timezone offset
+        // Profile stores local times (e.g., "17:00" IST). Convert to UTC for statusUntil.
         const [endH, endM] = profile.endTime.split(':').map(Number);
-        const endTime = new Date(now);
-        endTime.setHours(endH, endM, 0, 0);
-        if (endTime <= now) endTime.setDate(endTime.getDate() + 1);
+        const offsetMs = (profile.timezoneOffset || 0) * 60 * 1000;
+        const localNow = new Date(now.getTime() - offsetMs);
+        const localEnd = new Date(localNow);
+        localEnd.setHours(endH, endM, 0, 0);
+        if (localEnd <= localNow) localEnd.setDate(localEnd.getDate() + 1);
+        // Convert local end back to UTC for storage
+        const endTime = new Date(localEnd.getTime() + offsetMs);
+        const durationMinutes = Math.round((endTime.getTime() - now.getTime()) / (1000 * 60));
 
         const user = await User.findById(userId);
         if (user) {
@@ -220,33 +244,46 @@ exports.activateProfile = async (req, res) => {
           user.statusUntil = endTime;
           user.wasAutoApplied = false;
           user.primaryTimeProfileId = profile._id;
+
+          // Set hierarchical fields (same as Quick tab)
+          user.mainStatus = profile.status;
+          user.mainDuration = durationMinutes;
+          user.mainDurationLabel = `${durationMinutes} minutes`;
+          user.mainStartTime = now;
+          user.mainEndTime = endTime;
+
           if (profile.location && profile.location.placeName) {
-            user.currentLocation = {
+            user.statusLocation = {
               placeName: profile.location.placeName,
-              coordinates: profile.location.coordinates,
-              address: profile.location.address,
+              coordinates: profile.location.coordinates || {},
+              address: profile.location.address || '',
+              shareWithContacts: true,
               timestamp: now,
             };
           }
           await user.save();
           statusApplied = true;
 
-          // Broadcast via WebSocket
+          // Broadcast via socketManager (contact-filtered, same as Quick tab)
           try {
-            const io = require('../socketManager').getIO();
-            if (io) {
-              const statusData = {
-                userId: user.userId,
-                status: user.status,
-                customStatus: user.customStatus,
-                statusUntil: user.statusUntil,
-                location: user.currentLocation,
-                timestamp: now,
-                primaryTime: { profileId: profile._id.toString(), profileName: profile.name, isActive: true },
-              };
-              io.emit('status_update', statusData);
-              io.emit('contact_status_update', statusData);
-            }
+            const socketManager = require('../socketManager');
+            const statusData = {
+              status: user.status,
+              customStatus: user.customStatus,
+              statusUntil: user.statusUntil,
+              statusLocation: user.statusLocation,
+              mainStatus: user.mainStatus,
+              mainDuration: user.mainDuration,
+              mainDurationLabel: user.mainDurationLabel,
+              mainStartTime: user.mainStartTime,
+              mainEndTime: user.mainEndTime,
+              subStatus: user.subStatus,
+              subDuration: user.subDuration,
+              subDurationLabel: user.subDurationLabel,
+              subStartTime: user.subStartTime,
+              subEndTime: user.subEndTime,
+            };
+            socketManager.broadcastStatusUpdate(user, statusData);
           } catch (socketErr) {
             console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
           }
@@ -313,24 +350,41 @@ exports.deactivateProfile = async (req, res) => {
           user.statusUntil = null;
           user.wasAutoApplied = false;
           user.primaryTimeProfileId = null;
+
+          // Clear hierarchical fields
+          user.mainStatus = 'Available';
+          user.mainDuration = 0;
+          user.mainDurationLabel = '';
+          user.mainStartTime = null;
+          user.mainEndTime = null;
+          user.subStatus = null;
+          user.subDuration = 0;
+          user.subDurationLabel = '';
+          user.subStartTime = null;
+          user.subEndTime = null;
+
           await user.save();
 
-          // Broadcast via WebSocket
+          // Broadcast via socketManager (contact-filtered, same as Quick tab)
           try {
-            const io = require('../socketManager').getIO();
-            if (io) {
-              const statusData = {
-                userId: user.userId,
-                status: 'Available',
-                customStatus: '',
-                statusUntil: null,
-                location: user.currentLocation,
-                timestamp: now,
-                primaryTime: null,
-              };
-              io.emit('status_update', statusData);
-              io.emit('contact_status_update', statusData);
-            }
+            const socketManager = require('../socketManager');
+            const statusData = {
+              status: 'Available',
+              customStatus: '',
+              statusUntil: null,
+              statusLocation: user.statusLocation,
+              mainStatus: 'Available',
+              mainDuration: 0,
+              mainDurationLabel: '',
+              mainStartTime: null,
+              mainEndTime: null,
+              subStatus: null,
+              subDuration: 0,
+              subDurationLabel: '',
+              subStartTime: null,
+              subEndTime: null,
+            };
+            socketManager.broadcastStatusUpdate(user, statusData);
           } catch (socketErr) {
             console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
           }
@@ -373,9 +427,12 @@ exports.getActiveProfile = async (req, res) => {
     // Return the next upcoming enabled profile so the UI can show "SCHEDULED" state
     const enabledProfiles = await PrimaryTimeProfile.find({ userId, isEnabled: true }).sort({ startTime: 1 });
     if (enabledProfiles.length > 0) {
-      // Find the next upcoming profile based on current time
+      // Find the next upcoming profile based on user's local time
       const now = new Date();
-      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      // Use the first profile's timezoneOffset as reference (all profiles for same user share timezone)
+      const offsetMs = (enabledProfiles[0].timezoneOffset || 0) * 60 * 1000;
+      const localNow = new Date(now.getTime() - offsetMs);
+      const currentTime = `${String(localNow.getHours()).padStart(2, '0')}:${String(localNow.getMinutes()).padStart(2, '0')}`;
       const nextProfile = enabledProfiles.find(p => p.startTime > currentTime) || enabledProfiles[0];
       return res.json(nextProfile);
     }

@@ -19,26 +19,38 @@ class PrimaryTimeSchedulerService {
    * Check if a profile should be active at the given time
    */
   shouldProfileBeActive(profile, now = new Date()) {
-    const currentDay = now.getDay(); // 0-6 (Sun-Sat)
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    // Convert UTC server time to user's local time using profile's timezoneOffset
+    // timezoneOffset is from JS getTimezoneOffset(): negative means ahead of UTC
+    // e.g., IST (UTC+05:30) → offset = -330
+    // To get local time: UTC - offset (since offset is negative for ahead)
+    const offsetMs = (profile.timezoneOffset || 0) * 60 * 1000;
+    const localNow = new Date(now.getTime() - offsetMs);
+
+    const currentDay = localNow.getDay(); // 0-6 (Sun-Sat)
+    const currentTime = `${String(localNow.getHours()).padStart(2, '0')}:${String(localNow.getMinutes()).padStart(2, '0')}`;
+
+    console.log(`   🕐 [TIME CHECK] Profile "${profile.name}": serverUTC=${now.toISOString()}, offset=${profile.timezoneOffset || 0}min, localTime=${currentTime}, window=${profile.startTime}-${profile.endTime}, day=${currentDay}, days=${profile.days}`);
 
     // Check if today is in the days array
     if (!profile.days.includes(currentDay)) {
+      console.log(`   ❌ [TIME CHECK] Day ${currentDay} not in profile days [${profile.days}]`);
       return false;
     }
 
     // Check date range if applicable
     if (profile.recurrence.type === 'date_range') {
-      if (profile.recurrence.startDate && now < new Date(profile.recurrence.startDate)) {
+      if (profile.recurrence.startDate && localNow < new Date(profile.recurrence.startDate)) {
         return false;
       }
-      if (profile.recurrence.endDate && now > new Date(profile.recurrence.endDate)) {
+      if (profile.recurrence.endDate && localNow > new Date(profile.recurrence.endDate)) {
         return false;
       }
     }
 
     // Check time range
-    return currentTime >= profile.startTime && currentTime < profile.endTime;
+    const isInWindow = currentTime >= profile.startTime && currentTime < profile.endTime;
+    console.log(`   ${isInWindow ? '✅' : '❌'} [TIME CHECK] ${currentTime} >= ${profile.startTime} && ${currentTime} < ${profile.endTime} → ${isInWindow}`);
+    return isInWindow;
   }
 
   /**
@@ -117,16 +129,21 @@ class PrimaryTimeSchedulerService {
     try {
       const now = new Date();
 
-      // Calculate duration until end time
+      // Calculate duration until end time using profile's timezone offset
+      // Profile stores local times (e.g., "17:00" IST). Server runs in UTC.
       const [endHours, endMinutes] = profile.endTime.split(':').map(Number);
-      const endTime = new Date(now);
-      endTime.setHours(endHours, endMinutes, 0, 0);
+      const offsetMs = (profile.timezoneOffset || 0) * 60 * 1000;
+      const localNow = new Date(now.getTime() - offsetMs);
+      const localEnd = new Date(localNow);
+      localEnd.setHours(endHours, endMinutes, 0, 0);
 
-      // If end time is before current time, it's tomorrow
-      if (endTime <= now) {
-        endTime.setDate(endTime.getDate() + 1);
+      // If local end time is before local now, it's tomorrow
+      if (localEnd <= localNow) {
+        localEnd.setDate(localEnd.getDate() + 1);
       }
 
+      // Convert local end back to UTC for storage
+      const endTime = new Date(localEnd.getTime() + offsetMs);
       const durationMinutes = Math.round((endTime.getTime() - now.getTime()) / (1000 * 60));
 
       console.log(`   ⏰ Duration: ${durationMinutes} minutes (until ${profile.endTime})`);
