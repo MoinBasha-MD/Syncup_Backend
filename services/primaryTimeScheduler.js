@@ -442,6 +442,49 @@ class PrimaryTimeSchedulerService {
   }
 
   /**
+   * One-time migration: patch legacy profiles that have timezoneOffset=0.
+   * These were created before timezone support was added.
+   * We detect the correct offset from the server's own TZ env or default to IST (-330).
+   */
+  async migrateLegacyTimezones() {
+    try {
+      const legacyProfiles = await PrimaryTimeProfile.find({
+        $or: [
+          { timezoneOffset: 0 },
+          { timezoneOffset: { $exists: false } },
+          { timezoneOffset: null },
+        ],
+      });
+
+      if (legacyProfiles.length === 0) return;
+
+      // Use the server's own timezone offset as fallback.
+      // new Date().getTimezoneOffset() returns the server's offset.
+      // If the server is UTC (offset=0), fall back to IST (-330) since that's the primary user base.
+      let fallbackOffset = new Date().getTimezoneOffset(); // 0 for UTC server
+      if (fallbackOffset === 0) {
+        fallbackOffset = -330; // IST (UTC+05:30)
+        console.log(`🔧 [PRIMARY TIME MIGRATION] Server is UTC, using IST fallback offset: ${fallbackOffset}`);
+      }
+
+      const result = await PrimaryTimeProfile.updateMany(
+        {
+          $or: [
+            { timezoneOffset: 0 },
+            { timezoneOffset: { $exists: false } },
+            { timezoneOffset: null },
+          ],
+        },
+        { $set: { timezoneOffset: fallbackOffset } }
+      );
+
+      console.log(`🔧 [PRIMARY TIME MIGRATION] Patched ${result.modifiedCount} legacy profile(s) with timezoneOffset=${fallbackOffset}`);
+    } catch (error) {
+      console.error('❌ [PRIMARY TIME MIGRATION] Error:', error.message);
+    }
+  }
+
+  /**
    * Start cron job (runs every 1 minute)
    */
   start() {
@@ -459,10 +502,11 @@ class PrimaryTimeSchedulerService {
     console.log('✅ [PRIMARY TIME SCHEDULER] Cron job started (runs every 1 minute)');
     console.log('📅 [PRIMARY TIME SCHEDULER] Schedule: * * * * * (every 1 minute)');
 
-    // Run immediately on startup
+    // Run migration + initial check on startup
     console.log('🚀 [PRIMARY TIME SCHEDULER] Running initial check...');
-    this.initialCheckTimeout = setTimeout(() => {
-      this.checkAllUsers();
+    this.initialCheckTimeout = setTimeout(async () => {
+      await this.migrateLegacyTimezones();
+      await this.checkAllUsers();
     }, 10000); // Wait 10 seconds after server start
   }
 
