@@ -218,10 +218,13 @@ statusPrivacySchema.statics.canUserSeeStatus = async function(statusUserId, view
         return false;
         
       case 'contacts_only':
-        console.log(`🔒 [Privacy] Device contacts only - checking device contact relationship`);
+        console.log(`🔒 [Privacy] Device contacts only - checking device contact AND Friend relationship`);
         const isDeviceContact = await this.areUsersDeviceContacts(statusUserId, viewerUserId);
-        console.log(`🔒 [Privacy] Users are device contacts: ${isDeviceContact}`);
-        return isDeviceContact;
+        // ✅ FIX: Also check Friend collection (new friendship system)
+        const isFriendInCollection = await this.areUsersFriends(statusUserId, viewerUserId);
+        const isContactOrFriend = isDeviceContact || isFriendInCollection;
+        console.log(`🔒 [Privacy] Device contact: ${isDeviceContact}, Friend: ${isFriendInCollection}, Result: ${isContactOrFriend}`);
+        return isContactOrFriend;
         
       case 'app_connections_only':
         console.log(`🔒 [Privacy] App connections only - checking app connection relationship`);
@@ -257,11 +260,13 @@ statusPrivacySchema.statics.canUserSeeStatus = async function(statusUserId, view
         return isAllowedFriend;
         
       case 'friends':
-        console.log(`🔒 [Privacy] Friends visibility - checking both device contacts and app connections`);
+        console.log(`🔒 [Privacy] Friends visibility - checking device contacts, app connections, AND Friend collection`);
         const isFriendDeviceContact = await this.areUsersDeviceContacts(statusUserId, viewerUserId);
         const isFriendAppConnection = await this.areUsersAppConnections(statusUserId, viewerUserId);
-        const isFriend = isFriendDeviceContact || isFriendAppConnection;
-        console.log(`🔒 [Privacy] Users are friends (device contact: ${isFriendDeviceContact}, app connection: ${isFriendAppConnection}): ${isFriend}`);
+        // ✅ FIX: Also check Friend collection (new friendship system)
+        const isFriendInFriendCollection = await this.areUsersFriends(statusUserId, viewerUserId);
+        const isFriend = isFriendDeviceContact || isFriendAppConnection || isFriendInFriendCollection;
+        console.log(`🔒 [Privacy] Device contact: ${isFriendDeviceContact}, App connection: ${isFriendAppConnection}, Friend: ${isFriendInFriendCollection}, Result: ${isFriend}`);
         return isFriend;
         
       default:
@@ -316,6 +321,52 @@ statusPrivacySchema.statics.areUsersDeviceContacts = async function(userId1, use
     return isDeviceContact;
   } catch (error) {
     console.error('Error checking device contact relationship:', error);
+    return false;
+  }
+};
+
+// Helper method to check if users are friends (via Friend collection)
+statusPrivacySchema.statics.areUsersFriends = async function(userId1, userId2) {
+  try {
+    const Friend = mongoose.model('Friend');
+    const User = mongoose.model('User');
+    
+    // Get both users to get their userId (UUID) fields
+    const [user1, user2] = await Promise.all([
+      User.findById(userId1).select('userId name'),
+      User.findById(userId2).select('userId name')
+    ]);
+    
+    if (!user1 || !user2 || !user1.userId || !user2.userId) {
+      console.log(`🔍 [Privacy] One or both users not found or missing userId`);
+      return false;
+    }
+    
+    console.log(`🔍 [Privacy] Checking Friend collection between ${user1.name} and ${user2.name}`);
+    
+    // Check bidirectional friendship in Friend collection
+    // Friend.userId = user1.userId AND Friend.friendUserId = user2.userId
+    const friendship1 = await Friend.findOne({
+      userId: user1.userId,
+      friendUserId: user2.userId,
+      status: 'accepted',
+      isDeleted: false
+    });
+    
+    // OR Friend.userId = user2.userId AND Friend.friendUserId = user1.userId
+    const friendship2 = await Friend.findOne({
+      userId: user2.userId,
+      friendUserId: user1.userId,
+      status: 'accepted',
+      isDeleted: false
+    });
+    
+    const areFriends = !!(friendship1 || friendship2);
+    console.log(`🔍 [Privacy] Friend collection result: ${areFriends}`);
+    
+    return areFriends;
+  } catch (error) {
+    console.error('Error checking Friend collection relationship:', error);
     return false;
   }
 };
