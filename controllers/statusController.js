@@ -503,7 +503,21 @@ const forceSyncStatus = async (req, res) => {
       statusUntil: updatedUser.statusUntil
     };
     
-    socketManager.broadcastStatusUpdate(updatedUser, statusData);
+    // ✅ FIX Bug D: Pass validatedPrivacySettings to avoid slow per-user canUserSeeStatus path
+    let syncPrivacySettings = { visibility: 'public', allowedGroups: [], allowedContacts: [] };
+    try {
+      const privacyDoc = await StatusPrivacy.getPrivacySettings(updatedUser._id);
+      if (privacyDoc) {
+        syncPrivacySettings = {
+          visibility: privacyDoc.visibility || 'public',
+          allowedGroups: privacyDoc.allowedGroups || [],
+          allowedContacts: privacyDoc.allowedContacts || []
+        };
+      }
+    } catch (privacyErr) {
+      console.warn('⚠️ [FORCE SYNC] Could not load privacy settings, defaulting to public');
+    }
+    socketManager.broadcastStatusUpdate(updatedUser, statusData, syncPrivacySettings);
     
     res.status(200).json({
       success: true,

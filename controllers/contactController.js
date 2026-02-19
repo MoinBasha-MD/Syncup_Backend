@@ -365,16 +365,24 @@ const getStatusByPhone = asyncHandler(async (req, res) => {
       data: {
         userId: user.userId,
         name: user.name,
-        profileImage: user.profileImage, // ✅ FIXED: Add missing profileImage field
+        phoneNumber: user.phoneNumber,
+        profileImage: user.profileImage,
         status: user.status,
         customStatus: user.customStatus,
         statusUntil: user.statusUntil,
-        debug: {
-          currentTime: now.toISOString(),
-          statusExpired: statusUntil ? now > statusUntil : false,
-          timeRemaining: statusUntil ? Math.floor((statusUntil - now) / 60000) : null,
-          rawStatus: rawUser.status
-        }
+        isOnline: user.isOnline,
+        lastSeen: user.lastSeen,
+        // ✅ FIX Bug B: Include hierarchical status fields in response
+        mainStatus: user.mainStatus,
+        mainDuration: user.mainDuration,
+        mainDurationLabel: user.mainDurationLabel,
+        mainStartTime: user.mainStartTime,
+        mainEndTime: user.mainEndTime,
+        subStatus: user.subStatus,
+        subDuration: user.subDuration,
+        subDurationLabel: user.subDurationLabel,
+        subStartTime: user.subStartTime,
+        subEndTime: user.subEndTime
       }
     });
   } catch (error) {

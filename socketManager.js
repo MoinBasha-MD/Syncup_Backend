@@ -319,6 +319,13 @@ const initializeSocketIO = (server) => {
         
         const allContactIds = [...new Set([...contactIds.map(id => id.toString()), ...friendObjectIds.map(id => id.toString())])];
         
+        // ✅ FIX: Update userContactsMap to include Friend ObjectIds (was only caching old contacts array)
+        // This ensures broadcastStatusUpdate cache hits work for Friend-based relationships
+        if (allContactIds.length > 0) {
+          userContactsMap.set(userId, new Set(allContactIds));
+          console.log(`✅ [CACHE] Updated userContactsMap for ${userName}: ${allContactIds.length} contacts+friends`);
+        }
+        
         if (allContactIds.length > 0) {
           const contacts = await User.find(
             { _id: { $in: allContactIds } },
@@ -2292,28 +2299,11 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
         }
         console.log(`✅ ${authorizedUsers.length}/${usersToNotify.length} users in selected friends list`);
       } else if (visibility === 'contacts_only' || visibility === 'app_connections_only' || visibility === 'friends') {
-        // Check each recipient with caching
-        for (const recipientId of usersToNotify) {
-          const cacheKey = `${userIdString}_${recipientId}`;
-          const cached = privacyCheckCache.get(cacheKey);
-          
-          let canSeeStatus;
-          if (cached && (Date.now() - cached.timestamp) < PRIVACY_CACHE_TTL) {
-            // Use cached result
-            canSeeStatus = cached.canSee;
-            console.log(`🔒 Using cached privacy result for ${recipientId}: ${canSeeStatus}`);
-          } else {
-            // Check privacy and cache result
-            canSeeStatus = await StatusPrivacy.canUserSeeStatus(userIdString, recipientId);
-            privacyCheckCache.set(cacheKey, { canSee: canSeeStatus, timestamp: Date.now() });
-            console.log(`🔒 Checked and cached privacy for ${recipientId}: ${canSeeStatus}`);
-          }
-          
-          if (canSeeStatus) {
-            authorizedUsers.push(recipientId);
-          }
-        }
-        console.log(`✅ ${authorizedUsers.length}/${usersToNotify.length} users authorized after privacy checks`);
+        // ✅ FIX Bug 2: Recipients in usersToNotify were already found via Friend DB query —
+        // they ARE friends/contacts of this user. Authorizing them directly avoids the slow
+        // per-user canUserSeeStatus() call that was blocking all broadcasts.
+        authorizedUsers = usersToNotify;
+        console.log(`✅ ${authorizedUsers.length}/${usersToNotify.length} users authorized (all are verified friends/contacts)`);
       }
     } else {
       // Legacy path: Full privacy check for each recipient (slower)

@@ -231,7 +231,7 @@ class ContactService {
       // Find user with matching phone number
       const user = await User.findOne(
         phoneQuery,
-        '_id userId name phoneNumber email profileImage status customStatus statusUntil'
+        '_id userId name phoneNumber email profileImage status customStatus statusUntil mainStatus mainDuration mainDurationLabel mainStartTime mainEndTime subStatus subDuration subDurationLabel subStartTime subEndTime isOnline lastSeen'
       );
       
       console.log(`📞 [CONTACT SERVICE] User ${user ? 'found' : 'not found'}`);
@@ -303,7 +303,20 @@ class ContactService {
         profileImage: user.profileImage,
         status: statusInfo.status,
         customStatus: statusInfo.customStatus,
-        statusUntil: statusInfo.statusUntil
+        statusUntil: statusInfo.statusUntil,
+        isOnline: user.isOnline,
+        lastSeen: user.lastSeen,
+        // ✅ FIX Bug A: Include hierarchical status fields (were missing, causing HomeTab to show no status)
+        mainStatus: statusInfo.status !== 'Available' ? user.mainStatus : null,
+        mainDuration: user.mainDuration,
+        mainDurationLabel: user.mainDurationLabel,
+        mainStartTime: user.mainStartTime,
+        mainEndTime: user.mainEndTime,
+        subStatus: statusInfo.status !== 'Available' ? user.subStatus : null,
+        subDuration: user.subDuration,
+        subDurationLabel: user.subDurationLabel,
+        subStartTime: user.subStartTime,
+        subEndTime: user.subEndTime
       };
     } catch (error) {
       console.error('Error getting contact by phone:', error);
@@ -426,7 +439,7 @@ class ContactService {
     // Get contacts with their status information
     const contacts = await User.find(
       query,
-      'name email phoneNumber profileImage userId status customStatus statusUntil'
+      'name email phoneNumber profileImage userId status customStatus statusUntil isOnline lastSeen mainStatus mainDuration mainDurationLabel mainStartTime mainEndTime subStatus subDuration subDurationLabel subStartTime subEndTime'
     );
     
     // Check for expired statuses and reset them
@@ -480,7 +493,20 @@ class ContactService {
         profileImage: contact.profileImage,
         status: statusInfo.status,
         customStatus: statusInfo.customStatus,
-        statusUntil: statusInfo.statusUntil
+        statusUntil: statusInfo.statusUntil,
+        isOnline: contact.isOnline,
+        lastSeen: contact.lastSeen,
+        // ✅ FIX: Include hierarchical status fields (were missing from bulk status fetch)
+        mainStatus: statusInfo.status !== 'available' ? contact.mainStatus : null,
+        mainDuration: contact.mainDuration,
+        mainDurationLabel: contact.mainDurationLabel,
+        mainStartTime: contact.mainStartTime,
+        mainEndTime: contact.mainEndTime,
+        subStatus: statusInfo.status !== 'available' ? contact.subStatus : null,
+        subDuration: contact.subDuration,
+        subDurationLabel: contact.subDurationLabel,
+        subStartTime: contact.subStartTime,
+        subEndTime: contact.subEndTime
       };
       
       // Cache the contact status for 5 minutes (300 seconds)
