@@ -1967,48 +1967,9 @@ const initializeSocketIO = (server) => {
       }
     });
 
-    // Handle user disconnection
-    socket.on('disconnect', (reason) => {
-      console.log(`\n${'='.repeat(80)}`);
-      console.log(`🔌 [USER DISCONNECTED] User disconnecting from socket`);
-      console.log(`🔌 [USER DISCONNECTED] Name: ${userName}`);
-      console.log(`🔌 [USER DISCONNECTED] UserId: ${userId}`);
-      console.log(`🔌 [USER DISCONNECTED] Socket ID: ${socket.id}`);
-      console.log(`🔌 [USER DISCONNECTED] Reason: ${reason}`);
-      console.log(`🔌 [USER DISCONNECTED] Connection duration: ${Date.now() - socket.handshake.time}ms`);
-      
-      // 🤖 AI-to-AI Communication: Set AI offline
-      try {
-        AIMessageService.setAIOffline(userId);
-      } catch (error) {
-        console.error('Error setting AI offline:', error);
-      }
-      
-      // Remove user from connected users map
-      console.log(`🗑️ [USER DISCONNECTED] Removing userId from userSockets Map: ${userId}`);
-      const wasInMap = userSockets.has(userId);
-      userSockets.delete(userId);
-      userContactsMap.delete(userId);
-      console.log(`🗑️ [USER DISCONNECTED] Was in Map: ${wasInMap}, Successfully removed: ${!userSockets.has(userId)}`);
-      
-      // Update connection statistics
-      connectionStats.activeConnections = Math.max(0, connectionStats.activeConnections - 1);
-      connectionStats.totalDisconnections++;
-      
-      console.log(`📊 [USER DISCONNECTED] Updated connection stats:`, {
-        activeConnections: connectionStats.activeConnections,
-        totalDisconnections: connectionStats.totalDisconnections
-      });
-      console.log(`🗂️ [USER DISCONNECTED] Remaining connected userIds:`, Array.from(userSockets.keys()));
-      console.log(`🗂️ [USER DISCONNECTED] userSockets Map size: ${userSockets.size}`);
-      console.log(`${'='.repeat(80)}\n`);
-      
-      socketLogger.info(`User disconnected: ${userName} (${userId})`, {
-        reason,
-        socketId: socket.id,
-        activeConnections: connectionStats.activeConnections
-      });
-    });
+    // NOTE: disconnect handler is registered above (line ~366) which handles
+    // DB update, contact notification, map cleanup, and stats.
+    // This second handler is intentionally removed to prevent duplicate processing.
   });
 
   // Enhanced periodic cleanup and health monitoring
@@ -2119,21 +2080,22 @@ const broadcastToUser = (userId, event, data, options = {}) => {
       };
       
       // Emit with acknowledgment callback for delivery confirmation
+      // PERF FIX: Clear delivery timeout on ack to prevent timer leak
+      let deliveryTimer = null;
       socket.emit(event, enhancedData, (ack) => {
+        if (deliveryTimer) { clearTimeout(deliveryTimer); deliveryTimer = null; }
         if (ack && ack.received) {
-          console.log(`✅ Message ${messageId} delivered and acknowledged`);
           connectionStats.messageDeliveryCount++;
-        } else {
-          console.log(`⚠️ Message ${messageId} sent but not acknowledged`);
         }
       });
       
       // Update statistics
       connectionStats.messagesSent++;
       
-      // Set delivery timeout if no acknowledgment received
-      setTimeout(() => {
-        socket.emit('delivery_timeout', { messageId, event });
+      // Set delivery timeout - cleared on ack above
+      deliveryTimer = setTimeout(() => {
+        deliveryTimer = null;
+        if (socket.connected) socket.emit('delivery_timeout', { messageId, event });
       }, options.timeout || 30000);
       
       return true;
@@ -2253,11 +2215,6 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
       
       console.log(`👥 Converted ${friendUsers.length} friend userIds to ${friendUserObjectIds.length} ObjectIds`);
       
-      // Also check if there are any users in the database at all
-      const totalUsers = await User.countDocuments({});
-      const usersWithContacts = await User.countDocuments({ contacts: { $exists: true, $ne: [] } });
-      console.log(`📊 Database stats: Total users: ${totalUsers}, Users with contacts: ${usersWithContacts}`);
-      
       // Merge ALL sources: cache + contacts + appConnections + Friends (remove duplicates)
       const allUsersToNotify = [...new Set([...usersToNotify, ...dbUserIds, ...friendUserObjectIds])];
       usersToNotify = allUsersToNotify;
@@ -2369,92 +2326,64 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
     
     console.log(`🔒 Privacy filtering: ${usersToNotify.length} potential recipients → ${authorizedUsers.length} authorized recipients`);
     
-    // Broadcast to each authorized user with multiple event types for better compatibility
+    // PERF FIX: Batch lookup all authorized recipients in ONE query instead of N+1 findById calls
     let successfulBroadcasts = 0;
     
-    for (const recipientId of authorizedUsers) {
-      try {
-        // Convert MongoDB ObjectId to userId for socket lookup
-        const recipient = await User.findById(recipientId).select('userId name phoneNumber');
-        
-        if (!recipient) {
-          console.log(`❌ Recipient not found in database: ${recipientId}`);
+    if (authorizedUsers.length > 0) {
+      // Single batch query to get userId for all authorized recipients
+      const recipientDocs = await User.find(
+        { _id: { $in: authorizedUsers } },
+        'userId name phoneNumber'
+      ).lean();
+      
+      console.log(`📋 Batch lookup: found ${recipientDocs.length}/${authorizedUsers.length} recipient docs`);
+      
+      // Build the status payload once (shared across all recipients)
+      const statusUpdateData = {
+        contactId: user._id,
+        userId: user.userId,
+        phoneNumber: user.phoneNumber,
+        name: user.name,
+        status: statusData.status,
+        customStatus: statusData.customStatus,
+        statusUntil: statusData.statusUntil,
+        isOnline: user.isOnline || false,
+        lastSeen: user.lastSeen || new Date(),
+        mainStatus: statusData.mainStatus || statusData.status,
+        mainDuration: statusData.mainDuration,
+        mainDurationLabel: statusData.mainDurationLabel,
+        mainEndTime: statusData.mainEndTime,
+        subStatus: statusData.subStatus,
+        subDuration: statusData.subDuration,
+        subDurationLabel: statusData.subDurationLabel,
+        subEndTime: statusData.subEndTime,
+        timestamp: new Date().toISOString()
+      };
+      
+      // Attach location once
+      if (statusData.statusLocation && statusData.statusLocation.placeName &&
+          statusData.statusLocation.placeName.trim() !== '') {
+        statusUpdateData.statusLocation = statusData.statusLocation;
+        statusUpdateData.location = statusData.statusLocation.placeName;
+      } else if (user.statusLocation && user.statusLocation.placeName &&
+                 user.statusLocation.placeName.trim() !== '') {
+        statusUpdateData.statusLocation = user.statusLocation;
+        statusUpdateData.location = user.statusLocation.placeName;
+      }
+      
+      for (const recipient of recipientDocs) {
+        if (!recipient.userId) {
+          console.log(`❌ Recipient ${recipient.name} has no userId field - skipping`);
           continue;
         }
         
-        const recipientUserId = recipient.userId;
-        
-        if (!recipientUserId) {
-          console.log(`❌ Could not find userId for recipient ${recipientId} (${recipient.name})`);
-          console.log(`❌ Recipient data:`, { _id: recipient._id, name: recipient.name, phoneNumber: recipient.phoneNumber });
-          continue;
-        }
-        
-        console.log(`🔍 Looking up socket for recipient: ObjectId=${recipientId}, userId=${recipientUserId}, name=${recipient.name}`);
-        console.log(`🔍 Current userSockets keys:`, Array.from(userSockets.keys()));
-        console.log(`🔍 Searching for userId in userSockets:`, recipientUserId);
-        
-        const socket = userSockets.get(recipientUserId); // Use userId for socket lookup
-        
-        if (socket && socket.connected) {
-          console.log(`✅ Emitting status update to authorized user ${recipient.name} (ObjectId: ${recipientId}, userId: ${recipientUserId})`);
-          
-          const statusUpdateData = {
-            contactId: user._id,
-            userId: user.userId,
-            phoneNumber: user.phoneNumber,
-            name: user.name,
-            status: statusData.status,
-            customStatus: statusData.customStatus,
-            statusUntil: statusData.statusUntil,
-            // ✅ CRITICAL: Always include online status in broadcasts
-            isOnline: user.isOnline || false,
-            lastSeen: user.lastSeen || new Date(),
-            // Hierarchical status support for Bug #11
-            mainStatus: statusData.mainStatus || statusData.status,
-            mainDuration: statusData.mainDuration,
-            mainDurationLabel: statusData.mainDurationLabel,
-            mainEndTime: statusData.mainEndTime,
-            subStatus: statusData.subStatus,
-            subDuration: statusData.subDuration,
-            subDurationLabel: statusData.subDurationLabel,
-            subEndTime: statusData.subEndTime,
-            timestamp: new Date().toISOString()
-          };
-          
-          // CRITICAL: Only include location if it has valid data
-          console.log(`🔍 [BROADCAST] Checking location for ${user.name}:`);
-          console.log(`🔍 [BROADCAST] statusData.statusLocation:`, JSON.stringify(statusData.statusLocation));
-          console.log(`🔍 [BROADCAST] user.statusLocation:`, JSON.stringify(user.statusLocation));
-          
-          if (statusData.statusLocation && statusData.statusLocation.placeName && 
-              statusData.statusLocation.placeName.trim() !== '') {
-            statusUpdateData.statusLocation = statusData.statusLocation;
-            statusUpdateData.location = statusData.statusLocation.placeName;
-            console.log(`✅ Including location in broadcast: ${statusData.statusLocation.placeName}`);
-          } else if (user.statusLocation && user.statusLocation.placeName && 
-                     user.statusLocation.placeName.trim() !== '') {
-            // Fallback to user's saved location if statusData doesn't have it
-            statusUpdateData.statusLocation = user.statusLocation;
-            statusUpdateData.location = user.statusLocation.placeName;
-            console.log(`✅ Including location from user object: ${user.statusLocation.placeName}`);
-          } else {
-            console.log(`⚠️ No valid location to broadcast (statusData: ${!!statusData.statusLocation}, user: ${!!user.statusLocation})`);
-          }
-          
-          // Emit multiple event types to ensure frontend receives the update
-          socket.emit('contact_status_update', statusUpdateData);
-          socket.emit('status_update', statusUpdateData);
-          socket.emit('user_status_update', statusUpdateData);
-          socket.emit('contact_status_changed', statusUpdateData);
-          
+        const recipientSocket = userSockets.get(recipient.userId);
+        if (recipientSocket && recipientSocket.connected) {
+          recipientSocket.emit('contact_status_update', statusUpdateData);
+          recipientSocket.emit('status_update', statusUpdateData);
+          recipientSocket.emit('user_status_update', statusUpdateData);
           successfulBroadcasts++;
-        } else {
-          console.log(`❌ User ${recipient.name} (ObjectId: ${recipientId}, userId: ${recipientUserId}) socket not found or disconnected`);
-          console.log(`🔍 Available sockets: ${Array.from(userSockets.keys()).join(', ')}`);
         }
-      } catch (lookupError) {
-        console.error(`❌ Error looking up socket for user ${recipientId}:`, lookupError);
       }
     }
     

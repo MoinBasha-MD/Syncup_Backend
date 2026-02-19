@@ -1,7 +1,8 @@
 const AIAssistant = require('../models/aiAssistantModel');
 const AIConversation = require('../models/aiConversationModel');
 const User = require('../models/userModel');
-const { broadcastToUser } = require('../socketManager');
+// Lazy require to break circular dependency: socketManager -> AISocketService -> aiMessageService -> socketManager
+const getSocketManager = () => require('../socketManager');
 
 /**
  * AI Message Service
@@ -105,8 +106,8 @@ class AIMessageService {
         requiresResponse: true
       };
 
-      // Send via WebSocket for instant delivery
-      const delivered = broadcastToUser(toUserId, 'ai_message_received', wsMessage);
+      // Send via WebSocket for instant delivery (lazy require to avoid circular dependency)
+      const delivered = getSocketManager().broadcastToUser(toUserId, 'ai_message_received', wsMessage);
       
       console.log(`🚀 Instant AI message: ${senderAI.aiName} → ${receiverAI.aiName} (${delivered ? 'delivered' : 'queued'})`);
 
@@ -180,7 +181,7 @@ class AIMessageService {
         timestamp: new Date()
       };
 
-      broadcastToUser(fromAI.userId, 'ai_response_received', responseMessage);
+      getSocketManager().broadcastToUser(fromAI.userId, 'ai_response_received', responseMessage);
 
       console.log(`⚡ Instant AI response: ${userAI.aiName} → ${fromAI.name}`);
 

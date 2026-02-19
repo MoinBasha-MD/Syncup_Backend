@@ -1,5 +1,6 @@
 const User = require('../models/userModel');
-const { broadcastToUser } = require('../socketManager');
+// Lazy require to break circular dependency with socketManager
+const getSocketManager = () => require('../socketManager');
 const fcmNotificationService = require('./fcmNotificationService');
 
 /**
@@ -82,7 +83,7 @@ class EnhancedNotificationService {
       };
 
       // Try WebSocket first
-      const socketSuccess = broadcastToUser(receiverId, 'notification:new', {
+      const socketSuccess = getSocketManager().broadcastToUser(receiverId, 'notification:new', {
         type: 'chat_message',
         title: sender.name || 'New Message',
         body: this.formatMessagePreview(message),
@@ -185,7 +186,7 @@ class EnhancedNotificationService {
         };
 
         // Send WebSocket notification only (NO PUSH NOTIFICATIONS)
-        const socketSuccess = broadcastToUser(contact.userId, 'notification:status_update', notificationData.data);
+        const socketSuccess = getSocketManager().broadcastToUser(contact.userId, 'notification:status_update', notificationData.data);
 
         return {
           success: socketSuccess,
@@ -238,7 +239,7 @@ class EnhancedNotificationService {
         }
       };
 
-      const socketSuccess = broadcastToUser(userId, 'notification:system', notificationData.data);
+      const socketSuccess = getSocketManager().broadcastToUser(userId, 'notification:system', notificationData.data);
 
       return socketSuccess;
 
@@ -394,7 +395,7 @@ class EnhancedNotificationService {
       };
 
       // Send WebSocket notification
-      const socketSuccess = broadcastToUser(ownerId, 'notification:document:access', notificationData);
+      const socketSuccess = getSocketManager().broadcastToUser(ownerId, 'notification:document:access', notificationData);
       
       if (socketSuccess) {
         this.notificationStats.totalSent++;
@@ -429,7 +430,7 @@ class EnhancedNotificationService {
       };
 
       // Send WebSocket notification
-      const socketSuccess = broadcastToUser(ownerId, 'notification:document:request', notificationData);
+      const socketSuccess = getSocketManager().broadcastToUser(ownerId, 'notification:document:request', notificationData);
       
       if (socketSuccess) {
         this.notificationStats.totalSent++;
@@ -464,7 +465,7 @@ class EnhancedNotificationService {
       };
 
       // Send WebSocket notification
-      const socketSuccess = broadcastToUser(receiverId, 'notification:document:shared', notificationData);
+      const socketSuccess = getSocketManager().broadcastToUser(receiverId, 'notification:document:shared', notificationData);
       
       if (socketSuccess) {
         this.notificationStats.totalSent++;
@@ -494,7 +495,7 @@ class EnhancedNotificationService {
       };
 
       // Send test WebSocket notification
-      const socketSuccess = broadcastToUser(userId, 'notification:test', {
+      const socketSuccess = getSocketManager().broadcastToUser(userId, 'notification:test', {
         type: 'test',
         title: 'Test Notification',
         body: 'This is a test notification from the enhanced notification system (WebSocket only)!',
