@@ -171,46 +171,36 @@ const getFeedPosts = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    // Use Friend model to get accepted friends (device contacts + app connections)
+    // PERF FIX: Run all 3 prerequisite queries in parallel instead of sequentially
     const Friend = require('../models/Friend');
-    const friends = await Friend.getFriends(userId, {
-      status: 'accepted',
-      includeDeviceContacts: true,
-      includeAppConnections: true
-    });
+    const PageFollower = require('../models/PageFollower');
+    
+    const [friends, followedPages, ownedPages] = await Promise.all([
+      Friend.getFriends(userId, {
+        status: 'accepted',
+        includeDeviceContacts: true,
+        includeAppConnections: true
+      }),
+      PageFollower.find({ userId: req.user._id }).select('pageId').lean(),
+      Page.find({
+        $or: [
+          { owner: req.user._id },
+          { 'admins.userId': req.user._id }
+        ]
+      }).select('_id').lean()
+    ]);
     
     // Extract friend user IDs
     const friendUserIds = friends
       .filter(friend => friend && friend.friendUserId)
       .map(friend => friend.friendUserId);
     
-    // Phase 2: Get user's followed pages
-    const PageFollower = require('../models/PageFollower');
-    const followedPages = await PageFollower.find({ userId: req.user._id }).select('pageId');
-    const followedPageIds = followedPages.map(f => f.pageId);
-    
-    // IMPORTANT: Also include pages that the user owns/manages
-    const ownedPages = await Page.find({ 
-      $or: [
-        { owner: req.user._id },
-        { 'admins.userId': req.user._id }
-      ]
-    }).select('_id');
-    const ownedPageIds = ownedPages.map(p => p._id);
-    
     // Combine followed pages + owned pages
+    const followedPageIds = followedPages.map(f => f.pageId);
+    const ownedPageIds = ownedPages.map(p => p._id);
     const allPageIds = [...new Set([...followedPageIds.map(id => id.toString()), ...ownedPageIds.map(id => id.toString())])];
     
-    console.log('');
-    console.log('📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱');
-    console.log(`📱 [FOR YOU] Getting feed for user ${userId}:`);
-    console.log(`  👥 Friends count: ${friendUserIds.length}`);
-    console.log(`  👥 Friend IDs:`, friendUserIds);
-    console.log(`  📄 Followed pages: ${followedPageIds.length}`);
-    console.log(`  👤 Owned/managed pages: ${ownedPageIds.length}`);
-    console.log(`  📄 Total pages in feed: ${allPageIds.length}`);
-    console.log('📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱📱');
-    console.log('');
+    console.log(`📱 [FOR YOU] user=${userId} friends=${friendUserIds.length} pages=${allPageIds.length}`);
 
     // Pass friend IDs + all page IDs (followed + owned) to getFeedPosts
     const posts = await FeedPost.getFeedPosts(userId, page, limit, friendUserIds, allPageIds);

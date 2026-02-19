@@ -179,7 +179,13 @@ const mongoSanitizer = mongoSanitize({
 
 // XSS protection middleware
 const xssProtection = (req, res, next) => {
-  // Sanitize request body
+  // PERF FIX: Skip sanitization for file uploads and non-JSON content types
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('multipart/form-data') || contentType.includes('application/octet-stream')) {
+    return next();
+  }
+
+  // Sanitize request body (JSON only)
   if (req.body && typeof req.body === 'object') {
     for (const key in req.body) {
       if (typeof req.body[key] === 'string') {

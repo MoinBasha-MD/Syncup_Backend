@@ -265,104 +265,65 @@ const initializeSocketIO = (server) => {
     // Cache user's contacts for quick lookup during status broadcasts
     try {
       const user = await User.findById(socket.user.id).select('contacts').lean();
-      if (user && user.contacts) {
-        userContactsMap.set(userId, new Set(user.contacts.map(id => id.toString())));
-        console.log(`📋 Cached ${user.contacts.length} contacts for user ${userName}`);
-      } else {
-        console.log(`📋 No contacts found for user ${userName}`);
-        userContactsMap.set(userId, new Set()); // Set empty set to prevent undefined errors
-      }
-      
       if (user && user.contacts && user.contacts.length > 0) {
         const contactIds = user.contacts.map(id => id.toString());
         userContactsMap.set(userId, new Set(contactIds));
-        console.log(`✅ Successfully cached ${contactIds.length} contacts for user ${userId}:`, contactIds);
+        console.log(`✅ Cached ${contactIds.length} contacts for user ${userId}`);
         
-        // Also log the actual contact details for debugging
-        const contactDetails = await User.find(
+        // PERF FIX: Single batch query instead of N+1 per-contact findById loop
+        const contactUsers = await User.find(
           { _id: { $in: user.contacts } },
-          'name phoneNumber userId'
-        );
-        console.log(`📞 Contact details:`, contactDetails.map(c => ({
-          name: c.name,
-          phone: c.phoneNumber,
-          id: c._id.toString()
-        })));
-      } else {
-        console.log(`⚠️ User ${userId} has no contacts to cache - Reasons:`);
-        console.log(`   - User found: ${!!user}`);
-        console.log(`   - User has contacts array: ${!!(user && user.contacts)}`);
-        console.log(`   - Contacts array length: ${user?.contacts?.length || 0}`);
-        userContactsMap.set(userId, new Set()); // Set empty set to avoid undefined
-      }
-      
-      // ✅ Broadcast online status to user's contacts
-      if (user && user.contacts && user.contacts.length > 0) {
-        console.log(`📢 [ONLINE STATUS] Broadcasting ONLINE status to ${user.contacts.length} contacts`);
+          'userId'
+        ).lean();
         
-        for (const contactId of user.contacts) {
-          const contactUserId = await User.findById(contactId).select('userId');
-          if (contactUserId && contactUserId.userId) {
-            const contactSocket = userSockets.get(contactUserId.userId);
+        // Broadcast online status to all online contacts at once
+        let notifiedCount = 0;
+        for (const contactUser of contactUsers) {
+          if (contactUser.userId) {
+            const contactSocket = userSockets.get(contactUser.userId);
             if (contactSocket && contactSocket.connected) {
               contactSocket.emit('contact_online_status', {
                 userId: userId,
                 isOnline: true,
                 lastSeen: new Date()
               });
-              console.log(`✅ [ONLINE STATUS] Notified contact ${contactUserId.userId} that ${userName} is ONLINE`);
+              notifiedCount++;
             }
           }
         }
+        console.log(`📢 [ONLINE STATUS] Notified ${notifiedCount}/${contactUsers.length} online contacts that ${userName} is ONLINE`);
+      } else {
+        userContactsMap.set(userId, new Set());
       }
       
-      // CRITICAL FIX: Send initial status of ALL contacts AND friends to the user
+      // Send initial status of ALL contacts AND friends to the user
       try {
-        console.log(`📊 [INITIAL STATUS] Fetching contacts and friends for ${userName} (${userId})`);
-        
-        // Get contact IDs from old contacts array
         const contactIds = user.contacts || [];
-        console.log(`📊 [INITIAL STATUS] Old contacts array: ${contactIds.length} contacts`);
         
-        // Get friend IDs from NEW Friends collection (bidirectional)
-        const friendDocs1 = await Friend.find({
-          userId: userId,
-          status: 'accepted',
-          isDeleted: false
-        }).select('friendUserId');
-        
-        const friendDocs2 = await Friend.find({
-          friendUserId: userId,
-          status: 'accepted',
-          isDeleted: false
-        }).select('userId');
+        // PERF FIX: Run both Friend queries in parallel
+        const [friendDocs1, friendDocs2] = await Promise.all([
+          Friend.find({ userId: userId, status: 'accepted', isDeleted: false }).select('friendUserId').lean(),
+          Friend.find({ friendUserId: userId, status: 'accepted', isDeleted: false }).select('userId').lean()
+        ]);
         
         const friendUserIds = [
           ...friendDocs1.map(f => f.friendUserId),
           ...friendDocs2.map(f => f.userId)
         ];
         
-        console.log(`📊 [INITIAL STATUS] Friends collection: ${friendUserIds.length} friends`);
-        console.log(`📊 [INITIAL STATUS] Friend userIds:`, friendUserIds);
-        
-        // Convert friend userIds to ObjectIds
-        const friendUsers = await User.find({ userId: { $in: friendUserIds } }).select('_id');
+        // Convert friend userIds to ObjectIds + merge with contacts (parallel)
+        const friendUsers = friendUserIds.length > 0
+          ? await User.find({ userId: { $in: friendUserIds } }).select('_id').lean()
+          : [];
         const friendObjectIds = friendUsers.map(u => u._id);
         
-        console.log(`📊 [INITIAL STATUS] Converted to ${friendObjectIds.length} ObjectIds`);
-        
-        // Merge contacts and friends (remove duplicates)
         const allContactIds = [...new Set([...contactIds.map(id => id.toString()), ...friendObjectIds.map(id => id.toString())])];
-        
-        console.log(`📊 [INITIAL STATUS] Total unique contacts+friends: ${allContactIds.length}`);
         
         if (allContactIds.length > 0) {
           const contacts = await User.find(
             { _id: { $in: allContactIds } },
             'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
-          );
-          
-          console.log(`📊 [INITIAL STATUS] Fetched ${contacts.length} user records from database`);
+          ).lean();
           
           if (contacts.length > 0) {
             const statusData = {
@@ -377,7 +338,6 @@ const initializeSocketIO = (server) => {
                 isOnline: contact.isOnline,
                 lastSeen: contact.lastSeen,
                 statusLocation: contact.statusLocation,
-                // Hierarchical status fields
                 mainStatus: contact.mainStatus,
                 subStatus: contact.subStatus,
                 mainDuration: contact.mainDuration,
@@ -391,19 +351,9 @@ const initializeSocketIO = (server) => {
               }))
             };
             
-            // Log sample status for debugging
-            if (statusData.contacts.length > 0) {
-              console.log(`📊 [INITIAL STATUS] Sample contact statuses:`);
-              statusData.contacts.slice(0, 3).forEach(c => {
-                console.log(`   - ${c.name}: status="${c.status}", mainStatus="${c.mainStatus}"`);
-              });
-            }
-            
             socket.emit('contacts_status_initial', statusData);
             console.log(`✅ [INITIAL STATUS] Sent status for ${contacts.length} contacts+friends to ${userName}`);
           }
-        } else {
-          console.log(`⚠️ [INITIAL STATUS] No contacts or friends found for ${userName}`);
         }
       } catch (initialStatusError) {
         console.error(`❌ [INITIAL STATUS] Error sending initial status:`, initialStatusError);
@@ -427,24 +377,27 @@ const initializeSocketIO = (server) => {
         console.log(`✅ [ONLINE STATUS] User ${userName} set to OFFLINE`);
         
         // ✅ Broadcast offline status to user's contacts
-        const user = await User.findById(userObjectId).select('contacts');
-        if (user && user.contacts && user.contacts.length > 0) {
-          console.log(`📢 [ONLINE STATUS] Broadcasting OFFLINE status to ${user.contacts.length} contacts`);
+        // PERF FIX: Use cached contacts map + single batch query instead of N+1 loop
+        const cachedContactIds = userContactsMap.get(userId);
+        if (cachedContactIds && cachedContactIds.size > 0) {
+          const contactObjectIds = Array.from(cachedContactIds);
+          const contactUsers = await User.find(
+            { _id: { $in: contactObjectIds } },
+            'userId'
+          ).lean();
           
-          for (const contactId of user.contacts) {
-            const contactUserId = await User.findById(contactId).select('userId');
-            if (contactUserId && contactUserId.userId) {
-              const contactSocket = userSockets.get(contactUserId.userId);
+          let notifiedCount = 0;
+          const offlinePayload = { userId, isOnline: false, lastSeen: new Date() };
+          for (const contactUser of contactUsers) {
+            if (contactUser.userId) {
+              const contactSocket = userSockets.get(contactUser.userId);
               if (contactSocket && contactSocket.connected) {
-                contactSocket.emit('contact_online_status', {
-                  userId: userId,
-                  isOnline: false,
-                  lastSeen: new Date()
-                });
-                console.log(`✅ [ONLINE STATUS] Notified contact ${contactUserId.userId} that ${userName} is OFFLINE`);
+                contactSocket.emit('contact_online_status', offlinePayload);
+                notifiedCount++;
               }
             }
           }
+          console.log(`📢 [ONLINE STATUS] Notified ${notifiedCount}/${contactUsers.length} online contacts that ${userName} is OFFLINE`);
         }
       } catch (error) {
         console.error('❌ [ONLINE STATUS] Error setting user offline:', error);
