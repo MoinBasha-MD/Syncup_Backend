@@ -222,8 +222,27 @@ const updateUserStatus = async (req, res) => {
     
     console.log('📡 [SOCKET BROADCAST] Broadcasting hierarchical status:', JSON.stringify(statusData));
     
+    // ✅ FIX Bug #2: Fetch privacy settings and pass them as validatedPrivacySettings
+    // so broadcastStatusUpdate uses the fast validated path instead of the slow
+    // per-user canUserSeeStatus path that silently fails on errors.
+    let validatedPrivacySettings = null;
+    try {
+      const privacyDoc = await StatusPrivacy.getPrivacySettings(updatedUser._id);
+      if (privacyDoc) {
+        validatedPrivacySettings = {
+          visibility: privacyDoc.visibility || 'public',
+          allowedGroups: privacyDoc.allowedGroups || [],
+          allowedContacts: privacyDoc.allowedContacts || []
+        };
+        console.log(`🔒 [SOCKET BROADCAST] Using validated privacy: ${validatedPrivacySettings.visibility}`);
+      }
+    } catch (privacyErr) {
+      console.warn('⚠️ [SOCKET BROADCAST] Could not load privacy settings, defaulting to public:', privacyErr.message);
+      validatedPrivacySettings = { visibility: 'public', allowedGroups: [], allowedContacts: [] };
+    }
+    
     // Use the enhanced socketManager to broadcast the status update
-    socketManager.broadcastStatusUpdate(updatedUser, statusData);
+    socketManager.broadcastStatusUpdate(updatedUser, statusData, validatedPrivacySettings);
     
     res.json({
       success: true,

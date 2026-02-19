@@ -2144,16 +2144,20 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
     // Use cached contacts if available for better performance
     let usersToNotify = [];
     
-    // Find all users who have this user in their contacts
+    // ✅ FIX Bug #1: userContactsMap is keyed by userId strings, but contacts inside
+    // the Set are MongoDB ObjectId strings. We need to check BOTH the ObjectId AND
+    // also look up by userId in case the cache was built differently.
+    // Additionally, the cache key (recipientId) is a userId string, so we must
+    // look up the recipient's socket by userId (which is correct).
     for (const [recipientId, contacts] of userContactsMap.entries()) {
-      console.log(`🔍 Checking user ${recipientId} with ${contacts.size} contacts`);
+      // contacts Set contains MongoDB ObjectId strings of the recipient's contacts
       if (contacts.has(userIdString)) {
-        console.log(`✅ User ${recipientId} has ${userIdString} in their contacts`);
+        console.log(`✅ [CACHE] User ${recipientId} has ${user.name} (ObjectId: ${userIdString}) in contacts`);
         usersToNotify.push(recipientId);
       }
     }
     
-    console.log(`📋 Found ${usersToNotify.length} users from cache`);
+    console.log(`📋 Found ${usersToNotify.length} users from cache (keyed by userId, contacts by ObjectId)`);
     
     // Always also check database to ensure we don't miss anyone
     // (in case cache is incomplete or stale)
@@ -2215,8 +2219,22 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
       
       console.log(`👥 Converted ${friendUsers.length} friend userIds to ${friendUserObjectIds.length} ObjectIds`);
       
-      // Merge ALL sources: cache + contacts + appConnections + Friends (remove duplicates)
-      const allUsersToNotify = [...new Set([...usersToNotify, ...dbUserIds, ...friendUserObjectIds])];
+      // ✅ FIX Bug #1 (continued): dbUserIds and friendUserObjectIds are MongoDB ObjectId strings.
+      // But usersToNotify from cache are userId strings. We need a UNIFIED list of ObjectId strings
+      // for the batch User.find() lookup below. Cache results (userId strings) need to be converted.
+      // Collect all userId strings from cache hits for conversion
+      const cacheHitUserIds = usersToNotify; // These are userId strings from userContactsMap keys
+      
+      // Convert cache-hit userId strings to ObjectId strings
+      let cacheHitObjectIds = [];
+      if (cacheHitUserIds.length > 0) {
+        const cacheHitUsers = await User.find({ userId: { $in: cacheHitUserIds } }).select('_id').lean();
+        cacheHitObjectIds = cacheHitUsers.map(u => u._id.toString());
+        console.log(`📋 Converted ${cacheHitUserIds.length} cache-hit userIds to ${cacheHitObjectIds.length} ObjectIds`);
+      }
+      
+      // Merge ALL sources as ObjectId strings (remove duplicates)
+      const allUsersToNotify = [...new Set([...cacheHitObjectIds, ...dbUserIds, ...friendUserObjectIds])];
       usersToNotify = allUsersToNotify;
       
       console.log(`📋 Total unique users to notify: ${usersToNotify.length}`);
@@ -2379,9 +2397,9 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
         
         const recipientSocket = userSockets.get(recipient.userId);
         if (recipientSocket && recipientSocket.connected) {
+          // ✅ FIX Bug #6: Only emit ONE event per recipient to avoid triple processing on frontend
+          // Frontend listens for contact_status_update as the primary status event
           recipientSocket.emit('contact_status_update', statusUpdateData);
-          recipientSocket.emit('status_update', statusUpdateData);
-          recipientSocket.emit('user_status_update', statusUpdateData);
           successfulBroadcasts++;
         }
       }
