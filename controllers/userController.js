@@ -94,13 +94,16 @@ const loginUser = async (req, res) => {
     // Try to find user by plain text phone (for old users) or by searching all users
     let user = await User.findOne({ phoneNumber }).select('+password +encryptedPassword +encryptedPhone +encryptedEmail');
 
-    // If not found by plain text phone, search through encrypted users
+    // ⚡ PERFORMANCE OPTIMIZATION: If not found by plain text phone, search encrypted users with limit
     if (!user) {
       const { decryptField, verifyPassword } = require('../utils/userEncryption');
-      const allUsers = await User.find({}).select('+password +encryptedPassword +encryptedPhone +encryptedEmail');
+      // Only get users with encrypted phone field (much smaller subset)
+      const encryptedUsers = await User.find({ 
+        'encryptedPhone.encrypted': { $exists: true, $ne: null } 
+      }).select('+password +encryptedPassword +encryptedPhone +encryptedEmail').limit(1000).lean();
       
       // Try to find user by decrypting phone numbers
-      for (const u of allUsers) {
+      for (const u of encryptedUsers) {
         if (u.encryptedPhone) {
           try {
             const decryptedPhone = decryptField(u.encryptedPhone);
@@ -472,33 +475,38 @@ const getRegisteredUsers = async (req, res) => {
         });
       }
     }
-    // CRITICAL DEBUG: Check if ANY users have profile images
-    const usersWithImages = await User.find({ profileImage: { $exists: true, $ne: '', $ne: null } }).select('name phoneNumber profileImage');
-    console.log(`\n🚨 CRITICAL DEBUG: Users with profile images: ${usersWithImages.length}`);
-    if (usersWithImages.length > 0) {
-      console.log('Users that HAVE profile images:', usersWithImages.map(u => ({
-        name: u.name,
-        phone: u.phoneNumber,
-        profileImage: u.profileImage
-      })));
-    } else {
-      console.log('🚨 NO USERS HAVE PROFILE IMAGES IN DATABASE!');
-      
-      // Check if there are uploaded files but no database links
-      const fs = require('fs');
-      const path = require('path');
-      const uploadsDir = path.join(__dirname, '../uploads/profile-images');
-      
-      try {
-        if (fs.existsSync(uploadsDir)) {
-          const files = fs.readdirSync(uploadsDir);
-          console.log(`📁 Found ${files.length} uploaded profile image files:`, files);
-          if (files.length > 0) {
-            console.log('🚨 ISSUE FOUND: Profile images uploaded but not linked to users in database!');
+    // ⚡ PERFORMANCE OPTIMIZATION: Removed expensive debug query that scans all users
+    if (process.env.NODE_ENV !== 'production') {
+      const usersWithImages = await User.find({ profileImage: { $exists: true, $ne: '', $ne: null } })
+        .select('name phoneNumber profileImage')
+        .limit(10)
+        .lean();
+      console.log(`\n🚨 DEBUG: Sample users with profile images: ${usersWithImages.length}`);
+      if (usersWithImages.length > 0) {
+        console.log('Sample users that HAVE profile images:', usersWithImages.map(u => ({
+          name: u.name,
+          phone: u.phoneNumber,
+          profileImage: u.profileImage
+        })));
+      } else {
+        console.log('🚨 NO USERS HAVE PROFILE IMAGES IN DATABASE!');
+        
+        // Check if there are uploaded files but no database links
+        const fs = require('fs');
+        const path = require('path');
+        const uploadsDir = path.join(__dirname, '../uploads/profile-images');
+        
+        try {
+          if (fs.existsSync(uploadsDir)) {
+            const files = fs.readdirSync(uploadsDir);
+            console.log(`📁 Found ${files.length} uploaded profile image files:`, files);
+            if (files.length > 0) {
+              console.log('🚨 ISSUE FOUND: Profile images uploaded but not linked to users in database!');
+            }
           }
+        } catch (err) {
+          console.log('Error checking uploads directory:', err.message);
         }
-      } catch (err) {
-        console.log('Error checking uploads directory:', err.message);
       }
     }
     
@@ -510,11 +518,15 @@ const getRegisteredUsers = async (req, res) => {
       ...(excludedUserIds.length > 0 && { userId: { $nin: excludedUserIds } })
     };
     
-    // Get filtered users but include profileImage and isPublic for contact display in HomeTab
-    const users = await User.find(query).select('_id userId name phoneNumber profileImage status customStatus statusUntil isPublic username');
+    // ⚡ PERFORMANCE OPTIMIZATION: Get filtered users with lean() for faster queries
+    const users = await User.find(query)
+      .select('_id userId name phoneNumber profileImage status customStatus statusUntil isPublic username')
+      .lean();
     
-    console.log(`🔍 [REGISTERED USERS] Query: ${JSON.stringify(query)}`);
-    console.log(`🔍 [REGISTERED USERS] Found ${users.length} users after filtering`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`🔍 [REGISTERED USERS] Query: ${JSON.stringify(query)}`);
+      console.log(`🔍 [REGISTERED USERS] Found ${users.length} users after filtering`);
+    }
     
     // DEBUG: Show database stats (isPublic only matters for global search, not device contacts)
     const totalPublicUsers = await User.countDocuments({ isPublic: true });
@@ -710,11 +722,11 @@ const getUserContacts = async (req, res) => {
       });
     }
 
-    // Get contacts with their status information
+    // ⚡ PERFORMANCE OPTIMIZATION: Get contacts with lean() for faster queries
     const contacts = await User.find(
       { _id: { $in: user.contacts } },
       '_id userId name phoneNumber email profileImage status customStatus statusUntil'
-    );
+    ).lean();
 
     console.log(`Found ${contacts.length} contacts`);
     

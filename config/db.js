@@ -23,15 +23,16 @@ const connectDB = async (customOptions = {}) => {
   try {
     // Default connection options
     const defaultOptions = {
+      // ⚡ PERFORMANCE OPTIMIZATION: Increased pool size for better concurrency
       // Connection pool settings
-      maxPoolSize: 10, // Maximum number of connections in the pool
-      minPoolSize: 5,  // Minimum number of connections in the pool
-      maxIdleTimeMS: 30000, // Close connections after 30 seconds of inactivity
+      maxPoolSize: 50, // Maximum number of connections in the pool (increased from 10)
+      minPoolSize: 10,  // Minimum number of connections in the pool (increased from 5)
+      maxIdleTimeMS: 60000, // Close connections after 60 seconds of inactivity (increased from 30s)
       serverSelectionTimeoutMS: 5000, // How long to try selecting a server
       socketTimeoutMS: 45000, // How long to wait for a response
       
       // Connection timeout settings
-      waitQueueTimeoutMS: 5000, // 5 seconds
+      waitQueueTimeoutMS: 10000, // 10 seconds (increased from 5s for high load)
       
       // Monitoring and debugging
       heartbeatFrequencyMS: 10000, // Heartbeat every 10 seconds

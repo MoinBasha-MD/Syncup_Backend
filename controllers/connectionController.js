@@ -67,10 +67,10 @@ const sendConnectionRequest = asyncHandler(async (req, res) => {
     
     console.log(`📤 Connection request: ${fromUserId} -> ${toUserId}`);
     
-    // Check if users are already connected via app connections
+    // ⚡ PERFORMANCE OPTIMIZATION: Check if users are already connected via app connections with lean()
     const [fromUserData, toUserData] = await Promise.all([
-      User.findOne({ userId: fromUserId }, 'appConnections'),
-      User.findOne({ userId: toUserId }, 'appConnections')
+      User.findOne({ userId: fromUserId }, 'appConnections').lean(),
+      User.findOne({ userId: toUserId }, 'appConnections').lean()
     ]);
     
     if (!fromUserData || !toUserData) {
@@ -118,10 +118,10 @@ const sendConnectionRequest = asyncHandler(async (req, res) => {
       throw new Error('Cannot send connection request to this user');
     }
     
-    // Use already fetched user data and get additional details
+    // ⚡ PERFORMANCE OPTIMIZATION: Use already fetched user data and get additional details with lean()
     const [fromUser, toUser] = await Promise.all([
-      User.findOne({ userId: fromUserId }, 'name username profileImage'),
-      User.findOne({ userId: toUserId }, 'name username profileImage isPublic')
+      User.findOne({ userId: fromUserId }, 'name username profileImage').lean(),
+      User.findOne({ userId: toUserId }, 'name username profileImage isPublic').lean()
     ]);
     
     if (!fromUser) {

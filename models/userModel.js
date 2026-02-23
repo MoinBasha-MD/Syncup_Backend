@@ -514,12 +514,19 @@ userSchema.methods.getResetPasswordToken = function () {
 };
 
 // Indexes are already defined at field level with 'index: true'
-// Additional compound indexes only
+// Additional compound indexes for performance optimization
 userSchema.index({ status: 1 }); // For status-based queries
 userSchema.index({ statusUntil: 1 }); // For status expiration queries
 userSchema.index({ contacts: 1 }); // For contact-based queries
 userSchema.index({ isPublic: 1 }); // For public profile queries
 userSchema.index({ 'appConnections.userId': 1 }); // For app connection queries
+
+// ⚡ PERFORMANCE OPTIMIZATION: Critical compound indexes for common query patterns
+userSchema.index({ userId: 1, isOnline: 1 }); // WebSocket connection queries
+userSchema.index({ phoneNumber: 1, isActive: 1 }); // Contact sync queries
+userSchema.index({ isOnline: 1, lastSeen: -1 }); // Online status queries
+userSchema.index({ mainStatus: 1, mainEndTime: 1 }); // Status expiration checks
+userSchema.index({ subStatus: 1, subEndTime: 1 }); // Sub-status expiration checks
 
 const User = mongoose.model('User', userSchema);
 

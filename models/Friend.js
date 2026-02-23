@@ -399,6 +399,13 @@ friendSchema.methods.recordInteraction = async function(type) {
   return await this.save();
 };
 
+// ⚡ PERFORMANCE OPTIMIZATION: Compound indexes for friend queries
+friendSchema.index({ userId: 1, status: 1, isDeleted: 1 }); // Active friends lookup
+friendSchema.index({ friendUserId: 1, status: 1, isDeleted: 1 }); // Reverse friend lookup
+friendSchema.index({ userId: 1, friendUserId: 1 }, { unique: true }); // Prevent duplicates
+friendSchema.index({ phoneNumber: 1, isDeviceContact: 1 }); // Contact sync queries
+friendSchema.index({ addedAt: -1 }); // Recent friends queries
+
 const Friend = mongoose.model('Friend', friendSchema);
 
 module.exports = Friend;

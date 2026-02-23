@@ -604,6 +604,13 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
   return this.aggregate(pipeline);
 };
 
+// ⚡ PERFORMANCE OPTIMIZATION: Compound indexes for message queries
+messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 }); // Chat history queries
+messageSchema.index({ receiverId: 1, status: 1 }); // Unread message queries
+messageSchema.index({ senderId: 1, createdAt: -1 }); // Sender's message history
+messageSchema.index({ privacyMode: 1, createdAt: 1 }); // Timer/ghost mode cleanup
+messageSchema.index({ 'reactions.userId': 1 }); // Reaction queries
+
 const Message = mongoose.model('Message', messageSchema);
 
 module.exports = Message;

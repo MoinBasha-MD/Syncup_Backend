@@ -113,16 +113,14 @@ const sendMessage = async (req, res) => {
     }
 
     // Find receiver and get both userId and _id
-    console.log('🔍 Looking up receiver in database with userId:', receiverId);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🔍 Looking up receiver in database with userId:', receiverId);
+    }
     
-    // First, let's see all users with similar names for debugging
-    const allUsers = await User.find({}).select('_id userId name phoneNumber').lean();
-    console.log('📊 All users in database:', allUsers.length, '(data sanitized)');
-    
-    const receiver = await User.findOne({ userId: receiverId }).select('_id userId name phoneNumber');
+    // ⚡ PERFORMANCE OPTIMIZATION: Direct query with lean() - removed debug query that loaded ALL users
+    const receiver = await User.findOne({ userId: receiverId }).select('_id userId name phoneNumber').lean();
     if (!receiver) {
       console.log('❌ Receiver not found in database:', receiverId);
-      console.log('🔍 Available userIds in database:', allUsers.map(u => u.userId));
       return res.status(404).json({
         success: false,
         message: 'Receiver not found'

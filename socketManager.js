@@ -268,7 +268,10 @@ const initializeSocketIO = (server) => {
       if (user && user.contacts && user.contacts.length > 0) {
         const contactIds = user.contacts.map(id => id.toString());
         userContactsMap.set(userId, new Set(contactIds));
-        console.log(`✅ Cached ${contactIds.length} contacts for user ${userId}`);
+        
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`✅ Cached ${contactIds.length} contacts for user ${userId}`);
+        }
         
         // PERF FIX: Single batch query instead of N+1 per-contact findById loop
         const contactUsers = await User.find(
@@ -291,7 +294,10 @@ const initializeSocketIO = (server) => {
             }
           }
         }
-        console.log(`📢 [ONLINE STATUS] Notified ${notifiedCount}/${contactUsers.length} online contacts that ${userName} is ONLINE`);
+        
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`📢 [ONLINE STATUS] Notified ${notifiedCount}/${contactUsers.length} online contacts that ${userName} is ONLINE`);
+        }
       } else {
         userContactsMap.set(userId, new Set());
       }
@@ -300,7 +306,7 @@ const initializeSocketIO = (server) => {
       try {
         const contactIds = user.contacts || [];
         
-        // PERF FIX: Run both Friend queries in parallel
+        // ⚡ PERFORMANCE OPTIMIZATION: Run both Friend queries in parallel with lean()
         const [friendDocs1, friendDocs2] = await Promise.all([
           Friend.find({ userId: userId, status: 'accepted', isDeleted: false }).select('friendUserId').lean(),
           Friend.find({ friendUserId: userId, status: 'accepted', isDeleted: false }).select('userId').lean()
@@ -323,14 +329,18 @@ const initializeSocketIO = (server) => {
         // This ensures broadcastStatusUpdate cache hits work for Friend-based relationships
         if (allContactIds.length > 0) {
           userContactsMap.set(userId, new Set(allContactIds));
-          console.log(`✅ [CACHE] Updated userContactsMap for ${userName}: ${allContactIds.length} contacts+friends`);
+          
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`✅ [CACHE] Updated userContactsMap for ${userName}: ${allContactIds.length} contacts+friends`);
+          }
         }
         
+        // ⚡ PERFORMANCE OPTIMIZATION: Limit initial status load to 100 contacts max
         if (allContactIds.length > 0) {
           const contacts = await User.find(
             { _id: { $in: allContactIds } },
             'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
-          ).lean();
+          ).limit(100).lean();
           
           if (contacts.length > 0) {
             const statusData = {
@@ -359,7 +369,10 @@ const initializeSocketIO = (server) => {
             };
             
             socket.emit('contacts_status_initial', statusData);
-            console.log(`✅ [INITIAL STATUS] Sent status for ${contacts.length} contacts+friends to ${userName}`);
+            
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`✅ [INITIAL STATUS] Sent status for ${contacts.length}/${allContactIds.length} contacts+friends to ${userName}`);
+            }
           }
         }
       } catch (initialStatusError) {
