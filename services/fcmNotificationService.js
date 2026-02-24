@@ -331,6 +331,110 @@ class FCMNotificationService {
   }
 
   /**
+   * Send incoming call notification (for offline users)
+   * This triggers a full-screen call notification like WhatsApp/Instagram
+   */
+  async sendCallNotification(userId, callData) {
+    if (!this.fcmEnabled) {
+      console.log('⚠️ [FCM] FCM is disabled - skipping call notification');
+      return { success: false, reason: 'FCM disabled' };
+    }
+
+    try {
+      const user = await User.findOne({ userId }).select('fcmTokens');
+      
+      if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
+        console.log(`⚠️ [FCM] No FCM tokens found for user: ${userId}`);
+        return { success: false, reason: 'No FCM tokens' };
+      }
+
+      const tokens = user.fcmTokens.map(t => t.token);
+      console.log(`📞 [FCM CALL] Sending call notification to ${tokens.length} device(s)`);
+
+      // Create high-priority call notification
+      // CRITICAL: Use data-only message for call notifications to trigger custom UI
+      const message = {
+        data: {
+          type: 'incoming_call',
+          callId: String(callData.callId),
+          callerId: String(callData.callerId),
+          callerName: String(callData.callerName || 'Unknown'),
+          callerAvatar: String(callData.callerAvatar || ''),
+          callType: String(callData.callType), // 'voice' or 'video'
+          timestamp: new Date().toISOString(),
+          // Include offer SDP for immediate call setup
+          offer: JSON.stringify(callData.offer || {})
+        },
+        tokens: tokens,
+        android: {
+          priority: 'high',
+          ttl: 30000, // 30 seconds - call expires quickly
+          notification: {
+            channelId: 'incoming_calls',
+            sound: 'ring_tone', // Custom ringtone
+            priority: 'max',
+            defaultSound: false,
+            defaultVibrateTimings: false,
+            color: '#00C853', // Green for calls
+            icon: 'ic_call',
+            tag: String(callData.callId),
+            visibility: 'public',
+            // Full-screen intent for call UI
+            clickAction: 'INCOMING_CALL'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: `${callData.callerName || 'Unknown'}`,
+                body: `Incoming ${callData.callType} call`
+              },
+              sound: 'default',
+              badge: 1,
+              contentAvailable: true,
+              category: 'CALL_INVITATION'
+            }
+          }
+        }
+      };
+
+      const response = await admin.messaging().sendEachForMulticast(message);
+
+      console.log(`✅ [FCM CALL] Call notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+      // Cleanup invalid tokens
+      if (response.failureCount > 0) {
+        const invalidTokens = [];
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success) {
+            invalidTokens.push(tokens[idx]);
+            console.log(`❌ [FCM CALL] Token failed: ${resp.error?.code} - ${resp.error?.message}`);
+          }
+        });
+
+        if (invalidTokens.length > 0) {
+          await User.updateOne(
+            { userId },
+            { $pull: { fcmTokens: { token: { $in: invalidTokens } } } }
+          );
+          console.log(`🧹 [FCM CALL] Cleaned up ${invalidTokens.length} invalid token(s)`);
+        }
+      }
+
+      return {
+        success: response.successCount > 0,
+        successCount: response.successCount,
+        failureCount: response.failureCount
+      };
+
+    } catch (error) {
+      console.error('❌ [FCM CALL] Error sending call notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Check if FCM is enabled and ready
    */
   isEnabled() {
