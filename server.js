@@ -72,6 +72,7 @@ const otpRoutes = require('./routes/otpRoutes');
 const cryptoRoutes = require('./routes/cryptoRoutes');
 const placesRoutes = require('./routes/placesRoutes');
 const encryptedFileRoutes = require('./routes/encryptedFileRoutes');
+const imageSpaceRoutes = require('./routes/imageSpaceRoutes');
 const container = require('./config/container');
 const { initializeSocketIO } = require('./socketManager');
 const { logStartup, serverLogger } = require('./utils/loggerSetup');
@@ -266,6 +267,7 @@ app.use('/api/contacts', contactLimiter, contactRoutes); // Contact management r
 app.use('/api/upload', apiLimiter, uploadRoutes); // File upload routes
 app.use('/api/calendar', apiLimiter, calendarRoutes); // Calendar integration routes
 app.use('/api/chat', apiLimiter, chatRoutes); // Chat messaging routes
+app.use('/api/image-space', apiLimiter, imageSpaceRoutes); // Image Space (private image gallery)
 app.use('/api/groups', apiLimiter, groupRoutes); // Contact group management routes
 app.use('/api/group-chats', apiLimiter, groupChatRoutes); // Group chat messaging routes
 app.use('/api/posts', apiLimiter, postRoutes); // User posts management routes
