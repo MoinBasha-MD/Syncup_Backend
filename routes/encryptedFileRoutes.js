@@ -9,8 +9,8 @@ const { protect } = require('../middleware/authMiddleware');
  * All file requests go through this route for decryption
  */
 
-// Profile images
-router.get('/uploads/profile-images/:filename', protect, async (req, res) => {
+// Profile images - PUBLIC ROUTE (encryption disabled, React Native Image cannot send auth headers)
+router.get('/uploads/profile-images/:filename', async (req, res) => {
   const filePath = path.join(__dirname, '../uploads/profile-images', req.params.filename);
   await serveEncryptedFile(filePath, res);
 });
@@ -27,8 +27,8 @@ router.get('/uploads/chat-files/:filename', protect, async (req, res) => {
   await serveEncryptedFile(filePath, res);
 });
 
-// Story images
-router.get('/uploads/story-images/:filename', protect, async (req, res) => {
+// Story images - PUBLIC ROUTE (encryption disabled, React Native Image cannot send auth headers)
+router.get('/uploads/story-images/:filename', async (req, res) => {
   const filePath = path.join(__dirname, '../uploads/story-images', req.params.filename);
   await serveEncryptedFile(filePath, res);
 });
