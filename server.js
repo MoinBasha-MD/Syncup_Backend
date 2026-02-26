@@ -638,11 +638,15 @@ app.use('/api/admin/auth', adminAuthRoutes);
 
 
 
+// Admin user status routes (protected) - MUST BE BEFORE adminDashboardRoutes to avoid route conflicts
+
+app.use('/api/admin/users', adminUserStatusRoutes); // User status management API (JWT auth inside route)
+
+
+
 // Admin dashboard routes (protected)
 
 app.use('/api/admin', adminAuthMiddleware, adminDashboardRoutes); // Admin panel API endpoints
-
-app.use('/api/admin/users', adminUserStatusRoutes); // User status management API (JWT auth inside route)
 
 
 
