@@ -116,5 +116,6 @@ const stop = () => {
 module.exports = {
   start,
   stop,
-  cleanupExpiredSessions
+  cleanupExpiredSessions,
+  cleanup: cleanupExpiredSessions // Alias for masterScheduler compatibility
 };
