@@ -98,10 +98,13 @@ const updateUserStatus = async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       console.log('📡 [ADMIN] Broadcasting status update via WebSocket...');
+      console.log('📡 [ADMIN] Socket.IO instance found:', !!io);
+      console.log('📡 [ADMIN] Connected clients:', io.engine?.clientsCount || 0);
       
       // Broadcast to the user's contacts
       try {
-        broadcastStatusUpdate(user, {
+        console.log('📡 [ADMIN] Calling broadcastStatusUpdate for user:', user.userId);
+        await broadcastStatusUpdate(user, {
           status: status,
           customStatus: customStatus || '',
           statusUntil: statusUntil,
@@ -109,11 +112,14 @@ const updateUserStatus = async (req, res) => {
         }, {
           visibility: 'all_contacts'
         });
+        console.log('✅ [ADMIN] broadcastStatusUpdate completed successfully');
       } catch (broadcastError) {
         console.error('⚠️ [ADMIN] Failed to broadcast status update:', broadcastError);
+        console.error('⚠️ [ADMIN] Broadcast error stack:', broadcastError.stack);
       }
       
       // Also emit to admin panel for real-time update
+      console.log('📡 [ADMIN] Emitting user:status_updated event to admin panel');
       io.emit('user:status_updated', {
         userId: user.userId,
         name: user.name,
