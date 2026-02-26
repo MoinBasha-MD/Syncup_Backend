@@ -77,16 +77,18 @@ const updateUserStatus = async (req, res) => {
     
     // Save to status history
     try {
+      const now = new Date();
+      const endTime = statusUntil ? new Date(statusUntil) : new Date(now.getTime() + 24 * 60 * 60 * 1000); // Default 24 hours
+      const durationMinutes = Math.floor((endTime.getTime() - now.getTime()) / 60000);
+      
       await StatusHistory.create({
-        userId: user._id,
+        user: user._id,
+        userId: user.userId,
         status: status,
         customStatus: customStatus || '',
-        statusUntil: statusUntil || null,
-        source: 'admin_panel',
-        metadata: {
-          adminUpdated: true,
-          adminId: req.admin?._id || 'unknown'
-        }
+        startTime: now,
+        endTime: endTime,
+        duration: durationMinutes
       });
     } catch (historyError) {
       console.error('⚠️ [ADMIN] Failed to save status history:', historyError);
@@ -165,8 +167,8 @@ const getUserStatusHistory = async (req, res) => {
       });
     }
     
-    const history = await StatusHistory.find({ userId: user._id })
-      .sort({ timestamp: -1 })
+    const history = await StatusHistory.find({ user: user._id })
+      .sort({ startTime: -1 })
       .limit(parseInt(limit))
       .lean();
     
