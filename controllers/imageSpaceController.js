@@ -42,9 +42,32 @@ exports.uploadImage = async (req, res) => {
 
     // Add image to array
     imageSpace.images.push(imageEntry);
+    
+    // Increment unread count for receiver
+    if (!imageSpace.unreadCount) {
+      imageSpace.unreadCount = new Map();
+    }
+    const currentUnread = imageSpace.unreadCount.get(receiverId) || 0;
+    imageSpace.unreadCount.set(receiverId, currentUnread + 1);
+    
     await imageSpace.save();
 
     console.log(`✅ [IMAGE SPACE] Image uploaded to space: ${chatId}`);
+    console.log(`📊 [IMAGE SPACE] Unread count for ${receiverId}: ${currentUnread + 1}`);
+
+    // Emit socket event to notify receiver
+    const io = req.app.get('io');
+    if (io) {
+      io.to(receiverId).emit('imageSpace:new', {
+        senderId,
+        receiverId,
+        chatId,
+        image: imageEntry,
+        totalCount: imageSpace.images.length,
+        unreadCount: currentUnread + 1,
+      });
+      console.log(`📡 [IMAGE SPACE] Socket event sent to receiver: ${receiverId}`);
+    }
 
     res.status(200).json({
       success: true,
@@ -212,6 +235,94 @@ exports.getImageCount = async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to get image count',
+      error: error.message 
+    });
+  }
+};
+
+// Get unread count for a chat
+exports.getUnreadCount = async (req, res) => {
+  try {
+    const { contactId } = req.params;
+    const userId = req.user.userId;
+
+    if (!contactId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Contact ID is required' 
+      });
+    }
+
+    // Generate chatId
+    const chatId = ImageSpace.generateChatId(userId, contactId);
+
+    // Find ImageSpace document
+    const imageSpace = await ImageSpace.findOne({ chatId });
+
+    const unreadCount = imageSpace && imageSpace.unreadCount 
+      ? imageSpace.unreadCount.get(userId) || 0 
+      : 0;
+
+    res.status(200).json({
+      success: true,
+      unreadCount,
+      chatId,
+    });
+  } catch (error) {
+    console.error('❌ [IMAGE SPACE] Get unread count error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get unread count',
+      error: error.message 
+    });
+  }
+};
+
+// Mark images as read
+exports.markAsRead = async (req, res) => {
+  try {
+    const { contactId } = req.params;
+    const userId = req.user.userId;
+
+    if (!contactId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Contact ID is required' 
+      });
+    }
+
+    // Generate chatId
+    const chatId = ImageSpace.generateChatId(userId, contactId);
+
+    // Find ImageSpace document
+    const imageSpace = await ImageSpace.findOne({ chatId });
+
+    if (!imageSpace) {
+      return res.status(200).json({
+        success: true,
+        message: 'No Image Space found',
+      });
+    }
+
+    // Reset unread count for this user
+    if (!imageSpace.unreadCount) {
+      imageSpace.unreadCount = new Map();
+    }
+    imageSpace.unreadCount.set(userId, 0);
+    
+    await imageSpace.save();
+
+    console.log(`✅ [IMAGE SPACE] Marked as read for user: ${userId} in chat: ${chatId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Marked as read',
+    });
+  } catch (error) {
+    console.error('❌ [IMAGE SPACE] Mark as read error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to mark as read',
       error: error.message 
     });
   }

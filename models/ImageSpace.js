@@ -50,7 +50,18 @@ const imageSpaceSchema = new mongoose.Schema({
       size: Number,
       mimeType: String,
     },
+    viewedBy: [{
+      userId: String,
+      viewedAt: Date,
+    }],
   }],
+  
+  // Unread counts for each user
+  unreadCount: {
+    type: Map,
+    of: Number,
+    default: {},
+  },
   
   // Timestamps
   createdAt: {
