@@ -227,27 +227,37 @@ exports.getImages = async (req, res) => {
       });
     }
 
-    // Use items array if available, otherwise fall back to images array
+    // Merge items array and images array to support both
     let items = [];
+    
+    // Add items from items array
     if (imageSpace.items && imageSpace.items.length > 0) {
-      items = imageSpace.items;
-    } else if (imageSpace.images && imageSpace.images.length > 0) {
-      // Convert legacy images to items format
-      items = imageSpace.images.map(img => ({
-        itemId: img.imageId || img._id,
-        type: 'image',
-        imageUrl: img.imageUrl,
-        uploadedBy: img.uploadedBy,
-        uploadedAt: img.uploadedAt,
-        caption: img.caption || '',
-        metadata: img.metadata || {},
-      }));
+      items = [...imageSpace.items];
+    }
+    
+    // Add items from legacy images array (if not already in items)
+    if (imageSpace.images && imageSpace.images.length > 0) {
+      const existingIds = new Set(items.map(item => item.itemId || item._id));
+      const imageItems = imageSpace.images
+        .filter(img => !existingIds.has(img.imageId) && !existingIds.has(img._id))
+        .map(img => ({
+          itemId: img.imageId || img._id,
+          type: 'image',
+          imageUrl: img.imageUrl,
+          uploadedBy: img.uploadedBy,
+          uploadedAt: img.uploadedAt,
+          caption: img.caption || '',
+          metadata: img.metadata || {},
+        }));
+      items = [...items, ...imageItems];
     }
 
     // Sort items by uploadedAt (newest first)
     const sortedItems = items.sort((a, b) => 
       new Date(b.uploadedAt) - new Date(a.uploadedAt)
     );
+    
+    console.log(`✅ [YOUR SPACE] Items array: ${imageSpace.items?.length || 0}, Images array: ${imageSpace.images?.length || 0}, Total merged: ${sortedItems.length}`);
 
     console.log(`✅ [YOUR SPACE] Retrieved ${sortedItems.length} items for chat: ${chatId}`);
 
