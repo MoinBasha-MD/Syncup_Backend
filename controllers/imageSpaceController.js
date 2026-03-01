@@ -1,7 +1,7 @@
 const ImageSpace = require('../models/ImageSpace');
 const { v4: uuidv4 } = require('uuid');
 
-// Upload image to Image Space
+// Upload image to Your Space
 exports.uploadImage = async (req, res) => {
   try {
     const { receiverId, imageUrl, caption, metadata } = req.body;
@@ -26,13 +26,15 @@ exports.uploadImage = async (req, res) => {
         chatId,
         userId1,
         userId2,
+        items: [],
         images: [],
       });
     }
 
-    // Create image entry
-    const imageEntry = {
-      imageId: uuidv4(),
+    // Create item entry
+    const itemEntry = {
+      itemId: uuidv4(),
+      type: 'image',
       imageUrl,
       uploadedBy: senderId,
       uploadedAt: new Date(),
@@ -40,7 +42,21 @@ exports.uploadImage = async (req, res) => {
       metadata: metadata || {},
     };
 
-    // Add image to array
+    // Add to items array
+    if (!imageSpace.items) {
+      imageSpace.items = [];
+    }
+    imageSpace.items.push(itemEntry);
+    
+    // Legacy support - also add to images array
+    const imageEntry = {
+      imageId: itemEntry.itemId,
+      imageUrl,
+      uploadedBy: senderId,
+      uploadedAt: new Date(),
+      caption: caption || '',
+      metadata: metadata || {},
+    };
     imageSpace.images.push(imageEntry);
     
     // Increment unread count for receiver
@@ -52,43 +68,138 @@ exports.uploadImage = async (req, res) => {
     
     await imageSpace.save();
 
-    console.log(`✅ [IMAGE SPACE] Image uploaded to space: ${chatId}`);
-    console.log(`📊 [IMAGE SPACE] Unread count for ${receiverId}: ${currentUnread + 1}`);
+    console.log(`✅ [YOUR SPACE] Image uploaded to space: ${chatId}`);
+    console.log(`📊 [YOUR SPACE] Unread count for ${receiverId}: ${currentUnread + 1}`);
 
     // Emit socket event to notify receiver
     const io = req.app.get('io');
     if (io) {
-      io.to(receiverId).emit('imageSpace:new', {
+      io.to(receiverId).emit('yourSpace:new', {
         senderId,
         receiverId,
         chatId,
-        image: imageEntry,
-        totalCount: imageSpace.images.length,
+        item: itemEntry,
+        totalCount: imageSpace.items.length,
         unreadCount: currentUnread + 1,
       });
-      console.log(`📡 [IMAGE SPACE] Socket event sent to receiver: ${receiverId}`);
+      console.log(`📡 [YOUR SPACE] Socket event sent to receiver: ${receiverId}`);
     }
 
     res.status(200).json({
       success: true,
-      message: 'Image uploaded to Image Space',
+      message: 'Image uploaded to Your Space',
       imageSpace: {
         chatId: imageSpace.chatId,
-        imageCount: imageSpace.images.length,
-        latestImage: imageEntry,
+        itemCount: imageSpace.items.length,
+        latestItem: itemEntry,
       },
     });
   } catch (error) {
-    console.error('❌ [IMAGE SPACE] Upload error:', error);
+    console.error('❌ [YOUR SPACE] Upload error:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to upload image to Image Space',
+      message: 'Failed to upload image to Your Space',
       error: error.message 
     });
   }
 };
 
-// Get all images for a chat
+// Save text message to Your Space
+exports.saveText = async (req, res) => {
+  try {
+    const { receiverId, text, originalMessageId, originalTimestamp } = req.body;
+    const senderId = req.user.userId;
+
+    if (!receiverId || !text) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Receiver ID and text are required' 
+      });
+    }
+
+    // Generate chatId (sorted user IDs)
+    const chatId = ImageSpace.generateChatId(senderId, receiverId);
+    const [userId1, userId2] = [senderId, receiverId].sort();
+
+    // Find or create ImageSpace document
+    let imageSpace = await ImageSpace.findOne({ chatId });
+
+    if (!imageSpace) {
+      imageSpace = new ImageSpace({
+        chatId,
+        userId1,
+        userId2,
+        items: [],
+        images: [],
+      });
+    }
+
+    // Create text item entry
+    const itemEntry = {
+      itemId: uuidv4(),
+      type: 'text',
+      text,
+      uploadedBy: senderId,
+      uploadedAt: new Date(),
+      caption: '',
+      metadata: {
+        originalMessageId: originalMessageId || '',
+        originalTimestamp: originalTimestamp || new Date(),
+      },
+    };
+
+    // Add to items array
+    if (!imageSpace.items) {
+      imageSpace.items = [];
+    }
+    imageSpace.items.push(itemEntry);
+    
+    // Increment unread count for receiver
+    if (!imageSpace.unreadCount) {
+      imageSpace.unreadCount = new Map();
+    }
+    const currentUnread = imageSpace.unreadCount.get(receiverId) || 0;
+    imageSpace.unreadCount.set(receiverId, currentUnread + 1);
+    
+    await imageSpace.save();
+
+    console.log(`✅ [YOUR SPACE] Text message saved to space: ${chatId}`);
+    console.log(`📊 [YOUR SPACE] Unread count for ${receiverId}: ${currentUnread + 1}`);
+
+    // Emit socket event to notify receiver
+    const io = req.app.get('io');
+    if (io) {
+      io.to(receiverId).emit('yourSpace:new', {
+        senderId,
+        receiverId,
+        chatId,
+        item: itemEntry,
+        totalCount: imageSpace.items.length,
+        unreadCount: currentUnread + 1,
+      });
+      console.log(`📡 [YOUR SPACE] Socket event sent to receiver: ${receiverId}`);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Text message saved to Your Space',
+      imageSpace: {
+        chatId: imageSpace.chatId,
+        itemCount: imageSpace.items.length,
+        latestItem: itemEntry,
+      },
+    });
+  } catch (error) {
+    console.error('❌ [YOUR SPACE] Save text error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to save text to Your Space',
+      error: error.message 
+    });
+  }
+};
+
+// Get all items (images and text) for a chat
 exports.getImages = async (req, res) => {
   try {
     const { contactId } = req.params;
@@ -110,29 +221,48 @@ exports.getImages = async (req, res) => {
     if (!imageSpace) {
       return res.status(200).json({
         success: true,
-        images: [],
+        items: [],
+        images: [], // Legacy support
         chatId,
       });
     }
 
-    // Sort images by uploadedAt (newest first)
-    const sortedImages = imageSpace.images.sort((a, b) => 
+    // Use items array if available, otherwise fall back to images array
+    let items = [];
+    if (imageSpace.items && imageSpace.items.length > 0) {
+      items = imageSpace.items;
+    } else if (imageSpace.images && imageSpace.images.length > 0) {
+      // Convert legacy images to items format
+      items = imageSpace.images.map(img => ({
+        itemId: img.imageId || img._id,
+        type: 'image',
+        imageUrl: img.imageUrl,
+        uploadedBy: img.uploadedBy,
+        uploadedAt: img.uploadedAt,
+        caption: img.caption || '',
+        metadata: img.metadata || {},
+      }));
+    }
+
+    // Sort items by uploadedAt (newest first)
+    const sortedItems = items.sort((a, b) => 
       new Date(b.uploadedAt) - new Date(a.uploadedAt)
     );
 
-    console.log(`✅ [IMAGE SPACE] Retrieved ${sortedImages.length} images for chat: ${chatId}`);
+    console.log(`✅ [YOUR SPACE] Retrieved ${sortedItems.length} items for chat: ${chatId}`);
 
     res.status(200).json({
       success: true,
-      images: sortedImages,
+      items: sortedItems,
+      images: sortedItems.filter(item => item.type === 'image'), // Legacy support
       chatId,
-      totalCount: sortedImages.length,
+      totalCount: sortedItems.length,
     });
   } catch (error) {
-    console.error('❌ [IMAGE SPACE] Get images error:', error);
+    console.error('❌ [YOUR SPACE] Get items error:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to retrieve images',
+      message: 'Failed to retrieve items',
       error: error.message 
     });
   }

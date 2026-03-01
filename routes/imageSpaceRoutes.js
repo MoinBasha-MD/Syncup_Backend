@@ -3,6 +3,7 @@ const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const {
   uploadImage,
+  saveText,
   getImages,
   deleteImage,
   getImageCount,
@@ -13,16 +14,19 @@ const {
 // All routes require authentication
 router.use(protect);
 
-// Upload image to Image Space
+// Upload image to Your Space
 router.post('/upload', uploadImage);
 
-// Get all images for a chat
+// Save text message to Your Space
+router.post('/save-text', saveText);
+
+// Get all items (images and text) for a chat
 router.get('/:contactId', getImages);
 
-// Delete specific image
+// Delete specific item
 router.delete('/:contactId/:imageId', deleteImage);
 
-// Get image count
+// Get item count
 router.get('/:contactId/count', getImageCount);
 
 // Get unread count

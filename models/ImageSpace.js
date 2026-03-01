@@ -21,16 +21,25 @@ const imageSpaceSchema = new mongoose.Schema({
     index: true,
   },
   
-  // Images array
-  images: [{
-    imageId: {
+  // Items array (supports both images and text messages)
+  items: [{
+    itemId: {
       type: String,
       required: true,
       unique: true,
     },
+    type: {
+      type: String,
+      enum: ['image', 'text'],
+      required: true,
+    },
+    // For images
     imageUrl: {
       type: String,
-      required: true,
+    },
+    // For text messages
+    text: {
+      type: String,
     },
     uploadedBy: {
       type: String,
@@ -44,6 +53,28 @@ const imageSpaceSchema = new mongoose.Schema({
       type: String,
       default: '',
     },
+    metadata: {
+      width: Number,
+      height: Number,
+      size: Number,
+      mimeType: String,
+      // Original message metadata
+      originalMessageId: String,
+      originalTimestamp: Date,
+    },
+    viewedBy: [{
+      userId: String,
+      viewedAt: Date,
+    }],
+  }],
+  
+  // Legacy support - keep old images field for backward compatibility
+  images: [{
+    imageId: String,
+    imageUrl: String,
+    uploadedBy: String,
+    uploadedAt: Date,
+    caption: String,
     metadata: {
       width: Number,
       height: Number,
