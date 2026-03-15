@@ -1,5 +1,5 @@
 const User = require('../models/userModel');
-const Friendship = require('../models/Friendship');
+const Friendship = require('../models/Friend');
 
 /**
  * Sync all cached profile images in Friendship model with current User data
