@@ -691,18 +691,37 @@ const getConnections = asyncHandler(async (req, res) => {
       }))
     );
     
-    // Format connections for response
-    const formattedConnections = connections.map(conn => ({
-      userId: conn.userId,
-      name: conn.name,
-      username: conn.username || '',
-      profileImage: conn.profileImage || '',
-      phoneNumber: '', // App connections may not have phone numbers
-      connectedAt: conn.connectionDate,
-      isActive: true,
-      lastSeen: conn.lastSeen || conn.connectionDate,
-      status: 'Available' // Default status
-    }));
+    // Fetch live user data for each connection to get current profile images
+    const connectionUserIds = connections.map(conn => conn.userId);
+    const connectionUsers = await User.find(
+      { userId: { $in: connectionUserIds } },
+      'userId name username profileImage phoneNumber isOnline lastSeen status customStatus statusUntil'
+    ).lean();
+    
+    // Create a map for quick lookup
+    const userDataMap = new Map();
+    connectionUsers.forEach(u => {
+      userDataMap.set(u.userId, u);
+    });
+    
+    // Format connections for response with LIVE profile images
+    const formattedConnections = connections.map(conn => {
+      const liveUserData = userDataMap.get(conn.userId);
+      return {
+        userId: conn.userId,
+        name: liveUserData?.name || conn.name,
+        username: liveUserData?.username || conn.username || '',
+        profileImage: liveUserData?.profileImage || '', // ✅ LIVE profile image from User model
+        phoneNumber: liveUserData?.phoneNumber || '',
+        connectedAt: conn.connectionDate,
+        isActive: true,
+        isOnline: liveUserData?.isOnline || false,
+        lastSeen: liveUserData?.lastSeen || conn.lastSeen || conn.connectionDate,
+        status: liveUserData?.status || 'Available',
+        customStatus: liveUserData?.customStatus || '',
+        statusUntil: liveUserData?.statusUntil || null
+      };
+    });
     
     console.log(`🔍 [PRIVACY DEBUG] Final response connections:`, {
       count: formattedConnections.length,
