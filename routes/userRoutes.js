@@ -26,6 +26,10 @@ const {
   getRecentConnections,
   getMutualConnections
 } = require('../controllers/connectionStatsController');
+const {
+  syncAllProfileImages,
+  getSyncStatus
+} = require('../controllers/syncProfileImagesController');
 const { protect } = require('../middleware/authMiddleware');
 
 // Connection statistics routes (must be before generic routes)
@@ -256,5 +260,9 @@ router.route('/reset-password-otp')
       });
     }
   });
+
+// Profile image sync routes
+router.post('/sync-profile-images', protect, syncAllProfileImages);
+router.get('/sync-status', protect, getSyncStatus);
 
 module.exports = router;

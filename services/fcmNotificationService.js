@@ -353,7 +353,14 @@ class FCMNotificationService {
 
       // Create high-priority call notification
       // CRITICAL: Use data-only message for call notifications to trigger custom UI
+      // IMPORTANT: Include top-level notification so Android displays it
+      // automatically via the incoming_calls channel (MAX importance + ring_tone)
+      // even when the app is killed — no phone account permissions needed.
       const message = {
+        notification: {
+          title: String(callData.callerName || 'Unknown'),
+          body: `Incoming ${callData.callType} call`
+        },
         data: {
           type: 'incoming_call',
           callId: String(callData.callId),
@@ -370,27 +377,27 @@ class FCMNotificationService {
           priority: 'high',
           ttl: 30000, // 30 seconds - call expires quickly
           notification: {
-            channelId: 'incoming_calls',
-            sound: 'ring_tone', // Custom ringtone
+            channelId: 'incoming_calls', // MAX importance, ring_tone.aac sound
+            sound: 'ring_tone',
             priority: 'max',
             defaultSound: false,
             defaultVibrateTimings: false,
-            color: '#00C853', // Green for calls
-            icon: 'ic_call',
+            color: '#00C853',
+            icon: 'ic_notification',
             tag: String(callData.callId),
             visibility: 'public',
-            // Full-screen intent for call UI
-            clickAction: 'INCOMING_CALL'
+            // Opens app directly on tap
+            clickAction: 'android.intent.action.MAIN'
           }
         },
         apns: {
           payload: {
             aps: {
               alert: {
-                title: `${callData.callerName || 'Unknown'}`,
+                title: String(callData.callerName || 'Unknown'),
                 body: `Incoming ${callData.callType} call`
               },
-              sound: 'default',
+              sound: 'ring_tone.aiff',
               badge: 1,
               contentAvailable: true,
               category: 'CALL_INVITATION'

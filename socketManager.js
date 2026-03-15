@@ -1101,7 +1101,9 @@ const initializeSocketIO = (server) => {
         // Check if receiver is busy (already on a call)
         if (isUserOnCall(receiver.userId)) {
           console.log(`📞 Receiver ${receiverId} is busy on another call`);
-          socket.emit('call:busy', { userId: receiverId });
+          // FIXED: send callId not userId — frontend CallSignaling expects { callId }
+          const tempId = `busy_${Date.now()}`;
+          socket.emit('call:busy', { callId: tempId, userId: receiverId });
           return;
         }
         
@@ -1151,6 +1153,26 @@ const initializeSocketIO = (server) => {
             if (callerSocket && callerSocket.connected) {
               callerSocket.emit('call:timeout', { callId });
             }
+            
+            // Send missed call FCM notification to receiver
+            try {
+              await fcmNotificationService.sendVisibleNotification(receiver.userId, {
+                title: `Missed ${callType} call`,
+                body: `You missed a ${callType} call from ${caller?.name || 'Unknown'}`,
+                channelId: 'chat_messages',
+                sound: 'default',
+                data: {
+                  type: 'missed_call',
+                  callId,
+                  callerId: userId,
+                  callerName: caller?.name || 'Unknown',
+                  callType,
+                }
+              });
+              console.log(`📱 [CALL] Missed call notification sent to ${receiver.userId}`);
+            } catch (err) {
+              console.error('❌ [CALL] Failed to send missed call notification:', err);
+            }
           }
         }, 60000); // 60 seconds
         
@@ -1174,62 +1196,26 @@ const initializeSocketIO = (server) => {
           offer
         };
         
-        // MULTI-DEVICE NOTIFICATION STRATEGY
-        let notificationSent = false;
-        
-        // Strategy 1: Primary WebSocket (if online)
+        // NOTIFICATION STRATEGY
+        // Strategy 1: WebSocket (receiver is online and connected)
         if (isReceiverOnline) {
-          console.log(`📱 [CALL] Strategy 1: Sending via primary WebSocket`);
-          console.log(`📱 [CALL] Receiver socket details:`, {
-            socketId: receiverSocket.id,
-            connected: receiverSocket.connected,
-            userId: receiver.userId,
-            eventName: 'call:incoming'
-          });
-          console.log(`📱 [CALL] Call data being sent:`, {
-            callId: callNotificationData.callId,
-            callerId: callNotificationData.callerId,
-            callerName: callNotificationData.callerName,
-            callType: callNotificationData.callType,
-            hasOffer: !!callNotificationData.offer
-          });
-          
+          console.log(`📱 [CALL] Strategy 1: Sending via WebSocket to ${receiverSocket.id}`);
           receiverSocket.emit('call:incoming', callNotificationData);
-          notificationSent = true;
+          console.log(`✅ [CALL] call:incoming emitted via WebSocket`);
           
-          console.log(`✅ [CALL] call:incoming event emitted to socket ${receiverSocket.id}`);
-          console.log(`✅ [CALL] Notification sent via WebSocket to user ${receiver.userId}`);
-        }
-        
-        // Strategy 2: Fallback to all registered devices (if WebSocket failed or as backup)
-        const receiverWithDevices = await User.findOne({ userId: receiverId }).select('deviceTokens');
-        if (receiverWithDevices && receiverWithDevices.deviceTokens && receiverWithDevices.deviceTokens.length > 0) {
-          console.log(`📱 [CALL] Strategy 2: Notifying ${receiverWithDevices.deviceTokens.length} registered device(s)`);
-          
-          // Emit to all active device tokens (for foreground services)
-          receiverWithDevices.deviceTokens.forEach((device, index) => {
-            if (device.isActive) {
-              console.log(`📱 [CALL] Notifying device ${index + 1}:`, {
-                platform: device.platform,
-                tokenPreview: device.token.substring(0, 20) + '...',
-                lastActive: device.lastActive
-              });
-              
-              // Emit special event for background service
-              io.emit(`call:incoming:${device.token}`, callNotificationData);
-            }
+          // Confirm to caller
+          socket.emit('call:ringing', {
+            callId,
+            receiverId: receiver.userId,
+            receiverName: receiver.name,
+            callType,
+            notificationMethod: 'websocket'
           });
           
-          notificationSent = true;
-          console.log(`✅ [CALL] Notification sent to all active devices`);
-        }
-        
-        // Strategy 3: Send FCM push notification if user is offline
-        let usedFCM = false;
-        if (!notificationSent) {
-          console.log(`📱 [CALL] User offline - attempting FCM push notification`);
+        } else {
+          // Strategy 2: FCM push notification (receiver is offline / backgrounded)
+          console.log(`📱 [CALL] Strategy 2: Receiver offline, sending FCM push notification`);
           
-          // Try to send FCM push notification
           const fcmResult = await fcmNotificationService.sendCallNotification(receiver.userId, {
             callId,
             callerId: userId,
@@ -1241,10 +1227,8 @@ const initializeSocketIO = (server) => {
           
           if (fcmResult.success) {
             console.log(`✅ [CALL] FCM push notification sent successfully`);
-            notificationSent = true;
-            usedFCM = true;
             
-            // Notify caller that call is ringing (FCM was sent)
+            // Confirm to caller that FCM was dispatched
             socket.emit('call:ringing', {
               callId,
               receiverId: receiver.userId,
@@ -1254,7 +1238,7 @@ const initializeSocketIO = (server) => {
             });
           } else {
             console.log(`❌ [CALL] FCM push notification failed - user truly unreachable`);
-            socket.emit('call:failed', { reason: 'User is offline and unreachable' });
+            socket.emit('call:failed', { callId, reason: 'User is offline and unreachable' });
             
             // Clean up call
             activeCalls.delete(callId);
@@ -1267,16 +1251,6 @@ const initializeSocketIO = (server) => {
             
             return;
           }
-        }
-        
-        // Confirm to caller that call is ringing (if not already sent via FCM path)
-        if (notificationSent && !usedFCM) {
-          socket.emit('call:ringing', {
-            callId,
-            receiverId: receiver.userId,
-            receiverName: receiver.name,
-            callType
-          });
         }
         
         console.log(`📞 Call ${callId} is ringing - notification sent successfully`);
