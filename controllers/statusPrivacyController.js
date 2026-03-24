@@ -98,6 +98,7 @@ const updateDefaultPrivacySettings = async (req, res) => {
     
     // Extract other root-level privacy fields if they exist
     if (req.body.allowedContacts) privacyData.allowedContacts = req.body.allowedContacts;
+    if (req.body.hasOwnProperty('allowPublicDialerLookup')) privacyData.allowPublicDialerLookup = req.body.allowPublicDialerLookup;
     if (req.body.allowedGroups) privacyData.allowedGroups = req.body.allowedGroups;
     if (req.body.blockedContacts) privacyData.blockedContacts = req.body.blockedContacts;
     if (req.body.locationSharing) privacyData.locationSharing = req.body.locationSharing;
@@ -163,7 +164,8 @@ const updateDefaultPrivacySettings = async (req, res) => {
           shareWith: 'all',
           allowedGroups: [],
           allowedContacts: []
-        }
+        },
+        allowPublicDialerLookup: privacyData.hasOwnProperty('allowPublicDialerLookup') ? privacyData.allowPublicDialerLookup : false
       };
     }
     

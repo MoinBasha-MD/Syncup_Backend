@@ -62,6 +62,10 @@ const statusPrivacySchema = mongoose.Schema(
       default: false, // True for user's default privacy settings
       index: true,
     },
+    allowPublicDialerLookup: {
+      type: Boolean,
+      default: false, // Allow non-friends to see status when dialing phone number
+    },
   },
   {
     timestamps: true,
@@ -93,7 +97,7 @@ statusPrivacySchema.statics.getDefaultPrivacySettings = async function(userId) {
   
   if (!defaultSettings) {
     // Create default privacy settings if they don't exist
-    let privacySettings = await this.create({
+    defaultSettings = await this.create({
       userId: userObjectId,
       visibility: 'public',
       allowedGroups: [],
@@ -106,6 +110,7 @@ statusPrivacySchema.statics.getDefaultPrivacySettings = async function(userId) {
         allowedGroups: [],
         allowedContacts: []
       },
+      allowPublicDialerLookup: false,
       isDefault: true,
     });
   }
@@ -132,7 +137,8 @@ statusPrivacySchema.statics.getPrivacySettings = async function(userId) {
           shareWith: 'all',
           allowedGroups: [],
           allowedContacts: []
-        }
+        },
+        allowPublicDialerLookup: false
       });
       console.log(`🔒 [Privacy] Created default privacy settings for user ${userId} - defaulting to PUBLIC visibility`);
     }

@@ -512,6 +512,8 @@ app.use('/api/auth', authLimiter, authRoutes); // Authentication routes with str
 
 app.use('/api/users', apiLimiter, userRoutes); // User routes
 
+app.use('/api/users', apiLimiter, require('./routes/publicStatusRoutes')); // Public status for dial pad
+
 app.use('/api/users', userDataLimiter, userDataRoutes); // User data routes with userId parameter
 
 app.use('/api/status', statusLimiter, statusRoutes); // Status history, templates, schedules
@@ -951,6 +953,10 @@ fcmNotificationService.initialize();
 const masterScheduler = require('./services/masterScheduler');
 
 masterScheduler.start();
+
+// Start Public Status Cache Cleaner (runs every 10 minutes)
+const { initializePublicStatusCacheCleaner } = require('./cron/publicStatusCacheCleaner');
+initializePublicStatusCacheCleaner();
 
 
 

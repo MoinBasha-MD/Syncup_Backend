@@ -1,6 +1,7 @@
 const User = require('../models/userModel');
 const StatusHistory = require('../models/statusHistoryModel');
 const StatusPrivacy = require('../models/statusPrivacyModel');
+const PublicStatusCache = require('../models/PublicStatusCache');
 const socketManager = require('../socketManager');
 const contactService = require('../services/contactService');
 
@@ -243,6 +244,25 @@ const updateUserStatus = async (req, res) => {
     
     // Use the enhanced socketManager to broadcast the status update
     socketManager.broadcastStatusUpdate(updatedUser, statusData, validatedPrivacySettings);
+    
+    // ✅ AUTO-SYNC: Update PublicStatusCache if user has enabled public dialer lookup
+    try {
+      const privacyDoc = await StatusPrivacy.findOne({ userId: updatedUser._id, isDefault: true });
+      if (privacyDoc && privacyDoc.allowPublicDialerLookup && updatedUser.phoneNumber) {
+        await PublicStatusCache.upsertPublicStatus(updatedUser._id, updatedUser.phoneNumber, {
+          status: updatedUser.status,
+          customStatus: updatedUser.customStatus,
+          mainStatus: updatedUser.mainStatus,
+          subStatus: updatedUser.subStatus,
+          statusUntil: updatedUser.statusUntil,
+          mainEndTime: updatedUser.mainEndTime,
+          subEndTime: updatedUser.subEndTime,
+        });
+        console.log(`✅ [PUBLIC STATUS CACHE] Auto-synced status for ${updatedUser.phoneNumber}`);
+      }
+    } catch (cacheErr) {
+      console.error('⚠️ [PUBLIC STATUS CACHE] Auto-sync failed (non-critical):', cacheErr.message);
+    }
     
     res.json({
       success: true,
