@@ -12,7 +12,8 @@ const {
   checkConnection,
   checkMultipleConnections,
   removeConnection,
-  getConnectionsHealth
+  getConnectionsHealth,
+  checkFriendshipByPhone
 } = require('../controllers/connectionController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -73,6 +74,11 @@ router.post('/check-multiple', checkMultipleConnections);
 // @desc    Remove/unfriend a connection
 // @access  Private
 router.delete('/:userId', removeConnection);
+
+// @route   GET /api/connections/check-friendship
+// @desc    Check if mutual friends by phone number (for pre-call status)
+// @access  Private
+router.get('/check-friendship', checkFriendshipByPhone);
 
 // @route   GET /api/connections/health
 // @desc    Health check for connections API

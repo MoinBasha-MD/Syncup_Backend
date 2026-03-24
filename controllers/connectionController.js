@@ -897,6 +897,102 @@ const removeConnection = asyncHandler(async (req, res) => {
 // @desc    Health check for connections API
 // @route   GET /api/connections/health
 // @access  Private
+// @desc    Check friendship by phone number (for pre-call status)
+// @route   GET /api/connections/check-friendship?phoneNumber=xxx
+// @access  Private
+const checkFriendshipByPhone = asyncHandler(async (req, res) => {
+  try {
+    const { phoneNumber } = req.query;
+    const currentUserId = req.user.userId;
+
+    if (!phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number is required'
+      });
+    }
+
+    console.log(`📞 [CHECK FRIENDSHIP] Checking friendship for phone: ${phoneNumber}`);
+
+    // Find user by phone number
+    const targetUser = await User.findOne({ phoneNumber });
+
+    if (!targetUser) {
+      console.log(`📞 [CHECK FRIENDSHIP] User not found for phone: ${phoneNumber}`);
+      return res.status(200).json({
+        success: true,
+        data: {
+          areFriends: false,
+          isMutual: false
+        }
+      });
+    }
+
+    const targetUserId = targetUser.userId;
+
+    // Check if they're the same user
+    if (currentUserId === targetUserId) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          areFriends: false,
+          isMutual: false
+        }
+      });
+    }
+
+    // Get both users' connection data
+    const currentUser = await User.findOne({ userId: currentUserId });
+    
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Current user not found'
+      });
+    }
+
+    // Check if target is in current user's contacts or appConnections
+    const isInCurrentUserContacts = currentUser.contacts?.some(
+      id => id.toString() === targetUser._id.toString()
+    );
+    const isInCurrentUserAppConnections = currentUser.appConnections?.some(
+      conn => conn.userId === targetUserId
+    );
+
+    // Check if current user is in target's contacts or appConnections
+    const isInTargetContacts = targetUser.contacts?.some(
+      id => id.toString() === currentUser._id.toString()
+    );
+    const isInTargetAppConnections = targetUser.appConnections?.some(
+      conn => conn.userId === currentUserId
+    );
+
+    const areFriends = (isInCurrentUserContacts || isInCurrentUserAppConnections) ||
+                       (isInTargetContacts || isInTargetAppConnections);
+    const isMutual = (isInCurrentUserContacts || isInCurrentUserAppConnections) &&
+                     (isInTargetContacts || isInTargetAppConnections);
+
+    console.log(`📞 [CHECK FRIENDSHIP] Result - areFriends: ${areFriends}, isMutual: ${isMutual}`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        areFriends,
+        isMutual,
+        friendUserId: targetUserId,
+        friendName: targetUser.name
+      }
+    });
+  } catch (error) {
+    console.error('❌ [CHECK FRIENDSHIP] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error checking friendship status',
+      error: error.message
+    });
+  }
+});
+
 const getConnectionsHealth = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
@@ -920,5 +1016,6 @@ module.exports = {
   checkConnection,
   checkMultipleConnections,
   removeConnection,
-  getConnectionsHealth
+  getConnectionsHealth,
+  checkFriendshipByPhone
 };

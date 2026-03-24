@@ -45,21 +45,38 @@ class FriendService {
         console.log(`  Friend ${index + 1}: friendUserId=${friend.friendUserId}, name=${friend.cachedData?.name || 'NO NAME'}, status=${friend.status}, source=${friend.source}, isDeviceContact=${friend.isDeviceContact}`);
       });
       
+      // ✅ FIX: Fetch fresh profile images from User model to avoid stale cached data
+      // Get all friend user IDs
+      const friendUserIds = filteredFriends.map(f => f.friendUserId);
+      
+      // Fetch fresh user data (only profileImage field for performance)
+      const freshUserData = await User.find({ userId: { $in: friendUserIds } })
+        .select('userId profileImage')
+        .lean();
+      
+      // Create a map for quick lookup
+      const userDataMap = new Map(freshUserData.map(u => [u.userId, u.profileImage]));
+      
+      console.log(`🔄 [FRIEND SERVICE] Fetched fresh profile images for ${freshUserData.length} users`);
+      
       // Return formatted friend list with cached data
-      // CRITICAL FIX: Only expose phone number for device contacts (privacy protection)
+      // PRIVACY: Only expose phone number for device contacts (local contacts)
+      // App connections should NOT have phone numbers exposed
       return filteredFriends.map(friend => ({
         friendUserId: friend.friendUserId,
         name: friend.cachedData.name,
-        profileImage: friend.cachedData.profileImage,
+        profileImage: userDataMap.get(friend.friendUserId) || friend.cachedData.profileImage, // ✅ Use fresh data
         username: friend.cachedData.username,
         isOnline: friend.cachedData.isOnline,
         lastSeen: friend.cachedData.lastSeen,
         source: friend.source,
-        status: friend.status,
+        status: friend.status, // Friendship status (accepted/pending)
+        currentStatus: friend.cachedData.currentStatus, // User's actual status (Available/Busy/etc)
+        customStatus: friend.cachedData.customStatus, // User's custom status text
         addedAt: friend.addedAt,
         isDeviceContact: friend.isDeviceContact,
-        // PRIVACY FIX: Only return phone number for device contacts
-        // App connections (friend requests) should NOT see phone numbers
+        // PRIVACY: Only return phone number for device contacts
+        // App connections (online friends) should NOT see phone numbers
         phoneNumber: friend.isDeviceContact ? friend.phoneNumber : undefined,
         settings: friend.settings,
         interactions: friend.interactions

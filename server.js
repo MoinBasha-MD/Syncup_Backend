@@ -668,6 +668,14 @@ app.use('/api', encryptedFileRoutes);
 
 
 
+// ✅ Profile Image Validator - Check file existence before serving
+
+const { validateProfileImage } = require('./middleware/profileImageValidator');
+
+app.use('/uploads/profile-images', validateProfileImage);
+
+
+
 // ✅ Serve uploads directory with optimized video streaming
 
 app.use('/uploads/post-media', mediaCacheControl, videoStreamingHandler('post-media'));
