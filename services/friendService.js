@@ -49,38 +49,48 @@ class FriendService {
       // Get all friend user IDs
       const friendUserIds = filteredFriends.map(f => f.friendUserId);
       
-      // Fetch fresh user data (only profileImage field for performance)
+      // Fetch fresh user data: profileImage + live status fields
       const freshUserData = await User.find({ userId: { $in: friendUserIds } })
-        .select('userId profileImage')
+        .select('userId profileImage mainStatus customStatus statusUntil mainEndTime subStatus')
         .lean();
       
       // Create a map for quick lookup
-      const userDataMap = new Map(freshUserData.map(u => [u.userId, u.profileImage]));
+      const userDataMap = new Map(freshUserData.map(u => [u.userId, u]));
       
-      console.log(`🔄 [FRIEND SERVICE] Fetched fresh profile images for ${freshUserData.length} users`);
+      console.log(`🔄 [FRIEND SERVICE] Fetched fresh profile images + status for ${freshUserData.length} users`);
       
       // Return formatted friend list with cached data
       // PRIVACY: Only expose phone number for device contacts (local contacts)
       // App connections should NOT have phone numbers exposed
-      return filteredFriends.map(friend => ({
-        friendUserId: friend.friendUserId,
-        name: friend.cachedData.name,
-        profileImage: userDataMap.get(friend.friendUserId) || friend.cachedData.profileImage, // ✅ Use fresh data
-        username: friend.cachedData.username,
-        isOnline: friend.cachedData.isOnline,
-        lastSeen: friend.cachedData.lastSeen,
-        source: friend.source,
-        status: friend.status, // Friendship status (accepted/pending)
-        currentStatus: friend.cachedData.currentStatus, // User's actual status (Available/Busy/etc)
-        customStatus: friend.cachedData.customStatus, // User's custom status text
-        addedAt: friend.addedAt,
-        isDeviceContact: friend.isDeviceContact,
-        // PRIVACY: Only return phone number for device contacts
-        // App connections (online friends) should NOT see phone numbers
-        phoneNumber: friend.isDeviceContact ? friend.phoneNumber : undefined,
-        settings: friend.settings,
-        interactions: friend.interactions
-      }));
+      return filteredFriends.map(friend => {
+        const freshUser = userDataMap.get(friend.friendUserId) || {};
+        // Treat 'Available' (the User model default) as no-status so UI shows 'No status'
+        const rawMainStatus = freshUser.mainStatus;
+        const liveMainStatus = (rawMainStatus && rawMainStatus.toLowerCase() !== 'available')
+          ? rawMainStatus
+          : undefined;
+        return {
+          friendUserId: friend.friendUserId,
+          name: friend.cachedData.name,
+          profileImage: freshUser.profileImage || friend.cachedData.profileImage,
+          username: friend.cachedData.username,
+          isOnline: friend.cachedData.isOnline,
+          lastSeen: friend.cachedData.lastSeen,
+          source: friend.source,
+          status: friend.status, // Friendship status (accepted/pending)
+          mainStatus: liveMainStatus, // Live activity status from User model
+          customStatus: freshUser.customStatus || undefined,
+          statusUntil: freshUser.statusUntil || freshUser.mainEndTime || undefined,
+          subStatus: freshUser.subStatus || undefined,
+          addedAt: friend.addedAt,
+          isDeviceContact: friend.isDeviceContact,
+          // PRIVACY: Only return phone number for device contacts
+          // App connections (online friends) should NOT see phone numbers
+          phoneNumber: friend.isDeviceContact ? friend.phoneNumber : undefined,
+          settings: friend.settings,
+          interactions: friend.interactions
+        };
+      });
     } catch (error) {
       console.error('❌ [FRIEND SERVICE] Error getting friends:', error);
       throw new Error(`Failed to get friends: ${error.message}`);
