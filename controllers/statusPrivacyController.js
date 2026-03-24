@@ -13,30 +13,12 @@ const getPrivacyInfo = async (req, res) => {
     // Get user's current privacy settings
     const privacySettings = await StatusPrivacy.getDefaultPrivacySettings(req.user._id);
     
+    console.log('🔒 [PRIVACY] Returning privacy settings with allowPublicDialerLookup:', privacySettings?.allowPublicDialerLookup);
+    
     res.status(200).json({
       success: true,
       message: 'Status Privacy API',
-      data: {
-        currentSettings: privacySettings,
-        availableVisibilityOptions: [
-          'public',
-          'private', 
-          'contacts_only',
-          'app_connections_only',
-          'friends',
-          'selected_groups',
-          'custom_list'
-        ],
-        endpoints: {
-          getCurrentSettings: 'GET /api/status-privacy',
-          getDefaultSettings: 'GET /api/status-privacy/default',
-          updateDefaultSettings: 'PUT /api/status-privacy/default',
-          getStatusSettings: 'GET /api/status-privacy/status/:statusId',
-          setStatusSettings: 'POST /api/status-privacy/status/:statusId',
-          checkVisibility: 'GET /api/status-privacy/can-see/:userId/:statusId',
-          getUserGroups: 'GET /api/status-privacy/groups'
-        }
-      }
+      data: privacySettings
     });
   } catch (error) {
     console.error('Error getting privacy info:', error);
