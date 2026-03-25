@@ -2488,13 +2488,28 @@ const broadcastSystemAnnouncement = (title, message, priority = 'normal') => {
   return successCount;
 };
 
+// CRITICAL FIX: Rate limiting for broadcastToAll to prevent event storms
+const broadcastRateLimits = new Map(); // Track last broadcast time per event type
+const BROADCAST_THROTTLE_MS = 100; // Minimum 100ms between broadcasts of same event type
+
 /**
- * Broadcast to all connected users
+ * Broadcast to all connected users with rate limiting
  * @param {string} event - Event name to emit
  * @param {Object} data - Data to send with the event
  */
 const broadcastToAll = (event, data) => {
   try {
+    // CRITICAL FIX: Throttle broadcasts to prevent RCTEventEmitter overflow
+    const now = Date.now();
+    const lastBroadcast = broadcastRateLimits.get(event) || 0;
+    
+    if (now - lastBroadcast < BROADCAST_THROTTLE_MS) {
+      console.log(`⚠️ [THROTTLE] Skipping ${event} broadcast (too soon: ${now - lastBroadcast}ms)`);
+      return 0;
+    }
+    
+    broadcastRateLimits.set(event, now);
+    
     console.log(`📡 Broadcasting ${event} to all connected users (${userSockets.size} users)`);
     
     let successCount = 0;
