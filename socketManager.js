@@ -1314,8 +1314,10 @@ const initializeSocketIO = (server) => {
           
           // CRITICAL FIX: Also notify caller that call is connected
           // This allows caller to transition from "connecting" to "connected" state
-          callerSocket.emit('call:connected', { callId });
-          console.log(`✅ Sent call:connected to caller ${call.callerId}`);
+          setTimeout(() => {
+            callerSocket.emit('call:connected', { callId });
+            console.log(`✅ Sent call:connected to caller ${call.callerId}`);
+          }, 100); // Small delay to ensure answer is processed first
         }
         
         // Confirm to receiver

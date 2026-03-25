@@ -2,7 +2,7 @@ const asyncHandler = require('express-async-handler');
 const Call = require('../models/callModel');
 const User = require('../models/userModel');
 
-// @desc    Get call history for current user
+// @desc    Get call history for current user with detailed statistics
 // @route   GET /api/calls/history
 // @access  Private
 const getCallHistory = asyncHandler(async (req, res) => {
@@ -19,7 +19,33 @@ const getCallHistory = asyncHandler(async (req, res) => {
   })
   .sort({ createdAt: -1 })
   .limit(limit)
-  .skip(skip);
+  .skip(skip)
+  .lean();
+
+  // Populate user details for each call
+  const callsWithUserDetails = await Promise.all(calls.map(async (call) => {
+    const isOutgoing = call.callerId === userId;
+    const otherUserId = isOutgoing ? call.receiverId : call.callerId;
+    
+    // Fetch other user details
+    const otherUser = await User.findOne({ userId: otherUserId })
+      .select('userId name profileImage')
+      .lean();
+    
+    return {
+      ...call,
+      isOutgoing,
+      otherUser: otherUser ? {
+        userId: otherUser.userId,
+        name: otherUser.name || 'Unknown',
+        profileImage: otherUser.profileImage || null
+      } : {
+        userId: otherUserId,
+        name: isOutgoing ? call.receiverName : call.callerName,
+        profileImage: isOutgoing ? call.receiverAvatar : call.callerAvatar
+      }
+    };
+  }));
 
   const total = await Call.countDocuments({
     $or: [
@@ -30,7 +56,7 @@ const getCallHistory = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    calls,
+    calls: callsWithUserDetails,
     pagination: {
       total,
       page,

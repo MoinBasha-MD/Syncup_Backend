@@ -61,6 +61,51 @@ const callSchema = new mongoose.Schema({
     enum: ['excellent', 'good', 'poor', 'unknown'],
     default: 'unknown'
   },
+  // Network and Quality Statistics
+  networkStats: {
+    dataUsed: {
+      type: Number, // in MB
+      default: 0
+    },
+    averageBitrate: {
+      type: Number, // in kbps
+      default: 0
+    },
+    packetLoss: {
+      type: Number, // percentage
+      default: 0
+    },
+    jitter: {
+      type: Number, // in ms
+      default: 0
+    },
+    roundTripTime: {
+      type: Number, // in ms (latency)
+      default: 0
+    }
+  },
+  // Quality Metrics
+  qualityMetrics: {
+    audioQuality: {
+      type: String,
+      enum: ['excellent', 'good', 'fair', 'poor', 'unknown'],
+      default: 'unknown'
+    },
+    videoQuality: {
+      type: String,
+      enum: ['excellent', 'good', 'fair', 'poor', 'unknown', 'n/a'],
+      default: 'n/a'
+    },
+    connectionType: {
+      type: String,
+      enum: ['wifi', '4g', '5g', '3g', '2g', 'ethernet', 'unknown'],
+      default: 'unknown'
+    },
+    iceConnectionState: {
+      type: String,
+      default: 'unknown'
+    }
+  },
   endReason: {
     type: String,
     enum: ['user_ended', 'timeout', 'network_error', 'rejected', 'busy', 'missed', 'cancelled'],
