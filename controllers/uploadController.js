@@ -119,20 +119,22 @@ const postMediaStorage = multer.diskStorage({
   }
 });
 
+// Allowed post media MIME types (front-end sends image/jpeg for photos and video/mp4 for videos)
+const ALLOWED_POST_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime'];
+
 // File filter for post media (images and videos)
 const postMediaFilter = (req, file, cb) => {
-  // Accept images and videos
-  if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+  if (ALLOWED_POST_MEDIA_TYPES.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Only image and video files are allowed!'), false);
+    cb(new Error(`File type ${file.mimetype} is not allowed for posts`), false);
   }
 };
 
 const postMediaUpload = multer({ 
   storage: postMediaStorage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB max file size for post media
+    fileSize: 50 * 1024 * 1024, // 50MB max file size for post media
   },
   fileFilter: postMediaFilter
 });
@@ -634,7 +636,9 @@ const uploadPostMedia = async (req, res) => {
     // If there was an error and a file was uploaded, delete it
     if (req.file && fs.existsSync(req.file.path)) {
       console.log('📸 Cleaning up file due to error:', req.file.path);
-      fs.unlinkSync(req.file.path);
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('❌ Error deleting post media file:', err);
+      });
     }
     res.status(500).json({
       success: false,

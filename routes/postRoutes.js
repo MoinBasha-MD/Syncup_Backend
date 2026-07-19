@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const { postCreationLimiter } = require('../middleware/rateLimiter');
 const {
   createPost: createStatusPost,
   getUserPost,
@@ -71,7 +72,7 @@ router.post('/cleanup', protect, cleanupExpiredPosts);
 // @route   POST /api/posts/create
 // @desc    Create a new feed post
 // @access  Private
-router.post('/create', protect, createFeedPost);
+router.post('/create', protect, postCreationLimiter, createFeedPost);
 
 // @route   GET /api/posts/feed
 // @desc    Get feed posts (For You - friends only)

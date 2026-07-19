@@ -10,10 +10,30 @@ const createFeedPost = async (req, res) => {
     const userId = req.user.userId;
 
     // Validate required fields
-    if (!type || !mediaUrls || mediaUrls.length === 0) {
+    const validTypes = ['photo', 'video', 'carousel'];
+    const validPrivacy = ['public', 'friends', 'private'];
+    if (!type || !validTypes.includes(type)) {
       return res.status(400).json({
         success: false,
-        message: 'Post type and media are required'
+        message: 'Post type must be photo, video, or carousel'
+      });
+    }
+    if (!mediaUrls || !Array.isArray(mediaUrls) || mediaUrls.length === 0 || mediaUrls.some(url => typeof url !== 'string' || url.trim().length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one valid media URL is required'
+      });
+    }
+    if (privacy && !validPrivacy.includes(privacy)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Privacy must be public, friends, or private'
+      });
+    }
+    if (caption && (typeof caption !== 'string' || caption.length > 5000)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Caption must be a string with max 5000 characters'
       });
     }
 
