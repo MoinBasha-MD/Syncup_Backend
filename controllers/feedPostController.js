@@ -10,18 +10,29 @@ const createFeedPost = async (req, res) => {
     const userId = req.user.userId;
 
     // Validate required fields
-    const validTypes = ['photo', 'video', 'carousel'];
+    const validTypes = ['photo', 'video', 'carousel', 'text'];
     const validPrivacy = ['public', 'friends', 'private'];
     if (!type || !validTypes.includes(type)) {
       return res.status(400).json({
         success: false,
-        message: 'Post type must be photo, video, or carousel'
+        message: 'Post type must be photo, video, carousel, or text'
       });
     }
-    if (!mediaUrls || !Array.isArray(mediaUrls) || mediaUrls.length === 0 || mediaUrls.some(url => typeof url !== 'string' || url.trim().length === 0)) {
+
+    // Text-only posts don't require media; media posts still require at least one URL
+    const isTextOnly = type === 'text';
+    if (!isTextOnly && (!mediaUrls || !Array.isArray(mediaUrls) || mediaUrls.length === 0 || mediaUrls.some(url => typeof url !== 'string' || url.trim().length === 0))) {
       return res.status(400).json({
         success: false,
         message: 'At least one valid media URL is required'
+      });
+    }
+
+    // Text-only posts must have a caption
+    if (isTextOnly && (!caption || caption.trim().length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Text posts require a caption'
       });
     }
     if (privacy && !validPrivacy.includes(privacy)) {
@@ -70,8 +81,8 @@ const createFeedPost = async (req, res) => {
       console.log(`📄 [PAGE POST] User ${userId} posting as page ${page.name}`);
     }
 
-    // Create media items with encryption metadata
-    const media = mediaUrls.map((url, index) => {
+    // Create media items with encryption metadata (empty for text-only posts)
+    const media = isTextOnly ? [] : (mediaUrls || []).map((url, index) => {
       const mediaItem = {
         type: type === 'carousel' ? (url.includes('.mp4') ? 'video' : 'photo') : type,
         url: url,

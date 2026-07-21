@@ -90,7 +90,7 @@ const feedPostSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['photo', 'video', 'carousel'],
+    enum: ['photo', 'video', 'carousel', 'text'],
     required: true
   },
   caption: {
@@ -104,7 +104,10 @@ const feedPostSchema = new mongoose.Schema({
     default: false,
     select: false // Don't include in queries by default
   },
-  media: [mediaItemSchema],
+  media: {
+    type: [mediaItemSchema],
+    default: []
+  },
   location: {
     name: {
       type: String

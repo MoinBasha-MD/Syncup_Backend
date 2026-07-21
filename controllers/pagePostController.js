@@ -135,7 +135,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         pageId: page._id,
         pageVisibility: 'public', // ✅ PHASE 1
         type: normalizedMedia.length > 0 ? 
-          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'text'
       });
       
       await feedPost.save();
@@ -189,7 +189,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         pageVisibility: 'followers',
         targetUserIds: followerIds, // ✅ WEEK 1 FIX: Array of all targeted users
         type: normalizedMedia.length > 0 ? 
-          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'text'
       });
       
       await feedPost.save();
@@ -243,7 +243,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         pageVisibility: 'custom',
         targetUserIds: targetFollowerIds, // ✅ WEEK 1 FIX: Array of all targeted users
         type: normalizedMedia.length > 0 ? 
-          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'photo'
+          (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'text'
       });
       
       await feedPost.save();
