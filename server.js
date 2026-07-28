@@ -90,6 +90,8 @@ const postRoutes = require('./routes/postRoutes');
 
 const storyRoutes = require('./routes/storyRoutes');
 
+const blinkRoutes = require('./routes/blinkRoutes');
+
 const friendRoutes = require('./routes/friendRoutes');
 
 const profileRoutes = require('./routes/profileRoutes');
@@ -547,6 +549,8 @@ app.use('/api/group-chats', apiLimiter, groupChatRoutes); // Group chat messagin
 app.use('/api/posts', apiLimiter, postRoutes); // User posts management routes
 
 app.use('/api/stories', apiLimiter, storyRoutes); // Stories management routes
+
+app.use('/api/blinks', apiLimiter, blinkRoutes); // Blinks management routes
 
 app.use('/api/friends', apiLimiter, friendRoutes); // Friends management routes (NEW)
 
