@@ -9,8 +9,7 @@ class BlinkController {
         return res.status(400).json({ success: false, message: 'User authentication failed' });
       }
 
-      const contactsArray = req.body?.contacts || null;
-      const blinks = await blinkService.getContactsBlinks(currentUserId, { contactsArray });
+      const blinks = await blinkService.getContactsBlinks(currentUserId);
 
       res.status(200).json({ success: true, data: blinks });
     } catch (error) {

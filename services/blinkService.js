@@ -4,10 +4,10 @@ const User = require('../models/userModel');
 class BlinkService {
   // Get active blinks from user’s contacts and own blinks
   async getContactsBlinks(currentUserId, options = {}) {
-    const { limit = 50, offset = 0, contactsArray = null } = options;
+    const { limit = 50, offset = 0 } = options;
 
     try {
-      const contactUserIds = await this.getUserContactIds(currentUserId, contactsArray);
+      const contactUserIds = await this.getUserContactIds(currentUserId);
       const allUserIds = contactUserIds.length > 0
         ? [currentUserId, ...contactUserIds]
         : [currentUserId];
@@ -245,35 +245,17 @@ class BlinkService {
     }
   }
 
-  // Get user contact IDs
-  async getUserContactIds(currentUserId, contactsArray = null) {
+  // Get accepted friend IDs. Blinks are visible to accepted friends only.
+  async getUserContactIds(currentUserId) {
     try {
-      try {
-        const Friend = require('../models/Friend');
-        const friends = await Friend.getFriends(currentUserId, {
-          status: 'accepted',
-          includeDeviceContacts: true,
-          includeAppConnections: true
-        });
+      const Friend = require('../models/Friend');
+      const friends = await Friend.getFriends(currentUserId, { status: 'accepted' });
 
-        if (friends && friends.length > 0) {
-          return friends
-            .filter(friend => friend && friend.friendUserId)
-            .map(friend => friend.friendUserId);
-        }
-      } catch (friendModelError) {
-        console.error('Error getting friends from Friend model:', friendModelError);
-      }
-
-      if (contactsArray && Array.isArray(contactsArray) && contactsArray.length > 0) {
-        return contactsArray
-          .filter(contact => contact && (contact.userId || contact.id))
-          .map(contact => contact.userId || contact.id);
-      }
-
-      return [];
+      return (friends || [])
+        .filter(friend => friend && friend.friendUserId)
+        .map(friend => friend.friendUserId);
     } catch (error) {
-      console.error('Error getting user contacts:', error);
+      console.error('Error getting accepted friends for blink distribution:', error);
       return [];
     }
   }
