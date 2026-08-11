@@ -261,13 +261,38 @@ const getFeedPosts = async (req, res) => {
     console.log(`📱 [FOR YOU] user=${userId} friends=${friendUserIds.length} pages=${allPageIds.length}`);
 
     // Pass friend IDs + all page IDs (followed + owned) to getFeedPosts
-    const posts = await FeedPost.getFeedPosts(userId, page, limit, friendUserIds, allPageIds);
+    const rawPosts = await FeedPost.getFeedPosts(userId, page, limit, friendUserIds, allPageIds);
 
-    // ENCRYPTION DISABLED - Posts stored as plain text
-    // No decryption needed
-    const decryptedPosts = posts;
+    // Filter out posts with broken/missing media files
+    const fs = require('fs');
+    const path = require('path');
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    
+    const decryptedPosts = rawPosts.filter(post => {
+      // Text-only posts (no media) are always valid
+      if (!post.media || post.media.length === 0) {
+        return (post.caption || '').trim().length > 0;
+      }
+      // Check at least one media item has a reachable file
+      const hasValidMedia = post.media.some(item => {
+        if (!item || !item.url) return false;
+        // Extract relative path from URL
+        let relativePath = item.url;
+        if (relativePath.includes('/uploads/')) {
+          relativePath = relativePath.split('/uploads/').pop();
+        }
+        if (!relativePath) return false;
+        const filePath = path.join(uploadsDir, relativePath);
+        try {
+          return fs.existsSync(filePath);
+        } catch (_) {
+          return false;
+        }
+      });
+      return hasValidMedia;
+    });
 
-    console.log(`✅ Returning ${decryptedPosts.length} FOR YOU posts (own + friends + pages)`);
+    console.log(`✅ Returning ${decryptedPosts.length} FOR YOU posts (filtered from ${rawPosts.length}, own + friends + pages)`);
 
     res.status(200).json({
       success: true,
@@ -1144,16 +1169,42 @@ const getExplorePosts = async (req, res) => {
       posts = await FeedPost.getExplorePosts(userId, page, limit, friendUserIds, allPageIds);
     }
 
-    console.log(`✅ Returning ${posts.length} EXPLORE posts (${usePersonalization ? 'personalized' : 'chronological'})`);
+    // Filter out posts with broken/missing media files
+    const fs = require('fs');
+    const path = require('path');
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    
+    const validPosts = posts.filter(post => {
+      if (!post.media || post.media.length === 0) {
+        return (post.caption || '').trim().length > 0;
+      }
+      const hasValidMedia = post.media.some(item => {
+        if (!item || !item.url) return false;
+        let relativePath = item.url;
+        if (relativePath.includes('/uploads/')) {
+          relativePath = relativePath.split('/uploads/').pop();
+        }
+        if (!relativePath) return false;
+        const filePath = path.join(uploadsDir, relativePath);
+        try {
+          return fs.existsSync(filePath);
+        } catch (_) {
+          return false;
+        }
+      });
+      return hasValidMedia;
+    });
+
+    console.log(`✅ Returning ${validPosts.length} EXPLORE posts (filtered from ${posts.length}, ${usePersonalization ? 'personalized' : 'chronological'})`);
 
     res.status(200).json({
       success: true,
-      data: posts,
+      data: validPosts,
       personalized: usePersonalization,
       pagination: {
         page,
         limit,
-        total: posts.length
+        total: validPosts.length
       }
     });
 
