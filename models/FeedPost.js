@@ -201,6 +201,11 @@ const feedPostSchema = new mongoose.Schema({
       type: String,
       enum: ['mix', 'replace', 'mute_original'],
       default: 'mix'
+    },
+    // Loop the music clip until the video ends
+    loop: {
+      type: Boolean,
+      default: true
     }
   },
   isActive: {
