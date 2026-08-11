@@ -168,8 +168,7 @@ const feedPostSchema = new mongoose.Schema({
   // Music/audio attached to the post
   music: {
     trackId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'MusicTrack'
+      type: String
     },
     title: {
       type: String

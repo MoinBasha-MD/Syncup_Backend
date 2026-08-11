@@ -119,10 +119,12 @@ const createFeedPost = async (req, res) => {
         mixMode: ['mix', 'replace', 'mute_original'].includes(music.mixMode) ? music.mixMode : 'mix'
       };
 
-      // Increment usage count on the music track
+      // Increment usage count on the music track (only for real MongoDB ObjectIds)
       try {
-        const MusicTrack = require('../models/MusicTrack');
-        await MusicTrack.findByIdAndUpdate(music.trackId, { $inc: { usageCount: 1 } });
+        if (music.trackId && /^[0-9a-fA-F]{24}$/.test(music.trackId)) {
+          const MusicTrack = require('../models/MusicTrack');
+          await MusicTrack.findByIdAndUpdate(music.trackId, { $inc: { usageCount: 1 } });
+        }
       } catch (musicErr) {
         console.warn('⚠️ Failed to increment music usage:', musicErr.message);
       }
