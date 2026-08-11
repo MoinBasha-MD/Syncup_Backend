@@ -6,7 +6,7 @@ const { getInstance: getPostEncryption } = require('../utils/postEncryption');
 // Create a new feed post
 const createFeedPost = async (req, res) => {
   try {
-    const { caption, type, mediaUrls, mediaMetadata, location, privacy, pageId } = req.body;
+    const { caption, type, mediaUrls, mediaMetadata, location, privacy, pageId, music } = req.body;
     const userId = req.user.userId;
 
     // Validate required fields
@@ -105,6 +105,29 @@ const createFeedPost = async (req, res) => {
       return mediaItem;
     });
 
+    // Build music metadata if provided
+    let musicData = undefined;
+    if (music && music.trackId) {
+      musicData = {
+        trackId: music.trackId,
+        title: music.title || '',
+        artist: music.artist || '',
+        filename: music.filename || '',
+        startTime: typeof music.startTime === 'number' ? music.startTime : 0,
+        endTime: typeof music.endTime === 'number' ? music.endTime : 30,
+        volume: typeof music.volume === 'number' ? Math.min(1, Math.max(0, music.volume)) : 0.7,
+        mixMode: ['mix', 'replace', 'mute_original'].includes(music.mixMode) ? music.mixMode : 'mix'
+      };
+
+      // Increment usage count on the music track
+      try {
+        const MusicTrack = require('../models/MusicTrack');
+        await MusicTrack.findByIdAndUpdate(music.trackId, { $inc: { usageCount: 1 } });
+      } catch (musicErr) {
+        console.warn('⚠️ Failed to increment music usage:', musicErr.message);
+      }
+    }
+
     // Create new feed post
     const newPost = new FeedPost({
       userId,
@@ -113,6 +136,7 @@ const createFeedPost = async (req, res) => {
       type,
       caption: caption || '',
       media,
+      music: musicData,
       location: location ? { name: location } : undefined,
       privacy: privacy || 'public',
       // Phase 2: Page post fields
@@ -161,6 +185,7 @@ const createFeedPost = async (req, res) => {
         type: newPost.type,
         caption: newPost.caption,
         media: newPost.media,
+        music: newPost.music || null,
         location: newPost.location,
         privacy: newPost.privacy,
         likesCount: newPost.likesCount,

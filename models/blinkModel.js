@@ -16,6 +16,11 @@ const blinkSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
   mediaUrl: {
     type: String,
     required: true
@@ -38,6 +43,15 @@ const blinkSchema = new mongoose.Schema({
     default: '',
     maxlength: 200
   },
+  // Recipients the Blink is explicitly shared with. Empty/null means all accepted friends.
+  recipients: [{
+    type: String,
+    index: true
+  }],
+  recipientGroups: [{
+    type: String,
+    index: true
+  }],
   seenBy: [{
     userId: { type: String, required: true },
     seenAt: { type: Date, default: Date.now }
@@ -53,8 +67,14 @@ const blinkSchema = new mongoose.Schema({
 // TTL index for automatic cleanup of expired blinks
 blinkSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+// Only one active Blink per user at the database level
+blinkSchema.index(
+  { userId: 1 },
+  { unique: true, partialFilterExpression: { isActive: true } }
+);
+
 // Index for finding active blinks for contacts
-blinkSchema.index({ userId: 1, expiresAt: 1 });
+blinkSchema.index({ userId: 1, isActive: 1, expiresAt: 1 });
 
 // Pre-save middleware to set expiresAt to 12 hours from creation
 blinkSchema.pre('save', function(next) {

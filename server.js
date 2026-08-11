@@ -150,6 +150,8 @@ const encryptedFileRoutes = require('./routes/encryptedFileRoutes');
 
 const imageSpaceRoutes = require('./routes/imageSpaceRoutes');
 
+const musicRoutes = require('./routes/musicRoutes');
+
 const container = require('./config/container');
 
 const { initializeSocketIO } = require('./socketManager');
@@ -607,6 +609,7 @@ app.use('/api/otp', apiLimiter, otpRoutes); // OTP verification routes (email ve
 app.use('/api/crypto', apiLimiter, cryptoRoutes); // E2EE key exchange routes (Phase 1)
 
 app.use('/api/hashtags', apiLimiter, require('./routes/hashtagRoutes')); // Hashtag management routes (trending, search, stats)
+app.use('/api/music', apiLimiter, musicRoutes); // Music library routes (browse, stream, trending)
 
 app.use('/api/notifications', apiLimiter, require('./routes/fcmRoutes')); // FCM token registration routes
 
@@ -686,6 +689,7 @@ app.use('/uploads/profile-images', validateProfileImage);
 
 app.use('/uploads/post-media', mediaCacheControl, videoStreamingHandler('post-media'));
 
+app.use('/uploads/music-library', mediaCacheControl, express.static(path.join(__dirname, 'uploads', 'music-library')));
 app.use('/uploads', mediaCacheControl, express.static(path.join(__dirname, 'uploads')));
 
 

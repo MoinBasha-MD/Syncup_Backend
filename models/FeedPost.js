@@ -165,6 +165,44 @@ const feedPostSchema = new mongoose.Schema({
   originalUserId: {
     type: String
   },
+  // Music/audio attached to the post
+  music: {
+    trackId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MusicTrack'
+    },
+    title: {
+      type: String
+    },
+    artist: {
+      type: String
+    },
+    filename: {
+      type: String
+    },
+    // Trim settings: which segment of the track to play (seconds)
+    startTime: {
+      type: Number,
+      default: 0
+    },
+    endTime: {
+      type: Number,
+      default: 30
+    },
+    // Volume of the background music (0.0 - 1.0)
+    volume: {
+      type: Number,
+      default: 0.7,
+      min: 0,
+      max: 1
+    },
+    // How to handle original video audio
+    mixMode: {
+      type: String,
+      enum: ['mix', 'replace', 'mute_original'],
+      default: 'mix'
+    }
+  },
   isActive: {
     type: Boolean,
     default: true,

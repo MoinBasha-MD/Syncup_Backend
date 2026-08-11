@@ -76,6 +76,9 @@ class BlinkController {
       res.status(200).json({ success: true, data: result });
     } catch (error) {
       console.error('Error marking blink as seen:', error);
+      if (error.message.includes('not authorized')) {
+        return res.status(403).json({ success: false, message: error.message });
+      }
       if (error.message.includes('not found')) {
         return res.status(404).json({ success: false, message: error.message });
       }
@@ -96,6 +99,9 @@ class BlinkController {
       res.status(200).json({ success: true, data: result });
     } catch (error) {
       console.error('Error toggling blink like:', error);
+      if (error.message.includes('not authorized')) {
+        return res.status(403).json({ success: false, message: error.message });
+      }
       if (error.message.includes('not found')) {
         return res.status(404).json({ success: false, message: error.message });
       }
@@ -103,14 +109,32 @@ class BlinkController {
     }
   }
 
-  // POST /api/blinks/cleanup
-  async cleanupBlinks(req, res) {
+  // POST /api/blinks/:id/capture
+  // Reports a screenshot or screen recording captured while viewing a Blink.
+  async reportBlinkCapture(req, res) {
     try {
-      const result = await blinkService.cleanupExpiredBlinks();
+      const currentUserId = req.user.userId || req.user.id || req.user._id?.toString();
+      if (!currentUserId) {
+        return res.status(400).json({ success: false, message: 'User authentication failed' });
+      }
+
+      const { id } = req.params;
+      const { captureType } = req.body;
+      if (!captureType || !['screenshot', 'screen_recording'].includes(captureType)) {
+        return res.status(400).json({ success: false, message: 'Valid captureType is required' });
+      }
+
+      const result = await blinkService.reportBlinkCapture(id, currentUserId, captureType);
       res.status(200).json({ success: true, data: result });
     } catch (error) {
-      console.error('Error cleaning up blinks:', error);
-      res.status(500).json({ success: false, message: error.message || 'Failed to cleanup blinks' });
+      console.error('Error reporting Blink capture:', error);
+      if (error.message.includes('not authorized')) {
+        return res.status(403).json({ success: false, message: error.message });
+      }
+      if (error.message.includes('not found')) {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      res.status(500).json({ success: false, message: error.message || 'Failed to report capture' });
     }
   }
 }

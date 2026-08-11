@@ -23,7 +23,10 @@ const notificationSchema = new mongoose.Schema({
       'follow',
       'friend_request',
       'call_missed',
-      'message'
+      'message',
+      'blink_like',
+      'blink_screenshot',
+      'blink_screen_recording'
     ]
   },
   fromUserId: {

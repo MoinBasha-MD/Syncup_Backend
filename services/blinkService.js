@@ -1,7 +1,38 @@
 const Blink = require('../models/blinkModel');
 const User = require('../models/userModel');
+const blinkNotificationService = require('./blinkNotificationService');
+const fs = require('fs');
+const path = require('path');
 
 class BlinkService {
+  // Remove uploaded media/music files from disk so deleted/replaced Blinks do not leak storage
+  deleteBlinkMediaFiles(mediaUrl, musicUrl) {
+    try {
+      const deleteFileFromUrl = (url) => {
+        if (!url || typeof url !== 'string') return;
+        let relativePath = url;
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+          try {
+            const parsed = new URL(url);
+            relativePath = parsed.pathname;
+          } catch (e) {
+            return;
+          }
+        }
+        if (!relativePath.startsWith('/uploads/')) return;
+        const filePath = path.join(__dirname, '..', relativePath);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log('Deleted blink media file:', filePath);
+        }
+      };
+
+      deleteFileFromUrl(mediaUrl);
+      deleteFileFromUrl(musicUrl);
+    } catch (error) {
+      console.warn('Failed to delete blink media files:', error.message);
+    }
+  }
   // Get active blinks from user’s contacts and own blinks
   async getContactsBlinks(currentUserId, options = {}) {
     const { limit = 50, offset = 0 } = options;
@@ -16,6 +47,7 @@ class BlinkService {
 
       const blinks = await Blink.find({
         userId: { $in: allUserIds },
+        isActive: true,
         expiresAt: { $gt: new Date() }
       })
         .sort({ createdAt: -1 })
@@ -27,13 +59,25 @@ class BlinkService {
         return [];
       }
 
-      const userIds = [...new Set(blinks.map(blink => blink.userId))];
+      // Enforce recipient / friend privacy before formatting
+      const authorizedBlinks = [];
+      for (const blink of blinks) {
+        if (await this.isAuthorizedForBlink(blink, currentUserId)) {
+          authorizedBlinks.push(blink);
+        }
+      }
+
+      if (!authorizedBlinks.length) {
+        return [];
+      }
+
+      const userIds = [...new Set(authorizedBlinks.map(blink => blink.userId))];
       const users = await User.find({ userId: { $in: userIds } })
         .select('userId name profileImage')
         .lean();
       const userMap = new Map(users.map(user => [user.userId, user]));
 
-      const formattedBlinks = blinks.map(blink => {
+      const formattedBlinks = authorizedBlinks.map(blink => {
         const user = userMap.get(blink.userId);
         const seen = blink.seenBy?.some(s => s.userId === currentUserId) || false;
         const liked = blink.likes?.some(l => l.userId === currentUserId) || false;
@@ -68,6 +112,26 @@ class BlinkService {
     }
   }
 
+  // Check whether a user is allowed to view/like/mark a Blink.
+  // Owner is always allowed. Explicit recipients are allowed. Empty recipients => all accepted friends.
+  async isAuthorizedForBlink(blink, currentUserId) {
+    if (!blink || !currentUserId) return false;
+    if (blink.userId === currentUserId) return true;
+
+    if (Array.isArray(blink.recipients) && blink.recipients.length > 0) {
+      return blink.recipients.includes(currentUserId);
+    }
+
+    // Fall back to accepted-friends model
+    try {
+      const Friend = require('../models/Friend');
+      return await Friend.areFriends(currentUserId, blink.userId);
+    } catch (error) {
+      console.error('Error checking blink authorization:', error);
+      return false;
+    }
+  }
+
   // Create a new blink
   async createBlink(userId, blinkData) {
     try {
@@ -79,14 +143,32 @@ class BlinkService {
       // Only one active blink per user at a time
       const existingActive = await Blink.findOne({
         userId,
+        isActive: true,
         expiresAt: { $gt: new Date() }
       });
 
       if (existingActive) {
+        existingActive.isActive = false;
+        await existingActive.save();
+        this.deleteBlinkMediaFiles(existingActive.mediaUrl, existingActive.musicUrl);
         await Blink.deleteOne({ _id: existingActive._id });
       }
 
       const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
+
+      // Normalize recipients: keep only accepted friends, default to all friends when empty
+      const acceptedFriendIds = await this.getUserContactIds(userId);
+      const acceptedSet = new Set(acceptedFriendIds);
+      let recipients = [];
+      if (Array.isArray(blinkData.recipients) && blinkData.recipients.length > 0) {
+        recipients = blinkData.recipients
+          .map(id => String(id))
+          .filter(id => acceptedSet.has(id));
+      }
+      // If no valid recipients were supplied, share with all accepted friends
+      if (recipients.length === 0) {
+        recipients = acceptedFriendIds.slice();
+      }
 
       const blink = new Blink({
         userId,
@@ -95,6 +177,8 @@ class BlinkService {
         musicUrl: blinkData.musicUrl || null,
         ringColor: blinkData.ringColor || '#8B5CF6',
         caption: blinkData.caption || '',
+        recipients,
+        recipientGroups: Array.isArray(blinkData.recipientGroups) ? blinkData.recipientGroups : [],
         expiresAt
       });
 
@@ -114,16 +198,17 @@ class BlinkService {
         musicUrl: savedBlink.musicUrl,
         ringColor: savedBlink.ringColor,
         caption: savedBlink.caption,
+        recipients: savedBlink.recipients || [],
+        recipientGroups: savedBlink.recipientGroups || [],
         seen: false,
         liked: false,
         likeCount: 0
       };
 
-      // Broadcast to contacts
+      // Broadcast only to valid recipients
       try {
         const socketManager = require('../socketManager');
-        const contactUserIds = await this.getUserContactIds(userId);
-        for (const contactUserId of contactUserIds) {
+        for (const contactUserId of recipients) {
           socketManager.broadcastToUser(contactUserId, 'blink:new', {
             blink: formattedResult,
             fromUser: userId
@@ -147,20 +232,24 @@ class BlinkService {
 
       const blink = await Blink.findOne({
         _id: blinkId,
-        userId: userId?.toString() || userId
+        userId: userId?.toString() || userId,
+        isActive: true
       });
 
       if (!blink) {
         throw new Error('Blink not found or not authorized');
       }
 
+      this.deleteBlinkMediaFiles(blink.mediaUrl, blink.musicUrl);
       await Blink.findByIdAndDelete(blinkId);
 
-      // Broadcast deletion
+      // Broadcast deletion only to recipients (or all contacts if recipients not set)
       try {
         const socketManager = require('../socketManager');
-        const contactUserIds = await this.getUserContactIds(userId);
-        for (const contactUserId of contactUserIds) {
+        const broadcastTargets = Array.isArray(blink.recipients) && blink.recipients.length > 0
+          ? blink.recipients
+          : await this.getUserContactIds(userId);
+        for (const contactUserId of broadcastTargets) {
           socketManager.broadcastToUser(contactUserId, 'blink:deleted', {
             blinkId,
             fromUser: userId
@@ -181,6 +270,7 @@ class BlinkService {
     try {
       const blink = await Blink.findOne({
         _id: blinkId,
+        isActive: true,
         expiresAt: { $gt: new Date() }
       });
 
@@ -188,10 +278,27 @@ class BlinkService {
         throw new Error('Blink not found or expired');
       }
 
+      const isAuthorized = await this.isAuthorizedForBlink(blink, userId);
+      if (!isAuthorized) {
+        throw new Error('Not authorized to view this blink');
+      }
+
       const alreadySeen = blink.seenBy?.some(s => s.userId === userId);
       if (!alreadySeen) {
         blink.seenBy.push({ userId, seenAt: new Date() });
         await blink.save();
+      }
+
+      // Notify the viewer's own clients so the ring dims on all devices
+      try {
+        const socketManager = require('../socketManager');
+        socketManager.broadcastToUser(userId, 'blink:seen', {
+          blinkId: blink._id.toString(),
+          userId,
+          seenAt: new Date().toISOString()
+        });
+      } catch (broadcastError) {
+        console.warn('Failed to broadcast blink seen update:', broadcastError);
       }
 
       return { success: true, seen: true };
@@ -205,11 +312,17 @@ class BlinkService {
     try {
       const blink = await Blink.findOne({
         _id: blinkId,
+        isActive: true,
         expiresAt: { $gt: new Date() }
       });
 
       if (!blink) {
         throw new Error('Blink not found or expired');
+      }
+
+      const isAuthorized = await this.isAuthorizedForBlink(blink, userId);
+      if (!isAuthorized) {
+        throw new Error('Not authorized to interact with this blink');
       }
 
       const likeIndex = blink.likes?.findIndex(l => l.userId === userId) ?? -1;
@@ -225,6 +338,10 @@ class BlinkService {
 
       await blink.save();
 
+      if (liked) {
+        blinkNotificationService.notifyBlinkLiked(blink, userId);
+      }
+
       return {
         success: true,
         liked,
@@ -235,9 +352,54 @@ class BlinkService {
     }
   }
 
+  // Report that a viewer captured a Blink (screenshot / screen recording)
+  async reportBlinkCapture(blinkId, userId, captureType) {
+    try {
+      if (!blinkId) throw new Error('Blink ID is required');
+      if (!userId) throw new Error('User ID is required');
+      if (!['screenshot', 'screen_recording'].includes(captureType)) {
+        throw new Error('Invalid capture type');
+      }
+
+      const blink = await Blink.findOne({
+        _id: blinkId,
+        isActive: true,
+        expiresAt: { $gt: new Date() }
+      });
+
+      if (!blink) {
+        throw new Error('Blink not found or expired');
+      }
+
+      if (blink.userId === userId) {
+        // Owner capturing their own Blink doesn't need a notification
+        return { success: true, notified: false };
+      }
+
+      const isAuthorized = await this.isAuthorizedForBlink(blink, userId);
+      if (!isAuthorized) {
+        throw new Error('Not authorized to view this blink');
+      }
+
+      blinkNotificationService.notifyBlinkCaptured(blink, userId, captureType);
+
+      return { success: true, notified: true };
+    } catch (error) {
+      throw new Error(`Failed to report Blink capture: ${error.message}`);
+    }
+  }
+
   // Cleanup expired blinks
   async cleanupExpiredBlinks() {
     try {
+      const expired = await Blink.find({
+        expiresAt: { $lte: new Date() }
+      }).select('mediaUrl musicUrl').lean();
+
+      for (const blink of expired) {
+        this.deleteBlinkMediaFiles(blink.mediaUrl, blink.musicUrl);
+      }
+
       const result = await Blink.cleanupExpiredBlinks();
       return { expiredDeleted: result.deletedCount };
     } catch (error) {

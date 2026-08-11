@@ -24,7 +24,11 @@ router.post('/:id/like', blinkController.toggleBlinkLike);
 // DELETE /api/blinks/:id - Delete a blink
 router.delete('/:id', blinkController.deleteBlink);
 
-// POST /api/blinks/cleanup - Clean up expired blinks
-router.post('/cleanup', blinkController.cleanupBlinks);
+// POST /api/blinks/:id/capture - Report a screenshot or screen recording
+router.post('/:id/capture', blinkController.reportBlinkCapture);
+
+// Cleanup is handled automatically by the Mongo TTL index.
+// Exposing this endpoint to all authenticated users is a DoS/storage-leak risk.
+// router.post('/cleanup', blinkController.cleanupBlinks);
 
 module.exports = router;
