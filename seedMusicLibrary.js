@@ -26,49 +26,49 @@ const TRACK_METADATA = {
     artist: 'SyncUp Originals',
     category: 'ambient',
     tags: ['calm', 'reflective', 'mood', 'chill'],
-    duration: 180
+    duration: 30.7
   },
   'my_own_becoming.mp3': {
     title: 'My Own Becoming',
     artist: 'SyncUp Originals',
     category: 'indie',
     tags: ['growth', 'motivation', 'uplifting', 'journey'],
-    duration: 195
+    duration: 30.7
   },
   'One_Little_Click.mp3': {
     title: 'One Little Click',
     artist: 'SyncUp Originals',
     category: 'pop',
     tags: ['fun', 'playful', 'social', 'connection'],
-    duration: 165
+    duration: 30.7
   },
   'stillness_as_a_friend.mp3': {
     title: 'Stillness As A Friend',
     artist: 'SyncUp Originals',
     category: 'ambient',
     tags: ['peaceful', 'meditation', 'quiet', 'calm'],
-    duration: 210
+    duration: 30.7
   },
   'still_becoming.mp3': {
     title: 'Still Becoming',
     artist: 'SyncUp Originals',
     category: 'lo-fi',
     tags: ['introspective', 'study', 'focus', 'soft'],
-    duration: 200
+    duration: 30.7
   },
   'the_best_version_of_me.mp3': {
     title: 'The Best Version Of Me',
     artist: 'SyncUp Originals',
     category: 'upbeat',
     tags: ['positive', 'energy', 'confidence', 'happy'],
-    duration: 175
+    duration: 30.7
   },
   'where_gravity_fails.mp3': {
     title: 'Where Gravity Fails',
     artist: 'SyncUp Originals',
     category: 'electronic',
     tags: ['dreamy', 'space', 'ethereal', 'float'],
-    duration: 190
+    duration: 30.7
   }
 };
 
@@ -119,7 +119,7 @@ async function seedMusicLibrary() {
             artist: 'SyncUp Originals',
             category: 'chill',
             tags: ['music'],
-            duration: 180,
+            duration: 30.7,
             filename,
             waveform: generatePlaceholderWaveform(),
             isActive: true
