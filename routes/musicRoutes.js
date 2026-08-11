@@ -7,7 +7,8 @@ const {
   streamMusic,
   getTrackById,
   incrementUsage,
-  getCategories
+  getCategories,
+  forceSync
 } = require('../controllers/musicController');
 
 // Public routes (streaming doesn't require auth for caching/CDN compatibility)
@@ -17,6 +18,7 @@ router.get('/stream/:filename', streamMusic);
 router.get('/library', protect, getMusicLibrary);
 router.get('/trending', protect, getTrendingTracks);
 router.get('/categories', protect, getCategories);
+router.post('/sync', protect, forceSync); // Force re-scan music folder
 router.get('/:trackId', protect, getTrackById);
 router.post('/increment-usage/:trackId', protect, incrementUsage);
 

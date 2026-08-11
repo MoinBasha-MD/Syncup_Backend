@@ -3,11 +3,90 @@ const path = require('path');
 const MusicTrack = require('../models/MusicTrack');
 
 const MUSIC_DIR = path.join(__dirname, '..', 'uploads', 'music-library');
+const SUPPORTED_EXTENSIONS = ['.mp3', '.m4a', '.ogg', '.wav'];
+
+// Auto-sync: scan folder for new files and add them to the database
+// This runs once per server start (cached) and can be triggered manually
+let lastSyncTime = 0;
+const SYNC_INTERVAL = 60 * 1000; // Re-sync every 60 seconds max
+
+const autoSyncMusicFolder = async () => {
+  const now = Date.now();
+  if (now - lastSyncTime < SYNC_INTERVAL) return; // Skip if recently synced
+  lastSyncTime = now;
+
+  try {
+    if (!fs.existsSync(MUSIC_DIR)) return;
+
+    const files = fs.readdirSync(MUSIC_DIR).filter(f =>
+      SUPPORTED_EXTENSIONS.includes(path.extname(f).toLowerCase())
+    );
+
+    // Get all filenames already in DB
+    const existingTracks = await MusicTrack.find({}).select('filename').lean();
+    const existingFilenames = new Set(existingTracks.map(t => t.filename));
+
+    // Find new files not in DB
+    const newFiles = files.filter(f => !existingFilenames.has(f));
+
+    if (newFiles.length === 0) return;
+
+    console.log(`🎵 [AUTO-SYNC] Found ${newFiles.length} new music files, adding to library...`);
+
+    for (const filename of newFiles) {
+      // Generate a nice title from filename
+      const baseName = path.basename(filename, path.extname(filename));
+      const title = baseName
+        .replace(/_/g, ' ')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase())
+        .trim();
+
+      // Try to get file size to estimate duration (rough: ~16KB per second for 128kbps MP3)
+      let duration = 30;
+      try {
+        const stat = fs.statSync(path.join(MUSIC_DIR, filename));
+        duration = Math.round(stat.size / (16 * 1024)); // Rough estimate
+        if (duration < 5) duration = 30; // Fallback for very small files
+        if (duration > 600) duration = 600; // Cap at 10 minutes
+      } catch (_) {}
+
+      // Generate placeholder waveform
+      const waveform = [];
+      for (let i = 0; i < 50; i++) {
+        const base = 0.3 + Math.random() * 0.5;
+        const peak = Math.sin((i / 50) * Math.PI) * 0.3;
+        waveform.push(parseFloat(Math.min(1, Math.max(0, base + peak)).toFixed(3)));
+      }
+
+      await MusicTrack.create({
+        title,
+        artist: 'SyncUp Originals',
+        filename,
+        duration,
+        category: 'chill',
+        tags: ['music'],
+        waveform,
+        isActive: true,
+        usageCount: 0
+      });
+
+      console.log(`  ✅ Added: ${title} (${filename}, ~${duration}s)`);
+    }
+
+    console.log(`🎵 [AUTO-SYNC] Done! ${newFiles.length} tracks added.`);
+  } catch (error) {
+    console.error('⚠️ [AUTO-SYNC] Error syncing music folder:', error.message);
+  }
+};
 
 // GET /api/music/library - Browse all tracks with filtering
 const getMusicLibrary = async (req, res) => {
   try {
-    const { category, search, page = 1, limit = 20 } = req.query;
+    // Auto-sync new files from the folder
+    await autoSyncMusicFolder();
+
+    const { category, search, page = 1, limit = 30 } = req.query;
 
     const filter = { isActive: true };
 
@@ -15,9 +94,7 @@ const getMusicLibrary = async (req, res) => {
       filter.category = category;
     }
 
-    let query;
     if (search && search.trim()) {
-      // Text search on title, artist, tags
       filter.$or = [
         { title: { $regex: search.trim(), $options: 'i' } },
         { artist: { $regex: search.trim(), $options: 'i' } },
@@ -190,6 +267,11 @@ const incrementUsage = async (req, res) => {
   try {
     const { trackId } = req.params;
 
+    // Only increment for valid MongoDB ObjectIds
+    if (!/^[0-9a-fA-F]{24}$/.test(trackId)) {
+      return res.json({ success: true, data: { usageCount: 0 } });
+    }
+
     const track = await MusicTrack.findByIdAndUpdate(
       trackId,
       { $inc: { usageCount: 1 } },
@@ -240,11 +322,34 @@ const getCategories = async (req, res) => {
   }
 };
 
+// POST /api/music/sync - Force re-sync the music folder (admin endpoint)
+const forceSync = async (req, res) => {
+  try {
+    lastSyncTime = 0; // Reset timer to force sync
+    await autoSyncMusicFolder();
+    
+    const total = await MusicTrack.countDocuments({ isActive: true });
+    res.json({
+      success: true,
+      message: 'Music folder synced',
+      totalTracks: total
+    });
+  } catch (error) {
+    console.error('❌ Force sync error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to sync music folder',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getMusicLibrary,
   getTrendingTracks,
   streamMusic,
   getTrackById,
   incrementUsage,
-  getCategories
+  getCategories,
+  forceSync
 };
