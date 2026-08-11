@@ -355,8 +355,8 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
   console.log('📱 [FEED POST MODEL] ==========================================');
   console.log('');
   
-  // FOR YOU FEED LOGIC (Friends + Own PUBLIC Posts ONLY):
-  // 1. Your own PUBLIC posts only (not private/friends-only)
+  // FOR YOU FEED LOGIC:
+  // 1. ALL your own posts (any privacy) — user should always see what they posted
   // 2. Posts from contacts/friends with 'public' or 'friends' privacy
   // 3. Posts from pages you follow
   // NO PUBLIC POSTS FROM NON-FRIENDS!
@@ -364,10 +364,9 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
   const query = {
     isActive: true,
     $or: [
-      // Own PUBLIC posts only - not page posts
+      // Own posts (ALL privacy levels) — user always sees their own vibes
       { 
-        userId: userId, 
-        privacy: 'public',
+        userId: userId,
         $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }] 
       },
       
@@ -394,8 +393,8 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
         isPagePost: true,
         pageVisibility: 'followers',
         $or: [
-          { targetUserId: userId }, // Old format (single user)
-          { targetUserIds: userId } // ✅ WEEK 1 FIX: New format (array)
+          { targetUserId: userId },
+          { targetUserIds: userId }
         ]
       },
       
@@ -405,19 +404,41 @@ feedPostSchema.statics.getFeedPosts = async function(userId, page = 1, limit = 2
         isPagePost: true,
         pageVisibility: 'custom',
         $or: [
-          { targetUserId: userId }, // Old format (single user)
-          { targetUserIds: userId } // ✅ WEEK 1 FIX: New format (array)
+          { targetUserId: userId },
+          { targetUserIds: userId }
         ]
       }
     ]
   };
   
-  const posts = await this.find(query)
+  // Fetch more posts than needed for shuffling, then return a randomized slice.
+  // This gives variety on each refresh without needing MongoDB $sample on filtered sets.
+  const fetchLimit = Math.max(limit * 3, 60);
+  
+  let posts = await this.find(query)
     .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit)
+    .skip(0) // Always fetch from beginning for shuffle pool
+    .limit(fetchLimit)
     .populate('pageId', 'name username profileImage isVerified')
     .lean();
+
+  // --- Shuffle logic (Instagram-style mixed feed) ---
+  // Separate user's own recent posts (last 24h) to guarantee they appear at the top
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const ownRecentPosts = posts.filter(p => p.userId === userId && new Date(p.createdAt) > oneDayAgo);
+  const otherPosts = posts.filter(p => !(p.userId === userId && new Date(p.createdAt) > oneDayAgo));
+
+  // Fisher-Yates shuffle for the rest
+  for (let i = otherPosts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [otherPosts[i], otherPosts[j]] = [otherPosts[j], otherPosts[i]];
+  }
+
+  // Final feed: own recent posts first, then shuffled others
+  const combinedPosts = [...ownRecentPosts, ...otherPosts];
+  
+  // Apply pagination on the shuffled result
+  posts = combinedPosts.slice(skip, skip + limit);
   
   console.log('');
   console.log('📱 [FEED POST MODEL] ==========================================');
@@ -501,12 +522,23 @@ feedPostSchema.statics.getExplorePosts = async function(userId, page = 1, limit 
   
   console.log('🔍 [FEED POST MODEL] Query:', JSON.stringify(query, null, 2));
   
-  const posts = await this.find(query)
+  // Fetch a larger pool for shuffling to give variety on each refresh
+  const fetchLimit = Math.max(limit * 3, 60);
+  
+  let posts = await this.find(query)
     .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit)
+    .limit(fetchLimit)
     .populate('pageId', 'name username profileImage isVerified')
     .lean();
+
+  // Fisher-Yates shuffle for explore feed variety
+  for (let i = posts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [posts[i], posts[j]] = [posts[j], posts[i]];
+  }
+
+  // Apply pagination on shuffled result
+  posts = posts.slice(skip, skip + limit);
   
   console.log('');
   console.log('🔍 [FEED POST MODEL] ==========================================');
