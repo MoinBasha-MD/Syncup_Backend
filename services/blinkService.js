@@ -162,7 +162,8 @@ class BlinkService {
         ringColor: blinkData.ringColor || '#8B5CF6',
         caption: blinkData.caption || '',
         recipients,
-        recipientGroups: Array.isArray(blinkData.recipientGroups) ? blinkData.recipientGroups : []
+        recipientGroups: Array.isArray(blinkData.recipientGroups) ? blinkData.recipientGroups : [],
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       });
 
       const savedBlink = await blink.save();
