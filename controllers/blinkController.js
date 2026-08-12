@@ -18,6 +18,42 @@ class BlinkController {
     }
   }
 
+  // GET /api/blinks/my - Get current user's active Blinks with details
+  async getMyBlinks(req, res) {
+    try {
+      const currentUserId = req.user.userId || req.user.id || req.user._id?.toString();
+      if (!currentUserId) {
+        return res.status(400).json({ success: false, message: 'User authentication failed' });
+      }
+
+      const blinks = await blinkService.getMyBlinks(currentUserId);
+      res.status(200).json({ success: true, data: blinks });
+    } catch (error) {
+      console.error('Error getting my Blinks:', error);
+      res.status(500).json({ success: false, message: error.message || 'Failed to get my Blinks' });
+    }
+  }
+
+  // GET /api/blinks/:id/details - Get a single Blink with like/viewer details (owner only)
+  async getBlinkDetails(req, res) {
+    try {
+      const currentUserId = req.user.userId || req.user.id || req.user._id?.toString();
+      if (!currentUserId) {
+        return res.status(400).json({ success: false, message: 'User authentication failed' });
+      }
+
+      const { id } = req.params;
+      const blink = await blinkService.getBlinkDetails(id, currentUserId);
+      res.status(200).json({ success: true, data: blink });
+    } catch (error) {
+      console.error('Error getting Blink details:', error);
+      if (error.message.includes('not found') || error.message.includes('not authorized')) {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      res.status(500).json({ success: false, message: error.message || 'Failed to get Blink details' });
+    }
+  }
+
   // POST /api/blinks - Create a new blink
   async createBlink(req, res) {
     try {

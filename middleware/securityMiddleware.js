@@ -28,6 +28,20 @@ const apiLimiter = createRateLimiter(
   'Too many requests, please try again after 15 minutes'
 );
 
+// Upload rate limiter - keyed by authenticated user, not IP, to avoid shared-network 429s
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 uploads per 15 minutes per user
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.userId?.toString?.() || req.ip,
+  message: {
+    success: false,
+    message: 'Too many uploads, please try again after 15 minutes',
+    error: 'RateLimitError'
+  }
+});
+
 // Auth endpoints rate limiter - 20 requests per 15 minutes
 const authLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
@@ -230,6 +244,7 @@ const requestSizeLimiter = (req, res, next) => {
 
 module.exports = {
   apiLimiter,
+  uploadLimiter,
   authLimiter,
   userDataLimiter,
   contactLimiter,

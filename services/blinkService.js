@@ -132,29 +132,13 @@ class BlinkService {
     }
   }
 
-  // Create a new blink
+  // Create a new blink (multiple active Blinks per user are allowed)
   async createBlink(userId, blinkData) {
     try {
       if (!userId) throw new Error('User ID is required');
       if (!blinkData || !blinkData.mediaUrl) {
         throw new Error('Blink media URL is required');
       }
-
-      // Only one active blink per user at a time
-      const existingActive = await Blink.findOne({
-        userId,
-        isActive: true,
-        expiresAt: { $gt: new Date() }
-      });
-
-      if (existingActive) {
-        existingActive.isActive = false;
-        await existingActive.save();
-        this.deleteBlinkMediaFiles(existingActive.mediaUrl, existingActive.musicUrl);
-        await Blink.deleteOne({ _id: existingActive._id });
-      }
-
-      const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
 
       // Normalize recipients: keep only accepted friends, default to all friends when empty
       const acceptedFriendIds = await this.getUserContactIds(userId);
@@ -178,8 +162,7 @@ class BlinkService {
         ringColor: blinkData.ringColor || '#8B5CF6',
         caption: blinkData.caption || '',
         recipients,
-        recipientGroups: Array.isArray(blinkData.recipientGroups) ? blinkData.recipientGroups : [],
-        expiresAt
+        recipientGroups: Array.isArray(blinkData.recipientGroups) ? blinkData.recipientGroups : []
       });
 
       const savedBlink = await blink.save();
@@ -221,6 +204,145 @@ class BlinkService {
       return formattedResult;
     } catch (error) {
       throw new Error(`Failed to create blink: ${error.message}`);
+    }
+  }
+
+  // Get all active Blinks for the current user with like/viewer details
+  async getMyBlinks(userId) {
+    try {
+      if (!userId) throw new Error('User ID is required');
+
+      await this.cleanupExpiredBlinks();
+
+      const blinks = await Blink.find({
+        userId,
+        isActive: true,
+        expiresAt: { $gt: new Date() }
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      if (!blinks.length) {
+        return [];
+      }
+
+      const allUserIds = new Set();
+      for (const blink of blinks) {
+        (blink.seenBy || []).forEach(s => allUserIds.add(s.userId));
+        (blink.likes || []).forEach(l => allUserIds.add(l.userId));
+      }
+
+      const users = await User.find({ userId: { $in: [...allUserIds] } })
+        .select('userId name profileImage')
+        .lean();
+      const userMap = new Map(users.map(user => [user.userId, user]));
+
+      const populateUser = (id) => ({
+        userId: id,
+        name: userMap.get(id)?.name || 'Unknown User',
+        profileImage: userMap.get(id)?.profileImage || null
+      });
+
+      const user = await User.findOne({ userId }).select('name profileImage').lean();
+
+      return blinks.map(blink => {
+        const seenBy = (blink.seenBy || []).map(s => ({
+          ...populateUser(s.userId),
+          seenAt: s.seenAt?.toISOString?.() || s.seenAt
+        }));
+        const likes = (blink.likes || []).map(l => ({
+          ...populateUser(l.userId),
+          likedAt: l.likedAt?.toISOString?.() || l.likedAt
+        }));
+
+        return {
+          id: blink._id.toString(),
+          userId: blink.userId,
+          userName: user?.name || 'You',
+          userProfileImage: user?.profileImage || null,
+          createdAt: blink.createdAt.toISOString(),
+          expiresAt: blink.expiresAt.toISOString(),
+          mediaUrl: blink.mediaUrl,
+          mediaType: blink.mediaType,
+          musicUrl: blink.musicUrl,
+          ringColor: blink.ringColor,
+          caption: blink.caption,
+          recipients: blink.recipients || [],
+          recipientGroups: blink.recipientGroups || [],
+          seenBy,
+          likes,
+          likeCount: likes.length,
+          seenCount: seenBy.length
+        };
+      });
+    } catch (error) {
+      throw new Error(`Failed to get my Blinks: ${error.message}`);
+    }
+  }
+
+  // Get detailed like/viewer info for a single Blink (owner only)
+  async getBlinkDetails(blinkId, userId) {
+    try {
+      if (!blinkId) throw new Error('Blink ID is required');
+      if (!userId) throw new Error('User ID is required');
+
+      const blink = await Blink.findOne({
+        _id: blinkId,
+        userId: userId?.toString() || userId
+      }).lean();
+
+      if (!blink) {
+        throw new Error('Blink not found or not authorized');
+      }
+
+      const allUserIds = new Set([
+        ...(blink.seenBy || []).map(s => s.userId),
+        ...(blink.likes || []).map(l => l.userId)
+      ]);
+
+      const users = await User.find({ userId: { $in: [...allUserIds] } })
+        .select('userId name profileImage')
+        .lean();
+      const userMap = new Map(users.map(user => [user.userId, user]));
+
+      const populateUser = (id) => ({
+        userId: id,
+        name: userMap.get(id)?.name || 'Unknown User',
+        profileImage: userMap.get(id)?.profileImage || null
+      });
+
+      const user = await User.findOne({ userId }).select('name profileImage').lean();
+
+      const seenBy = (blink.seenBy || []).map(s => ({
+        ...populateUser(s.userId),
+        seenAt: s.seenAt?.toISOString?.() || s.seenAt
+      }));
+      const likes = (blink.likes || []).map(l => ({
+        ...populateUser(l.userId),
+        likedAt: l.likedAt?.toISOString?.() || l.likedAt
+      }));
+
+      return {
+        id: blink._id.toString(),
+        userId: blink.userId,
+        userName: user?.name || 'You',
+        userProfileImage: user?.profileImage || null,
+        createdAt: blink.createdAt.toISOString(),
+        expiresAt: blink.expiresAt.toISOString(),
+        mediaUrl: blink.mediaUrl,
+        mediaType: blink.mediaType,
+        musicUrl: blink.musicUrl,
+        ringColor: blink.ringColor,
+        caption: blink.caption,
+        recipients: blink.recipients || [],
+        recipientGroups: blink.recipientGroups || [],
+        seenBy,
+        likes,
+        likeCount: likes.length,
+        seenCount: seenBy.length
+      };
+    } catch (error) {
+      throw new Error(`Failed to get Blink details: ${error.message}`);
     }
   }
 

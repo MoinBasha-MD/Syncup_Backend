@@ -9,11 +9,17 @@ router.use(protect);
 // POST /api/blinks - Create a new blink
 router.post('/', blinkController.createBlink);
 
+// GET /api/blinks/my - Get current user's active Blinks with details
+router.get('/my', blinkController.getMyBlinks);
+
 // GET /api/blinks/contacts - Get active blinks from user's contacts
 router.get('/contacts', blinkController.getContactsBlinks);
 
 // POST /api/blinks/contacts - Get active blinks with contacts array from frontend
 router.post('/contacts', blinkController.getContactsBlinks);
+
+// GET /api/blinks/:id/details - Get a single Blink with like/viewer details (owner only)
+router.get('/:id/details', blinkController.getBlinkDetails);
 
 // POST /api/blinks/seen - Mark blink as seen
 router.post('/seen', blinkController.markBlinkSeen);

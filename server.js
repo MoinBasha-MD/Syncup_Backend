@@ -40,7 +40,8 @@ const {
 
   securityHeaders, 
 
-  apiLimiter, 
+  apiLimiter,
+  uploadLimiter,
 
   authLimiter, 
 
@@ -536,7 +537,7 @@ app.use('/api/bulk', apiLimiter, bulkOperationsRoutes); // Bulk operations
 
 app.use('/api/contacts', contactLimiter, contactRoutes); // Contact management routes
 
-app.use('/api/upload', apiLimiter, uploadRoutes); // File upload routes
+app.use('/api/upload', uploadRoutes); // File upload routes (auth + per-user upload limiter applied inside routes)
 
 app.use('/api/calendar', apiLimiter, calendarRoutes); // Calendar integration routes
 
