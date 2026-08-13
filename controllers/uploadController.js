@@ -111,16 +111,32 @@ const postMediaStorage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    // Create unique filename with original extension
+    // Create unique filename, falling back to mimetype when the original has no extension
+    const getExtFromMime = (mime) => {
+      if (!mime) return '';
+      if (mime === 'image/jpeg') return '.jpg';
+      if (mime === 'image/png') return '.png';
+      if (mime === 'image/webp') return '.webp';
+      if (mime === 'video/mp4' || mime === 'video/hevc' || mime === 'video/3gpp2') return '.mp4';
+      if (mime === 'video/quicktime') return '.mov';
+      if (mime === 'video/webm') return '.webm';
+      if (mime === 'video/3gpp') return '.3gp';
+      if (mime === 'video/x-matroska') return '.mkv';
+      return '';
+    };
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
+    const ext = path.extname(file.originalname) || getExtFromMime(file.mimetype);
     const prefix = file.mimetype.startsWith('video/') ? 'video' : 'photo';
     cb(null, `post-${prefix}-${uniqueSuffix}${ext}`);
   }
 });
 
-// Allowed post media MIME types (front-end sends image/jpeg for photos and video/mp4 for videos)
-const ALLOWED_POST_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime'];
+// Allowed post media MIME types (front-end sends image/jpeg for photos and common video formats for videos)
+const ALLOWED_POST_MEDIA_TYPES = [
+  'image/jpeg', 'image/png', 'image/webp',
+  'video/mp4', 'video/quicktime', 'video/webm',
+  'video/3gpp', 'video/3gpp2', 'video/hevc', 'video/x-matroska'
+];
 
 // File filter for post media (images and videos)
 const postMediaFilter = (req, file, cb) => {
@@ -131,10 +147,10 @@ const postMediaFilter = (req, file, cb) => {
   }
 };
 
-const postMediaUpload = multer({ 
+const postMediaUpload = multer({
   storage: postMediaStorage,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB max file size for post media
+    fileSize: 100 * 1024 * 1024, // 100MB max file size for post media
   },
   fileFilter: postMediaFilter
 });

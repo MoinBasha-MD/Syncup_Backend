@@ -30,11 +30,20 @@ const streamVideo = (req, res, next) => {
   const fileSize = stat.size;
   const range = req.headers.range;
 
+  // Pick an accurate video MIME type so mobile players load correctly
+  const ext = path.extname(videoPath).toLowerCase();
+  const contentType =
+    ext === '.mov' || ext === '.qt' ? 'video/quicktime' :
+    ext === '.webm' ? 'video/webm' :
+    ext === '.ogg' || ext === '.ogv' ? 'video/ogg' :
+    ext === '.3gp' || ext === '.3gpp' ? 'video/3gpp' :
+    'video/mp4';
+
   // If no range header, send entire file
   if (!range) {
     const head = {
       'Content-Length': fileSize,
-      'Content-Type': 'video/mp4',
+      'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
       'X-Content-Type-Options': 'nosniff'
@@ -65,7 +74,7 @@ const streamVideo = (req, res, next) => {
     'Content-Range': `bytes ${start}-${end}/${fileSize}`,
     'Accept-Ranges': 'bytes',
     'Content-Length': chunksize,
-    'Content-Type': 'video/mp4',
+    'Content-Type': contentType,
     'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
     'X-Content-Type-Options': 'nosniff'
   };
@@ -108,8 +117,10 @@ const videoStreamingHandler = (uploadDir = 'post-media') => {
   return (req, res, next) => {
     const requestedPath = req.path;
     
-    // Only handle video files
-    if (!requestedPath.match(/\.(mp4|webm|ogg|mov)$/i)) {
+    // Only handle video files (by extension or by the post-video- prefix)
+    const isVideoByExt = requestedPath.match(/\.(mp4|webm|ogg|mov|3gp|mkv)$/i);
+    const isVideoByName = path.basename(requestedPath).startsWith('post-video-');
+    if (!isVideoByExt && !isVideoByName) {
       return next();
     }
 

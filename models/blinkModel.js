@@ -35,6 +35,11 @@ const blinkSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Full music metadata (track, trim, volume, mixMode) for Blinks with music
+  music: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
   ringColor: {
     type: String,
     default: '#8B5CF6'
