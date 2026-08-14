@@ -1,4 +1,5 @@
 const blinkService = require('../services/blinkService');
+const blinkNotificationService = require('../services/blinkNotificationService');
 
 class BlinkController {
   // GET /api/blinks/contacts
@@ -171,6 +172,34 @@ class BlinkController {
         return res.status(404).json({ success: false, message: error.message });
       }
       res.status(500).json({ success: false, message: error.message || 'Failed to report capture' });
+    }
+  }
+  // POST /api/blinks/:id/reply
+  // Send a reply to a Blink (creates a chat message to the Blink owner).
+  async replyToBlink(req, res) {
+    try {
+      const currentUserId = req.user.userId || req.user.id || req.user._id?.toString();
+      if (!currentUserId) {
+        return res.status(400).json({ success: false, message: 'User authentication failed' });
+      }
+
+      const { id } = req.params;
+      const { message } = req.body;
+      if (!message || !message.trim()) {
+        return res.status(400).json({ success: false, message: 'Reply message is required' });
+      }
+
+      const result = await blinkService.replyToBlink(id, currentUserId, message.trim());
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      console.error('Error replying to Blink:', error);
+      if (error.message.includes('not authorized')) {
+        return res.status(403).json({ success: false, message: error.message });
+      }
+      if (error.message.includes('not found')) {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      res.status(500).json({ success: false, message: error.message || 'Failed to reply to Blink' });
     }
   }
 }

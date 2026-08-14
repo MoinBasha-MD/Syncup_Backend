@@ -23,7 +23,7 @@ const messageSchema = new mongoose.Schema({
   },
   messageType: {
     type: String,
-    enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice', 'shared_post', 'location'],
+    enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice', 'shared_post', 'location', 'blink_like', 'blink_capture', 'blink_reply'],
     default: 'text'
   },
   imageUrl: {
@@ -130,6 +130,22 @@ const messageSchema = new mongoose.Schema({
         userName: String,
         userProfileImage: String
       }
+    },
+    default: null
+  },
+  // Blink interaction metadata (like, capture, reply)
+  blinkData: {
+    type: {
+      blinkId: String,
+      mediaUrl: String,
+      mediaType: { type: String, enum: ['image', 'video'] },
+      caption: String,
+      blinkOwner: {
+        userId: String,
+        userName: String,
+        userProfileImage: String
+      },
+      action: { type: String, enum: ['like', 'screenshot', 'screen_recording', 'reply'] },
     },
     default: null
   },
@@ -583,6 +599,7 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
         voiceMetadata: 1,
         fileMetadata: 1,
         sharedPost: 1,
+        blinkData: 1,
         locationData: 1,
         timestamp: 1,
         status: 1,

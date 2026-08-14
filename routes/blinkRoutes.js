@@ -33,6 +33,9 @@ router.delete('/:id', blinkController.deleteBlink);
 // POST /api/blinks/:id/capture - Report a screenshot or screen recording
 router.post('/:id/capture', blinkController.reportBlinkCapture);
 
+// POST /api/blinks/:id/reply - Reply to a Blink (sends a chat message)
+router.post('/:id/reply', blinkController.replyToBlink);
+
 // Cleanup is handled automatically by the Mongo TTL index.
 // Exposing this endpoint to all authenticated users is a DoS/storage-leak risk.
 // router.post('/cleanup', blinkController.cleanupBlinks);

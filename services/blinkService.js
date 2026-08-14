@@ -517,6 +517,40 @@ class BlinkService {
     }
   }
 
+  // Reply to a Blink — sends a chat message to the Blink owner
+  async replyToBlink(blinkId, userId, message) {
+    try {
+      if (!blinkId) throw new Error('Blink ID is required');
+      if (!userId) throw new Error('User ID is required');
+      if (!message?.trim()) throw new Error('Reply message is required');
+
+      const blink = await Blink.findOne({
+        _id: blinkId,
+        isActive: true,
+        expiresAt: { $gt: new Date() }
+      });
+
+      if (!blink) {
+        throw new Error('Blink not found or expired');
+      }
+
+      // Cannot reply to your own Blink
+      if (blink.userId === userId) {
+        throw new Error('Cannot reply to your own Blink');
+      }
+
+      const isAuthorized = await this.isAuthorizedForBlink(blink, userId);
+      if (!isAuthorized) {
+        throw new Error('Not authorized to interact with this blink');
+      }
+
+      const saved = await blinkNotificationService.sendBlinkReply(blink, userId, message.trim());
+      return { success: true, messageId: saved?._id?.toString() || null };
+    } catch (error) {
+      throw new Error(`Failed to reply to Blink: ${error.message}`);
+    }
+  }
+
   // Cleanup expired blinks
   async cleanupExpiredBlinks() {
     try {
