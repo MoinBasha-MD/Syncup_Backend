@@ -3,6 +3,41 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 
+/**
+ * ✅ BUG FIX: `path.extname(file.originalname)` returns an empty string
+ * whenever the client sends a filename with no extension (e.g. a caption
+ * like "Photo 9:34:06 PM" instead of "photo.jpg"). Saving a file with NO
+ * extension at all means it gets served with no recognizable Content-Type,
+ * so <Image>/<Video> components on the client fail to load it — this was
+ * the root cause of chat images/videos/files showing as
+ * "Image unavailable" for every freshly sent one. Fall back to the
+ * extension implied by the file's actual MIME type when the client-provided
+ * filename has none, so a file on disk always has a usable extension.
+ */
+const MIME_EXTENSION_MAP = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/3gpp': '.3gp',
+  'audio/mpeg': '.mp3',
+  'audio/mp4': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/wav': '.wav',
+  'application/pdf': '.pdf',
+};
+
+const getSafeExtension = (file) => {
+  const originalExt = path.extname(file.originalname || '');
+  if (originalExt) return originalExt;
+  return MIME_EXTENSION_MAP[file.mimetype] || '';
+};
+
 // Configure storage for profile images
 const profileStorage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -18,7 +53,7 @@ const profileStorage = multer.diskStorage({
   filename: function (req, file, cb) {
     // Create unique filename with original extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
+    const ext = getSafeExtension(file);
     cb(null, 'profile-' + uniqueSuffix + ext);
   }
 });
@@ -38,7 +73,7 @@ const storyStorage = multer.diskStorage({
   filename: function (req, file, cb) {
     // Create unique filename with original extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
+    const ext = getSafeExtension(file);
     cb(null, 'story-' + uniqueSuffix + ext);
   }
 });
@@ -85,7 +120,7 @@ const chatStorage = multer.diskStorage({
   filename: function (req, file, cb) {
     // Create unique filename with original extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
+    const ext = getSafeExtension(file);
     cb(null, 'chat-' + uniqueSuffix + ext);
   }
 });
@@ -170,7 +205,7 @@ const chatFileStorage = multer.diskStorage({
   filename: function (req, file, cb) {
     // Create unique filename with original extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
+    const ext = getSafeExtension(file);
     const baseName = path.basename(file.originalname, ext);
     cb(null, 'file-' + uniqueSuffix + '-' + baseName + ext);
   }
