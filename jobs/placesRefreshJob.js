@@ -76,7 +76,18 @@ class PlacesRefreshJob {
       console.log(`📍 [PLACES REFRESH JOB] Found ${expiredRegions.length} expired regions`);
 
       for (const region of expiredRegions) {
-        await this.refreshRegion(region);
+        const result = await this.refreshRegion(region);
+        // ✅ FIX: If the Geoapify API key is invalid/expired/quota-exhausted,
+        // every single region will fail with the same 401/403 — stop
+        // hammering the API and spamming identical errors for the rest of
+        // this cycle's regions instead of retrying a guaranteed failure.
+        if (result?.authError) {
+          console.error(
+            '🛑 [PLACES REFRESH JOB] Geoapify API key appears invalid or out of quota ' +
+            '(401/403 response). Skipping remaining regions this cycle — check GEOAPIFY_API_KEY.'
+          );
+          break;
+        }
       }
 
       console.log('\n' + '='.repeat(80));
@@ -168,6 +179,13 @@ class PlacesRefreshJob {
       // Mark region as active even on error (will retry next cycle)
       region.status = 'active';
       await region.save();
+
+      // ✅ FIX: Surface auth/quota failures so the caller can stop retrying
+      // the same broken API key against every remaining region.
+      const status = error.response?.status;
+      if (status === 401 || status === 403) {
+        return { authError: true };
+      }
     }
   }
 

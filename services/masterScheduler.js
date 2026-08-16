@@ -166,7 +166,11 @@ class MasterScheduler {
   async runMessageCleanup() {
     try {
       const messageCleanupScheduler = require('./messageCleanupScheduler');
-      await messageCleanupScheduler.cleanup();
+      // ✅ FIX: messageCleanupScheduler has no `cleanup()` method — the real
+      // method that deletes expired timer-mode messages is
+      // `cleanupExpiredMessages()`. Calling the wrong name threw
+      // "cleanup is not a function" on every scheduled run.
+      await messageCleanupScheduler.cleanupExpiredMessages();
       if (process.env.NODE_ENV !== 'production') {
         console.log('✅ [MESSAGE CLEANUP] Completed');
       }
