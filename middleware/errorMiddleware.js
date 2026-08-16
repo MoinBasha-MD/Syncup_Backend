@@ -44,6 +44,25 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // ✅ FIX: Multer file-size/type errors previously fell through to the
+  // generic 500 handler below, giving clients a confusing "Internal Server
+  // Error" instead of a clear, actionable message when a file/video/image
+  // exceeded its upload limit.
+  if (err.name === 'MulterError') {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        success: false,
+        message: 'File is too large for this upload type.',
+        error: 'LIMIT_FILE_SIZE'
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: err.message || 'File upload error',
+      error: err.code || 'MulterError'
+    });
+  }
+
   // Handle mongoose validation errors
   if (err.name === 'ValidationError') {
     const messages = Object.values(err.errors).map(val => val.message);
