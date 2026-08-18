@@ -71,13 +71,23 @@ class BlinkService {
         return [];
       }
 
-      const userIds = [...new Set(authorizedBlinks.map(blink => blink.userId))];
+      // A user should only have one visible Blink in the contacts feed at a time.
+      // Keep only the most recent authorized Blink per user (newest replaces older ones).
+      const latestByUser = new Map();
+      for (const blink of authorizedBlinks) {
+        if (!latestByUser.has(blink.userId)) {
+          latestByUser.set(blink.userId, blink);
+        }
+      }
+      const userBlinks = Array.from(latestByUser.values());
+
+      const userIds = [...new Set(userBlinks.map(blink => blink.userId))];
       const users = await User.find({ userId: { $in: userIds } })
         .select('userId name profileImage')
         .lean();
       const userMap = new Map(users.map(user => [user.userId, user]));
 
-      const formattedBlinks = authorizedBlinks.map(blink => {
+      const formattedBlinks = userBlinks.map(blink => {
         const user = userMap.get(blink.userId);
         const seen = blink.seenBy?.some(s => s.userId === currentUserId) || false;
         const liked = blink.likes?.some(l => l.userId === currentUserId) || false;
@@ -173,6 +183,18 @@ class BlinkService {
       });
 
       const savedBlink = await blink.save();
+
+      // A user can only have one active Blink at a time. Deactivate any previous
+      // active Blinks so the feed and ring always show only the latest upload.
+      await Blink.updateMany(
+        {
+          userId,
+          isActive: true,
+          expiresAt: { $gt: new Date() },
+          _id: { $ne: savedBlink._id },
+        },
+        { $set: { isActive: false } }
+      );
 
       const user = await User.findOne({ userId }).select('name profileImage').lean();
 
