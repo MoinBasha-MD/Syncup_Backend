@@ -186,7 +186,7 @@ const friendSchema = new mongoose.Schema(
 );
 
 // Compound indexes for efficient queries
-friendSchema.index({ userId: 1, friendUserId: 1 }, { unique: true }); // Prevent duplicates
+friendSchema.index({ userId: 1, friendUserId: 1, isDeleted: 1 }, { unique: true }); // Prevent duplicates while allowing soft-deleted re-activation
 friendSchema.index({ userId: 1, status: 1 }); // Get all accepted friends
 friendSchema.index({ userId: 1, isDeviceContact: 1 }); // Get device contacts
 friendSchema.index({ userId: 1, status: 1, isDeleted: 1 }); // Active friends query

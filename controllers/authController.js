@@ -17,11 +17,13 @@ const registerUser = async (req, res) => {
     const { name, phoneNumber, email, password, dateOfBirth, gender } = req.body;
 
     // Validate required fields
-    if (!name || !phoneNumber || !email || !password) {
+    // ✅ dateOfBirth is now required (not just optional) so the 16+ age gate
+    // below cannot be bypassed by simply omitting it from the request body.
+    if (!name || !phoneNumber || !email || !password || !dateOfBirth) {
       console.log('❌ [REGISTER] Missing required fields');
       return res.status(400).json({ 
         success: false,
-        message: 'Please provide all required fields: name, phoneNumber, email, password' 
+        message: 'Please provide all required fields: name, phoneNumber, email, password, dateOfBirth' 
       });
     }
 
@@ -109,13 +111,13 @@ const registerUser = async (req, res) => {
         });
       }
 
-      // Check if person is at least 13 years old
-      const thirteenYearsAgo = new Date();
-      thirteenYearsAgo.setFullYear(thirteenYearsAgo.getFullYear() - 13);
-      if (dobDate > thirteenYearsAgo) {
+      // Check if person is at least 16 years old
+      const sixteenYearsAgo = new Date();
+      sixteenYearsAgo.setFullYear(sixteenYearsAgo.getFullYear() - 16);
+      if (dobDate > sixteenYearsAgo) {
         return res.status(400).json({ 
           success: false,
-          message: 'You must be at least 13 years old to register' 
+          message: 'You must be at least 16 years old to register' 
         });
       }
 

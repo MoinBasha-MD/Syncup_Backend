@@ -12,7 +12,8 @@ const Friend = require('../models/Friend');
 router.post('/unified', protect, async (req, res) => {
   try {
     const { query, types = ['all'], limit = 4 } = req.body;
-    const userId = req.user._id.toString(); // Convert to string for Friend model compatibility
+    const userId = req.user.userId; // Use UUID string (Friend model stores userId, not _id)
+    const currentObjectId = req.user._id.toString(); // Mongo _id for User collection queries
 
     console.log(`🔍 [UNIFIED SEARCH] Query: "${query}", Types: ${types}, User: ${userId}`);
 
@@ -40,13 +41,13 @@ router.post('/unified', protect, async (req, res) => {
 
     // Search People
     if (searchTypes.includes('people')) {
-      const peopleResults = await searchPeople(userId, searchQuery, limit);
+      const peopleResults = await searchPeople(userId, currentObjectId, searchQuery, limit);
       results.people = peopleResults;
     }
 
     // Search Pages
     if (searchTypes.includes('pages')) {
-      const pageResults = await searchPages(userId, searchQuery, limit);
+      const pageResults = await searchPages(currentObjectId, searchQuery, limit);
       results.pages = pageResults;
     }
 
@@ -157,7 +158,7 @@ router.post('/pages', protect, async (req, res) => {
 // @access  Private
 router.get('/suggestions', protect, async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.userId;
     const limit = parseInt(req.query.limit) || 10;
 
     console.log(`✨ [SUGGESTIONS] Getting suggestions for user: ${userId}`);
@@ -179,7 +180,7 @@ router.get('/suggestions', protect, async (req, res) => {
 });
 
 // Helper: Search People
-async function searchPeople(userId, query, limit) {
+async function searchPeople(userId, currentObjectId, query, limit) {
   try {
     const searchQuery = {
       $or: [
@@ -187,18 +188,18 @@ async function searchPeople(userId, query, limit) {
         { username: { $regex: query, $options: 'i' } },
         { email: { $regex: query, $options: 'i' } }
       ],
-      _id: { $ne: userId }
+      _id: { $ne: currentObjectId }
     };
 
     const total = await User.countDocuments(searchQuery);
 
     const users = await User.find(searchQuery)
       .limit(limit)
-      .select('name username profileImage')
+      .select('name username profileImage userId')
       .lean();
 
-    // Get friendship status for each user
-    const userIds = users.map(u => u._id.toString()); // Convert to strings for Friend model
+    // Get friendship status for each user using UUID userId
+    const userIds = users.map(u => u.userId);
     
     console.log(`🔍 [SEARCH DEBUG] Checking friendships for userId: ${userId}`);
     console.log(`🔍 [SEARCH DEBUG] Checking against userIds:`, userIds);
@@ -232,7 +233,7 @@ async function searchPeople(userId, query, limit) {
 
     // Get mutual friends count
     const results = await Promise.all(users.map(async (user) => {
-      const userIdStr = user._id.toString();
+      const userIdStr = user.userId;
       const status = friendshipMap.get(userIdStr);
       
       console.log(`👤 [SEARCH DEBUG] User: ${user.name} (${userIdStr}), Status: ${status || 'null'}`);
@@ -252,7 +253,7 @@ async function searchPeople(userId, query, limit) {
       }
 
       return {
-        id: user._id,
+        id: user.userId,
         type: 'person',
         name: user.name,
         username: user.username,
@@ -365,19 +366,19 @@ async function getSuggestions(userId, limit) {
       }
     });
 
-    // Get user details for suggestions
+    // Get user details for suggestions by UUID userId
     const suggestedUsers = await User.find({
-      _id: { $in: Array.from(potentialFriendIds).slice(0, limit) }
+      userId: { $in: Array.from(potentialFriendIds).slice(0, limit) }
     })
-    .select('name username profileImage')
+    .select('name username profileImage userId')
     .lean();
 
     // Count mutual friends for each suggestion
     const results = await Promise.all(suggestedUsers.map(async (user) => {
-      const mutualCount = await countMutualFriends(userId, user._id);
+      const mutualCount = await countMutualFriends(userId, user.userId);
 
       return {
-        id: user._id,
+        id: user.userId,
         type: 'suggestion',
         name: user.name,
         username: user.username,

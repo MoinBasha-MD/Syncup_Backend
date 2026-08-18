@@ -881,6 +881,27 @@ const removeConnection = asyncHandler(async (req, res) => {
     
     await Promise.all([currentUser.save(), targetUser.save()]);
     
+    // CRITICAL: Keep canonical Friend model in sync when legacy connection is removed
+    try {
+      const Friend = require('../models/Friend');
+      await Friend.updateMany(
+        {
+          $or: [
+            { userId: currentUserId, friendUserId: targetUserId },
+            { userId: targetUserId, friendUserId: currentUserId }
+          ],
+          isDeleted: { $ne: true }
+        },
+        {
+          $set: { status: 'removed', isDeleted: true, removedAt: new Date() }
+        }
+      );
+      console.log(`✅ Friend records removed: ${currentUserId} <-> ${targetUserId}`);
+    } catch (friendError) {
+      console.error('❌ Error removing Friend records:', friendError);
+      console.warn('⚠️ Connection removed but Friend records may still exist');
+    }
+    
     console.log(`✅ Connection removed: ${currentUserId} <-> ${targetUserId}`);
     
     res.status(200).json({
@@ -941,36 +962,17 @@ const checkFriendshipByPhone = asyncHandler(async (req, res) => {
       });
     }
 
-    // Get both users' connection data
-    const currentUser = await User.findOne({ userId: currentUserId });
-    
-    if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'Current user not found'
-      });
-    }
+    // Check canonical Friend model for actual friendship
+    const Friend = require('../models/Friend');
+    const friendship = await Friend.findOne({
+      $or: [
+        { userId: currentUserId, friendUserId: targetUserId, status: 'accepted', isDeleted: { $ne: true } },
+        { userId: targetUserId, friendUserId: currentUserId, status: 'accepted', isDeleted: { $ne: true } }
+      ]
+    }).lean();
 
-    // Check if target is in current user's contacts or appConnections
-    const isInCurrentUserContacts = currentUser.contacts?.some(
-      id => id.toString() === targetUser._id.toString()
-    );
-    const isInCurrentUserAppConnections = currentUser.appConnections?.some(
-      conn => conn.userId === targetUserId
-    );
-
-    // Check if current user is in target's contacts or appConnections
-    const isInTargetContacts = targetUser.contacts?.some(
-      id => id.toString() === currentUser._id.toString()
-    );
-    const isInTargetAppConnections = targetUser.appConnections?.some(
-      conn => conn.userId === currentUserId
-    );
-
-    const areFriends = (isInCurrentUserContacts || isInCurrentUserAppConnections) ||
-                       (isInTargetContacts || isInTargetAppConnections);
-    const isMutual = (isInCurrentUserContacts || isInCurrentUserAppConnections) &&
-                     (isInTargetContacts || isInTargetAppConnections);
+    const areFriends = !!friendship;
+    const isMutual = !!friendship;
 
     console.log(`📞 [CHECK FRIENDSHIP] Result - areFriends: ${areFriends}, isMutual: ${isMutual}`);
 

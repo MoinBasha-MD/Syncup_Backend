@@ -9,11 +9,43 @@ const { encryptUserData, isUserDataEncrypted } = require('../utils/userEncryptio
 // @desc    Register a new user
 // @route   POST /api/users
 // @access  Public
+// ✅ Minimum age required to create an account (kept in sync with
+// controllers/authController.js's registerUser, which is the endpoint the
+// app actually uses). This legacy endpoint is not called by the current app
+// build, but is patched here as a safety net so it can't be used to bypass
+// the age gate enforced elsewhere.
+const MIN_SIGNUP_AGE = 16;
+
 const registerUser = async (req, res) => {
   try {
-    const { name, phoneNumber, email, password } = req.body;
+    const { name, phoneNumber, email, password, dateOfBirth, gender } = req.body;
 
     console.log(' [REGISTRATION] New user registration with encryption');
+
+    // ✅ dateOfBirth is required so the age gate below cannot be bypassed
+    if (!dateOfBirth) {
+      return res.status(400).json({ message: 'Date of birth is required' });
+    }
+
+    const dobDate = new Date(dateOfBirth);
+    if (isNaN(dobDate.getTime())) {
+      return res.status(400).json({ message: 'Please provide a valid date of birth' });
+    }
+
+    const today = new Date();
+    if (dobDate > today) {
+      return res.status(400).json({ message: 'Date of birth cannot be in the future' });
+    }
+
+    const minAgeCutoff = new Date();
+    minAgeCutoff.setFullYear(minAgeCutoff.getFullYear() - MIN_SIGNUP_AGE);
+    if (dobDate > minAgeCutoff) {
+      return res.status(400).json({ message: `You must be at least ${MIN_SIGNUP_AGE} years old to register` });
+    }
+
+    if (gender && !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender.toLowerCase())) {
+      return res.status(400).json({ message: 'Please provide a valid gender option' });
+    }
 
     // Check if user already exists with this email or phone
     // Note: After migration, we need to check encrypted fields too
@@ -51,6 +83,8 @@ const registerUser = async (req, res) => {
       email: `encrypted_${Date.now()}@encrypted.local`,
       phoneNumber: `encrypted_${Date.now()}`,
       // Other fields
+      dateOfBirth: dobDate,
+      gender: gender ? gender.toLowerCase() : undefined,
       status: 'available',
       customStatus: '',
       statusUntil: null,
@@ -1357,8 +1391,10 @@ const getUserByUsername = async (req, res) => {
     console.log(`🔍 [BACKEND] Looking up user by username: ${username}`);
     
     // Find user by username (case-insensitive)
+    // Escape regex special characters to prevent ReDoS / regex injection
+    const escapedUsername = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const user = await User.findOne({ 
-      username: { $regex: new RegExp(`^${username}$`, 'i') }
+      username: { $regex: new RegExp(`^${escapedUsername}$`, 'i') }
     }).select('_id userId name username profileImage bio status customStatus');
     
     if (!user) {
