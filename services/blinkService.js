@@ -100,7 +100,11 @@ class BlinkService {
           liked,
           likeCount
         };
-      });
+      })
+        // Once a non-owner has seen a Blink it disappears for them, but it stays
+        // active for the owner and for any recipients who have not viewed it yet.
+        // Unseen Blinks expire automatically after 7 days (TTL / expiresAt).
+        .filter(blink => blink.userId === currentUserId || !blink.seen);
 
       // Current user first, then others by creation time
       return formattedBlinks.sort((a, b) => {
