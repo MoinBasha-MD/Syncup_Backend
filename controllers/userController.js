@@ -1395,7 +1395,7 @@ const getUserByUsername = async (req, res) => {
     const escapedUsername = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const user = await User.findOne({ 
       username: { $regex: new RegExp(`^${escapedUsername}$`, 'i') }
-    }).select('_id userId name username profileImage bio status customStatus');
+    }).select('_id userId name username profileImage bio');
     
     if (!user) {
       console.log(`❌ [BACKEND] User not found with username: ${username}`);
@@ -1415,9 +1415,7 @@ const getUserByUsername = async (req, res) => {
         name: user.name,
         username: user.username,
         profileImage: user.profileImage,
-        bio: user.bio,
-        status: user.status,
-        customStatus: user.customStatus
+        bio: user.bio
       }
     });
   } catch (error) {
