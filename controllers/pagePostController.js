@@ -14,7 +14,8 @@ const createPagePost = async (req, res) => {
       hashtags, 
       showHashtags,
       visibility = 'public', // ✅ PHASE 1: New field
-      targetAudience // ✅ PHASE 1: New field
+      targetAudience, // ✅ PHASE 1: New field
+      music
     } = req.body;
 
     console.log('📝 [PAGE POST] Creating post for page:', pageId);
@@ -67,7 +68,8 @@ const createPagePost = async (req, res) => {
       scheduledFor: scheduledFor || null,
       status: scheduledFor ? 'scheduled' : 'published', // ✅ PHASE 1
       isPublished: !scheduledFor,
-      publishedAt: scheduledFor ? null : new Date()
+      publishedAt: scheduledFor ? null : new Date(),
+      music: music || undefined
     });
 
     await post.save();
@@ -152,6 +154,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,
+        music: post.music || undefined,
         privacy: 'public',
         isPagePost: true,
         pageId: page._id,
@@ -206,6 +209,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,
+        music: post.music || undefined,
         privacy: 'friends', // Treated as friends-only
         isPagePost: true,
         pageId: page._id,
@@ -261,6 +265,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,
+        music: post.music || undefined,
         privacy: 'friends',
         isPagePost: true,
         pageId: page._id,
@@ -423,7 +428,7 @@ const getPagePost = async (req, res) => {
 const updatePagePost = async (req, res) => {
   try {
     const { pageId, postId } = req.params;
-    const { content, media, isPinned, isPublished } = req.body;
+    const { content, media, isPinned, isPublished, music } = req.body;
 
     const post = await PagePost.findOne({ _id: postId, page: pageId });
     
@@ -448,6 +453,7 @@ const updatePagePost = async (req, res) => {
     if (media !== undefined) post.media = media;
     if (isPinned !== undefined) post.isPinned = isPinned;
     if (isPublished !== undefined) post.isPublished = isPublished;
+    if (music !== undefined) post.music = music;
 
     await post.save();
 
@@ -457,6 +463,7 @@ const updatePagePost = async (req, res) => {
       if (content !== undefined) update.caption = content;
       if (isPinned !== undefined) update.isPinned = isPinned;
       if (isPublished !== undefined) update.isActive = isPublished;
+      if (music !== undefined) update.music = music;
       if (media !== undefined) {
         update.media = (post.media || []).map((item, index) => ({
           type: item.type === 'image' ? 'photo' : item.type,

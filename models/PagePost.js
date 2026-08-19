@@ -152,6 +152,19 @@ const pagePostSchema = new mongoose.Schema({
     distributedAt: Date
   },
   
+  // Music/audio attached to the post
+  music: {
+    trackId: { type: String },
+    title: { type: String },
+    artist: { type: String },
+    filename: { type: String },
+    startTime: { type: Number, default: 0 },
+    endTime: { type: Number, default: 30 },
+    volume: { type: Number, default: 0.7, min: 0, max: 1 },
+    mixMode: { type: String, enum: ['mix', 'replace', 'mute_original'], default: 'mix' },
+    loop: { type: Boolean, default: true }
+  },
+
   // Analytics
   analytics: {
     reach: { type: Number, default: 0 },
