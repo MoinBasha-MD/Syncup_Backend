@@ -74,7 +74,7 @@ router.post('/', protect, pageCreationLimiter, validatePageCreation, async (req,
 
     // ✅ AUTO-FOLLOW FIX: Page owner automatically follows their own page
     try {
-      const User = require('../models/User');
+      const User = require('../models/userModel');
       const user = await User.findById(req.user._id);
       
       if (user) {
@@ -542,7 +542,7 @@ router.put('/:id', protect, async (req, res) => {
         console.log(`📢 [PAGES] New team members added: ${addedMemberIds.length}`);
         
         // Auto-follow for each new team member
-        const User = require('../models/User');
+        const User = require('../models/userModel');
         
         for (const memberId of addedMemberIds) {
           try {
@@ -731,7 +731,7 @@ router.post('/:id/follow', protect, followLimiter, async (req, res) => {
     }
 
     // ✅ WEEK 2 FIX: Get User model to capture demographics (moved before follow creation)
-    const User = require('../models/User');
+    const User = require('../models/userModel');
     const user = await User.findById(req.user._id);
 
     // ✅ PHASE 1: Calculate age from dateOfBirth if available
