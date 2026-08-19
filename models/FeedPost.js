@@ -75,6 +75,14 @@ const feedPostSchema = new mongoose.Schema({
     enum: ['public', 'followers', 'custom'],
     index: true
   },
+
+  // Link back to the source PagePost for cleanup and sync
+  pagePostId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PagePost',
+    index: true,
+    default: null
+  },
   
   // ✅ PHASE 1: Targeted user (for followers-only and custom posts)
   targetUserId: {
@@ -227,6 +235,7 @@ feedPostSchema.index({ isPagePost: 1, createdAt: -1 }); // For filtering
 feedPostSchema.index({ pageVisibility: 1 });
 feedPostSchema.index({ targetUserId: 1, createdAt: -1 });
 feedPostSchema.index({ pageId: 1, pageVisibility: 1, targetUserId: 1 });
+feedPostSchema.index({ pagePostId: 1 });
 
 // 🔐 ENCRYPTION DISABLED - Captions and locations stored as plain text for better performance
 feedPostSchema.pre('save', async function(next) {
@@ -528,8 +537,15 @@ feedPostSchema.statics.getExplorePosts = async function(userId, page = 1, limit 
   let posts = await this.find(query)
     .sort({ createdAt: -1 })
     .limit(fetchLimit)
-    .populate('pageId', 'name username profileImage isVerified')
+    .populate('pageId', 'name username profileImage isVerified isPublic')
     .lean();
+
+  // Exclude page posts from private pages (only public pages should surface in Explore)
+  posts = posts.filter(post => {
+    if (!post.isPagePost) return true;
+    if (!post.pageId) return false;
+    return post.pageId.isPublic !== false;
+  });
 
   // Fisher-Yates shuffle for explore feed variety
   for (let i = posts.length - 1; i > 0; i--) {

@@ -3,7 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const Page = require('../models/Page');
 const PageFollower = require('../models/PageFollower');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, optionalProtect } = require('../middleware/authMiddleware');
 
 // ✅ WEEK 2 FIX: Import rate limiting middleware
 const {
@@ -43,31 +43,34 @@ router.post('/', protect, pageCreationLimiter, validatePageCreation, async (req,
       });
     }
 
-    // Check if username is already taken
-    const existingPage = await Page.findOne({ username: username.toLowerCase() });
-    if (existingPage) {
-      return res.status(400).json({
-        success: false,
-        message: 'Username is already taken'
+    // Create page with atomic unique-index protection
+    let page;
+    try {
+      page = await Page.create({
+        name,
+        username: username.toLowerCase(),
+        pageType,
+        bio: bio || '',
+        description: description || '',
+        profileImage: profileImage || '',
+        coverImage: coverImage || '',
+        category: category || '',
+        subcategory: subcategory || '',
+        contactInfo: contactInfo || {},
+        owner: req.user._id
       });
+
+      console.log(`✅ [PAGES] Page created: ${page.name} (@${page.username}) by user ${req.user._id}`);
+    } catch (createError) {
+      // Handle duplicate username race condition atomically
+      if (createError.code === 11000 && createError.keyPattern?.username) {
+        return res.status(400).json({
+          success: false,
+          message: 'Username is already taken'
+        });
+      }
+      throw createError;
     }
-
-    // Create page
-    const page = await Page.create({
-      name,
-      username: username.toLowerCase(),
-      pageType,
-      bio: bio || '',
-      description: description || '',
-      profileImage: profileImage || '',
-      coverImage: coverImage || '',
-      category: category || '',
-      subcategory: subcategory || '',
-      contactInfo: contactInfo || {},
-      owner: req.user._id
-    });
-
-    console.log(`✅ [PAGES] Page created: ${page.name} (@${page.username}) by user ${req.user._id}`);
 
     // ✅ AUTO-FOLLOW FIX: Page owner automatically follows their own page
     try {
@@ -134,9 +137,8 @@ router.post('/', protect, pageCreationLimiter, validatePageCreation, async (req,
           }
         });
         
-        // Update follower count
-        page.followerCount = 1;
-        await page.save();
+        // Update follower count atomically
+        await Page.findByIdAndUpdate(page._id, { $inc: { followerCount: 1 } });
         
         console.log(`✅ [PAGES] Page owner auto-followed their page: ${page.name}`);
       }
@@ -395,8 +397,8 @@ router.get('/following', protect, processPageImages, async (req, res) => {
 
 // @route   GET /api/pages/:id
 // @desc    Get page by ID
-// @access  Public
-router.get('/:id', processPageImages, async (req, res) => {
+// @access  Public (private pages require auth + access)
+router.get('/:id', optionalProtect, processPageImages, async (req, res) => {
   try {
     const page = await Page.findById(req.params.id)
       .populate('owner', 'name username profileImage')
@@ -406,6 +408,20 @@ router.get('/:id', processPageImages, async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Page not found'
+      });
+    }
+
+    // Private pages are only visible to owner, team, or followers
+    const isAuthorized = req.user && (
+      page.isOwner(req.user._id) ||
+      page.isTeamMember(req.user._id) ||
+      await PageFollower.isFollowing(page._id, req.user._id)
+    );
+
+    if (!page.isPublic && !isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'This page is private'
       });
     }
 
@@ -431,8 +447,8 @@ router.get('/:id', processPageImages, async (req, res) => {
 
 // @route   GET /api/pages/username/:username
 // @desc    Get page by username
-// @access  Public
-router.get('/username/:username', async (req, res) => {
+// @access  Public (private pages require auth + access)
+router.get('/username/:username', optionalProtect, async (req, res) => {
   try {
     const page = await Page.findOne({ username: req.params.username.toLowerCase() })
       .populate('owner', 'name username profileImage')
@@ -442,6 +458,20 @@ router.get('/username/:username', async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Page not found'
+      });
+    }
+
+    // Private pages are only visible to owner, team, or followers
+    const isAuthorized = req.user && (
+      page.isOwner(req.user._id) ||
+      page.isTeamMember(req.user._id) ||
+      await PageFollower.isFollowing(page._id, req.user._id)
+    );
+
+    if (!page.isPublic && !isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'This page is private'
       });
     }
 
@@ -585,7 +615,7 @@ router.put('/:id', protect, async (req, res) => {
                   }
                 });
                 
-                page.followerCount += 1;
+                await Page.findByIdAndUpdate(page._id, { $inc: { followerCount: 1 } });
                 console.log(`✅ [PAGES] Team member auto-followed page: ${user.name || memberId}`);
               }
             } else {
@@ -769,9 +799,13 @@ router.post('/:id/follow', protect, followLimiter, async (req, res) => {
     try {
       const follow = await PageFollower.create(followerData);
 
-      // Update page follower count
-      page.followerCount += 1;
-      await page.save();
+      // Update page follower count atomically
+      const updatedPage = await Page.findByIdAndUpdate(
+        page._id,
+        { $inc: { followerCount: 1 } },
+        { new: true }
+      );
+      page.followerCount = updatedPage.followerCount;
 
       console.log(`✅ [PAGES] User ${req.user._id} followed page ${page.name}`);
       console.log(`📊 [PAGES] Demographics captured:`, {
@@ -827,12 +861,14 @@ router.post('/:id/unfollow', protect, followLimiter, async (req, res) => {
       return res.status(400).json(result);
     }
 
+    const updatedPage = await Page.findById(page._id);
+
     console.log(`✅ [PAGES] User ${req.user._id} unfollowed page ${page.name}`);
 
     res.json({
       success: true,
       message: 'Successfully unfollowed page',
-      followerCount: Math.max(0, page.followerCount - 1)
+      followerCount: updatedPage ? updatedPage.followerCount : 0
     });
   } catch (error) {
     console.error('❌ [PAGES] Error unfollowing page:', error);

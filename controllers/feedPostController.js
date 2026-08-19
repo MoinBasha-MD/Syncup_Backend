@@ -202,6 +202,27 @@ const createFeedPost = async (req, res) => {
       });
 
       console.log(`📡 Post broadcast: ${successfulBroadcasts}/${contactUserIds.length} successful`);
+
+      // If this is a page post, also notify page followers
+      if (isPagePost && page) {
+        try {
+          const PageFollower = require('../models/PageFollower');
+          const { broadcastToUser: pageBroadcast } = require('../socketManager');
+          const pageFollowers = await PageFollower.find({ pageId: page._id }).select('userId');
+
+          pageFollowers.forEach(follower => {
+            const followerUserId = follower.userId.toString();
+            // Avoid duplicate broadcast to the author if they're also a contact
+            if (!contactUserIds.includes(followerUserId)) {
+              pageBroadcast(followerUserId, 'feed:new_post', postData);
+            }
+          });
+
+          console.log(`📡 Page post broadcast to ${pageFollowers.length} followers`);
+        } catch (pageBroadcastError) {
+          console.error('❌ Error broadcasting page post to followers:', pageBroadcastError);
+        }
+      }
     } catch (broadcastError) {
       console.error('❌ Error broadcasting post:', broadcastError);
     }
@@ -396,6 +417,19 @@ const deletePost = async (req, res) => {
 
     post.isActive = false;
     await post.save();
+
+    // Decrement page post count if this was a page post
+    if (post.isPagePost && post.pageId) {
+      try {
+        const page = await Page.findById(post.pageId);
+        if (page && page.postCount > 0) {
+          await Page.findByIdAndUpdate(post.pageId, { $inc: { postCount: -1 } });
+          console.log(`📊 Page ${post.pageId} postCount decremented`);
+        }
+      } catch (pageError) {
+        console.error('❌ Error decrementing page post count:', pageError);
+      }
+    }
 
     console.log(`🗑️ Post deleted: ${postId} by ${userId}`);
 

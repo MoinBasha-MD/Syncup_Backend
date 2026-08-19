@@ -91,8 +91,14 @@ const processPageObject = (page) => {
     return page;
   }
 
+  // Convert Mongoose documents to plain objects before spreading.
+  // Mongoose stores field values in an internal _doc property, so
+  // { ...mongooseDoc } loses name/username/pageType/etc. and the
+  // frontend receives undefined fields ("Untitled" bug).
+  const plain = (typeof page.toObject === 'function') ? page.toObject({ getters: true, virtuals: false }) : { ...page };
+
   // Create a copy to avoid mutating original
-  const processedPage = { ...page };
+  const processedPage = { ...plain };
 
   // Process profileImage
   if (processedPage.profileImage) {

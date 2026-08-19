@@ -30,8 +30,8 @@ const {
 
 // ✅ Post management routes (with validation + rate limiting)
 router.post('/:pageId/posts', protect, postCreationLimiter, validatePageId, validatePagePost, createPagePost);
-router.get('/:pageId/posts', validatePageId, getPagePosts);
-router.get('/:pageId/posts/:postId', validatePageId, validatePostId, getPagePost);
+router.get('/:pageId/posts', protect, validatePageId, getPagePosts);
+router.get('/:pageId/posts/:postId', protect, validatePageId, validatePostId, getPagePost);
 router.put('/:pageId/posts/:postId', protect, validatePageId, validatePostId, validatePagePost, updatePagePost);
 router.delete('/:pageId/posts/:postId', protect, validatePageId, validatePostId, deletePagePost);
 

@@ -72,15 +72,37 @@ const createPagePost = async (req, res) => {
 
     await post.save();
 
-    // Update page post count
-    page.postCount += 1;
-    await page.save();
+    // Update page post count atomically
+    await Page.findByIdAndUpdate(pageId, { $inc: { postCount: 1 } });
 
     console.log('✅ [PAGE POST] Post created successfully:', post._id);
 
     // ✅ PHASE 1: Handle distribution based on visibility
     if (!scheduledFor) {
       await distributePagePost(post, page, visibility, targetAudience);
+
+      // Notify page followers in real-time about the new post
+      try {
+        const { broadcastToUser } = require('../socketManager');
+        const followers = await PageFollower.find({ pageId: page._id }).select('userId');
+        const postPayload = {
+          pagePostId: post._id,
+          pageId: page._id,
+          pageName: page.name,
+          pageUsername: page.username,
+          pageProfileImage: page.profileImage,
+          visibility,
+          createdAt: post.createdAt
+        };
+
+        followers.forEach(follower => {
+          broadcastToUser(follower.userId.toString(), 'page:new_post', postPayload);
+        });
+
+        console.log(`📡 [PAGE POST] Notified ${followers.length} followers about new post`);
+      } catch (broadcastError) {
+        console.error('❌ [PAGE POST] Error broadcasting to followers:', broadcastError);
+      }
     } else {
       console.log('📅 [PAGE POST] Post scheduled for:', scheduledFor);
       // TODO Phase 2: Schedule for later distribution
@@ -133,6 +155,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         privacy: 'public',
         isPagePost: true,
         pageId: page._id,
+        pagePostId: post._id,
         pageVisibility: 'public', // ✅ PHASE 1
         type: normalizedMedia.length > 0 ? 
           (normalizedMedia.length > 1 ? 'carousel' : (normalizedMedia[0].type === 'video' ? 'video' : 'photo')) : 'text'
@@ -186,6 +209,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         privacy: 'friends', // Treated as friends-only
         isPagePost: true,
         pageId: page._id,
+        pagePostId: post._id,
         pageVisibility: 'followers',
         targetUserIds: followerIds, // ✅ WEEK 1 FIX: Array of all targeted users
         type: normalizedMedia.length > 0 ? 
@@ -240,6 +264,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         privacy: 'friends',
         isPagePost: true,
         pageId: page._id,
+        pagePostId: post._id,
         pageVisibility: 'custom',
         targetUserIds: targetFollowerIds, // ✅ WEEK 1 FIX: Array of all targeted users
         type: normalizedMedia.length > 0 ? 
@@ -275,11 +300,34 @@ const getPagePosts = async (req, res) => {
 
     console.log('📄 [PAGE POST] Getting posts for page:', pageId);
 
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return res.status(404).json({
+        success: false,
+        message: 'Page not found'
+      });
+    }
+
+    // Private pages only visible to followers, owner, or team
+    const isAuthorized = req.user && (
+      page.isOwner(req.user._id) ||
+      page.isTeamMember(req.user._id) ||
+      await PageFollower.isFollowing(page._id, req.user._id)
+    );
+
+    if (!page.isPublic && !isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'This page is private'
+      });
+    }
+
     // Build query
     const query = { page: pageId };
-    
+
     // Only show published posts unless user is page owner/editor
-    if (!includeUnpublished) {
+    const showUnpublished = includeUnpublished === 'true' && req.user && page.canEdit(req.user._id);
+    if (!showUnpublished) {
       query.isPublished = true;
     }
 
@@ -319,6 +367,27 @@ const getPagePosts = async (req, res) => {
 const getPagePost = async (req, res) => {
   try {
     const { pageId, postId } = req.params;
+
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return res.status(404).json({
+        success: false,
+        message: 'Page not found'
+      });
+    }
+
+    const isAuthorized = req.user && (
+      page.isOwner(req.user._id) ||
+      page.isTeamMember(req.user._id) ||
+      await PageFollower.isFollowing(page._id, req.user._id)
+    );
+
+    if (!page.isPublic && !isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'This page is private'
+      });
+    }
 
     const post = await PagePost.findOne({ _id: postId, page: pageId })
       .populate('author', 'name username profileImage')
@@ -382,6 +451,32 @@ const updatePagePost = async (req, res) => {
 
     await post.save();
 
+    // Sync changes to distributed FeedPost copies
+    try {
+      const update = {};
+      if (content !== undefined) update.caption = content;
+      if (isPinned !== undefined) update.isPinned = isPinned;
+      if (isPublished !== undefined) update.isActive = isPublished;
+      if (media !== undefined) {
+        update.media = (post.media || []).map((item, index) => ({
+          type: item.type === 'image' ? 'photo' : item.type,
+          url: item.url,
+          thumbnail: item.thumbnail,
+          width: item.width || 1080,
+          height: item.height || 1080,
+          duration: item.duration,
+          order: item.order !== undefined ? item.order : index
+        }));
+      }
+
+      if (Object.keys(update).length > 0) {
+        await FeedPost.updateMany({ pagePostId: post._id }, { $set: update });
+        console.log(`🔄 [PAGE POST] Synced FeedPost copies for ${postId}`);
+      }
+    } catch (syncError) {
+      console.error('❌ [PAGE POST] Error syncing FeedPost copies:', syncError);
+    }
+
     console.log('✅ [PAGE POST] Post updated:', postId);
 
     res.json({
@@ -424,9 +519,18 @@ const deletePagePost = async (req, res) => {
 
     await post.deleteOne();
 
-    // Update page post count
-    page.postCount = Math.max(0, page.postCount - 1);
-    await page.save();
+    // Remove the distributed FeedPost copies so they don't become orphaned
+    try {
+      await FeedPost.deleteMany({ pagePostId: post._id });
+      console.log(`🧹 [PAGE POST] Removed distributed FeedPost copies for ${postId}`);
+    } catch (cleanupError) {
+      console.error('❌ [PAGE POST] Error cleaning up FeedPost copies:', cleanupError);
+    }
+
+    // Update page post count atomically (don't go below zero)
+    await Page.findByIdAndUpdate(pageId, {
+      $inc: { postCount: page.postCount > 0 ? -1 : 0 }
+    });
 
     console.log('✅ [PAGE POST] Post deleted:', postId);
 
@@ -513,11 +617,19 @@ const addCommentToPagePost = async (req, res) => {
     }
 
     const post = await PagePost.findOne({ _id: postId, page: pageId });
-    
+
     if (!post) {
       return res.status(404).json({
         success: false,
         message: 'Post not found'
+      });
+    }
+
+    const page = await Page.findById(pageId);
+    if (page && !page.allowComments && !page.canEdit(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Comments are disabled for this page'
       });
     }
 
@@ -666,6 +778,7 @@ const sharePagePost = async (req, res) => {
 
 module.exports = {
   createPagePost,
+  distributePagePost,
   getPagePosts,
   getPagePost,
   updatePagePost,

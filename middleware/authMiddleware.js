@@ -109,8 +109,38 @@ const checkOwnership = (req, res, next) => {
   }
 };
 
-module.exports = { 
+// Optional authentication middleware - sets req.user if a valid token is provided,
+// but does not reject requests without one. Useful for public endpoints that still
+// need to know whether the caller is authenticated.
+const optionalProtect = async (req, res, next) => {
+  try {
+    if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith('Bearer')
+    ) {
+      const token = req.headers.authorization.split(' ')[1];
+      if (token && token !== 'null' && token !== 'undefined') {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.id).select('-password');
+        if (user && user.isActive !== false) {
+          req.user = {
+            ...user.toObject(),
+            id: user._id,
+            userId: user.userId,
+            _id: user._id
+          };
+        }
+      }
+    }
+  } catch (error) {
+    console.error('❌ [AUTH MIDDLEWARE] optionalProtect error:', error.message);
+  }
+  next();
+};
+
+module.exports = {
   protect,
+  optionalProtect,
   requireAdmin,
   checkOwnership
 };

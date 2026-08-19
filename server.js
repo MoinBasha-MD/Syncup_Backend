@@ -967,6 +967,10 @@ masterScheduler.start();
 const { initializePublicStatusCacheCleaner } = require('./cron/publicStatusCacheCleaner');
 initializePublicStatusCacheCleaner();
 
+// Start Scheduled Page Post Publisher (runs every minute)
+const { initializeScheduledPagePostPublisher } = require('./cron/publishScheduledPagePosts');
+initializeScheduledPagePostPublisher();
+
 
 
 // Keep these individual schedulers for special cases
