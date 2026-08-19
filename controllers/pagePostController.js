@@ -148,7 +148,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         userId: post.author,
         userName: page.name, // ✅ FIX: Add required userName field
         userProfileImage: page.profileImage,
-        content: post.content || '', // ✅ FIX: Ensure content is not undefined
+        caption: post.content || '', // ✅ FIX: Ensure content is not undefined
         media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,
@@ -202,7 +202,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         userId: post.author,
         userName: page.name, // ✅ FIX: Add required userName field
         userProfileImage: page.profileImage,
-        content: post.content || '', // ✅ FIX: Ensure content is not undefined
+        caption: post.content || '', // ✅ FIX: Ensure content is not undefined
         media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,
@@ -257,7 +257,7 @@ async function distributePagePost(post, page, visibility, targetAudience) {
         userId: post.author,
         userName: page.name, // ✅ FIX: Add required userName field
         userProfileImage: page.profileImage,
-        content: post.content || '', // ✅ FIX: Ensure content is not undefined
+        caption: post.content || '', // ✅ FIX: Ensure content is not undefined
         media: normalizedMedia,
         hashtags: post.hashtags || [],
         showHashtags: post.showHashtags,

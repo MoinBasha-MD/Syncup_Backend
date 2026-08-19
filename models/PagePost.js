@@ -19,7 +19,7 @@ const pagePostSchema = new mongoose.Schema({
   // Content
   content: {
     type: String,
-    required: true,
+    default: '',
     maxlength: 5000
   },
   
@@ -27,7 +27,7 @@ const pagePostSchema = new mongoose.Schema({
   media: [{
     type: {
       type: String,
-      enum: ['image', 'video'],
+      enum: ['image', 'photo', 'video'],
       required: true
     },
     url: {
