@@ -271,7 +271,7 @@ const validatePageCreation = [
     .withMessage('Username must be lowercase alphanumeric with underscores only'),
   
   body('pageType')
-    .isIn(['personal', 'business', 'community', 'brand'])
+    .isIn(['business', 'creator', 'meme', 'community', 'news', 'education'])
     .withMessage('Invalid page type'),
   
   body('bio')

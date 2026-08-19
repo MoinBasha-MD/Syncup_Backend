@@ -123,7 +123,14 @@ const notFound = (req, res, next) => {
   if (ignoredPaths.some(path => req.originalUrl.includes(path))) {
     return res.status(404).end(); // Silent 404 for bots
   }
-  
+
+  // Silently 404 missing upload files (post-media, profile-images, etc.)
+  // These are expected when files are lost during server migrations / redeployments
+  // and don't need to pollute the error log.
+  if (req.originalUrl.startsWith('/uploads/') || req.originalUrl.includes('/api/uploads/')) {
+    return res.status(404).end();
+  }
+
   const error = new ApiError(`Not Found - ${req.originalUrl}`, 404);
   next(error);
 };
