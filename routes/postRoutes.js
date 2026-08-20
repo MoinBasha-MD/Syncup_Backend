@@ -25,7 +25,6 @@ const {
   getLikedPosts,
   getCommentedPosts,
   getPostViewStats,
-  getPagePosts,
   trackInteraction,
   getUserInterests,
   getTrendingHashtags
@@ -108,11 +107,6 @@ router.get('/views/stats', protect, getPostViewStats);
 // @desc    Get user's feed posts
 // @access  Private
 router.get('/user/:userId', protect, getUserPosts);
-
-// @route   GET /api/posts/page/:pageId
-// @desc    Get page's posts (Phase 2)
-// @access  Private
-router.get('/page/:pageId', protect, getPagePosts);
 
 // @route   GET /api/posts/:postId
 // @desc    Get single post

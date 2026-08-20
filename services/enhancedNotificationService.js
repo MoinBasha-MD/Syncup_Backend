@@ -1,4 +1,5 @@
 const User = require('../models/userModel');
+const Notification = require('../models/Notification');
 // Lazy require to break circular dependency with socketManager
 const getSocketManager = () => require('../socketManager');
 const fcmNotificationService = require('./fcmNotificationService');
@@ -141,6 +142,146 @@ class EnhancedNotificationService {
       this.notificationStats.totalFailed++;
       return false;
     }
+  }
+
+  /**
+   * Core helper for all comment/reply/like engagement notifications on Vibes (feed & page posts).
+   * Persists a durable `Notification` document, pushes it in real-time over WebSocket
+   * (`notification:new`, same event chat messages use), and falls back to a visible FCM
+   * push so the recipient is still notified when offline/backgrounded/killed.
+   */
+  async sendCommentActivityNotification({ recipientUserId, actorUserId, actorName, actorAvatar, type, message, data = {} }) {
+    try {
+      if (!recipientUserId || !actorUserId || recipientUserId === actorUserId) {
+        // Never notify users about their own activity
+        return false;
+      }
+
+      const notificationPayload = {
+        type,
+        actorId: actorUserId,
+        actorName,
+        actorAvatar,
+        ...data,
+        timestamp: new Date().toISOString()
+      };
+
+      // Persist a durable notification record (comment_mention already did this; extend to all comment activity)
+      try {
+        await Notification.create({
+          userId: recipientUserId,
+          type,
+          fromUserId: actorUserId,
+          message,
+          data: notificationPayload
+        });
+      } catch (dbError) {
+        console.error('❌ [COMMENT NOTIFICATION] Failed to persist notification:', dbError);
+      }
+
+      // Try WebSocket first (instant, for online users) - mirrors the 'notification:blink' pattern
+      const socketSuccess = getSocketManager().broadcastToUser(recipientUserId, 'notification:comment', {
+        type,
+        title: actorName || 'Syncup',
+        body: message,
+        data: notificationPayload
+      });
+
+      // Always also send a visible FCM push so background/killed devices are notified too
+      const fcmResult = await fcmNotificationService.sendVisibleNotification(recipientUserId, {
+        title: actorName || 'Syncup',
+        body: message,
+        channelId: 'syncup-comments-channel',
+        data: notificationPayload
+      });
+
+      this.notificationStats.totalSent++;
+      if (socketSuccess || (fcmResult && fcmResult.success)) {
+        this.notificationStats.totalDelivered++;
+      } else {
+        this.notificationStats.totalFailed++;
+      }
+
+      return socketSuccess || (fcmResult && fcmResult.success);
+    } catch (error) {
+      console.error('❌ [COMMENT NOTIFICATION] Error sending comment activity notification:', error);
+      this.notificationStats.totalFailed++;
+      return false;
+    }
+  }
+
+  /**
+   * Truncate long comment/reply text for use in a notification preview.
+   */
+  formatCommentPreview(text, maxLength = 60) {
+    if (!text) return '';
+    const trimmed = text.trim();
+    return trimmed.length > maxLength ? `${trimmed.substring(0, maxLength - 1)}…` : trimmed;
+  }
+
+  /** Notify a post owner that someone commented on their Vibe (feed post or page post). */
+  async sendCommentNotification(postOwnerId, actor, { postId, isPagePost, pageId }, commentText) {
+    return this.sendCommentActivityNotification({
+      recipientUserId: postOwnerId,
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      actorAvatar: actor.profileImage,
+      type: 'comment',
+      message: `${actor.name} commented: "${this.formatCommentPreview(commentText)}"`,
+      data: { postId, isPagePost: !!isPagePost, pageId }
+    });
+  }
+
+  /** Notify a comment's author that someone replied to it. */
+  async sendCommentReplyNotification(commentOwnerId, actor, { postId, commentId, isPagePost, pageId }, replyText) {
+    return this.sendCommentActivityNotification({
+      recipientUserId: commentOwnerId,
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      actorAvatar: actor.profileImage,
+      type: 'comment_reply',
+      message: `${actor.name} replied: "${this.formatCommentPreview(replyText)}"`,
+      data: { postId, commentId, isPagePost: !!isPagePost, pageId }
+    });
+  }
+
+  /** Notify a comment's author that someone liked their comment. */
+  async sendCommentLikeNotification(commentOwnerId, actor, { postId, commentId, isPagePost, pageId }) {
+    return this.sendCommentActivityNotification({
+      recipientUserId: commentOwnerId,
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      actorAvatar: actor.profileImage,
+      type: 'comment_like',
+      message: `${actor.name} liked your comment`,
+      data: { postId, commentId, isPagePost: !!isPagePost, pageId }
+    });
+  }
+
+  /** Notify a reply's author that someone liked their reply. */
+  async sendReplyLikeNotification(replyOwnerId, actor, { postId, commentId, replyId, isPagePost, pageId }) {
+    return this.sendCommentActivityNotification({
+      recipientUserId: replyOwnerId,
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      actorAvatar: actor.profileImage,
+      type: 'reply_like',
+      message: `${actor.name} liked your reply`,
+      data: { postId, commentId, replyId, isPagePost: !!isPagePost, pageId }
+    });
+  }
+
+  /** Notify a mentioned user that someone tagged them in a comment. */
+  async sendCommentMentionNotification(mentionedUserId, actor, { postId, commentId, isPagePost, pageId }) {
+    return this.sendCommentActivityNotification({
+      recipientUserId: mentionedUserId,
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      actorAvatar: actor.profileImage,
+      type: 'comment_mention',
+      message: `${actor.name} mentioned you in a comment`,
+      data: { postId, commentId, isPagePost: !!isPagePost, pageId }
+    });
   }
 
   /**

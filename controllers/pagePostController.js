@@ -2,6 +2,22 @@ const PagePost = require('../models/PagePost');
 const Page = require('../models/Page');
 const FeedPost = require('../models/FeedPost');
 const PageFollower = require('../models/PageFollower');
+const Comment = require('../models/Comment');
+const User = require('../models/User');
+const enhancedNotificationService = require('../services/enhancedNotificationService');
+
+// Resolve the string `userId` (not Mongo _id) of a Page's owner, used to key
+// sockets/FCM/Notification records the same way the rest of the app does.
+async function getPageOwnerUserId(page) {
+  try {
+    if (!page || !page.owner) return null;
+    const owner = await User.findById(page.owner).select('userId');
+    return owner ? owner.userId : null;
+  } catch (error) {
+    console.error('❌ [PAGE POST] Error resolving page owner:', error);
+    return null;
+  }
+}
 
 // ✅ PHASE 1: Create a new page post with visibility controls
 const createPagePost = async (req, res) => {
@@ -341,8 +357,7 @@ const getPagePosts = async (req, res) => {
       .limit(parseInt(limit))
       .skip(parseInt(skip))
       .populate('author', 'name username profileImage')
-      .populate('page', 'name username profileImage')
-      .populate('comments.user', 'name username profileImage');
+      .populate('page', 'name username profileImage');
 
     const total = await PagePost.countDocuments(query);
 
@@ -397,7 +412,6 @@ const getPagePost = async (req, res) => {
     const post = await PagePost.findOne({ _id: postId, page: pageId })
       .populate('author', 'name username profileImage')
       .populate('page', 'name username profileImage')
-      .populate('comments.user', 'name username profileImage')
       .populate('likes', 'name username profileImage');
 
     if (!post) {
@@ -575,6 +589,26 @@ const toggleLikePagePost = async (req, res) => {
 
     console.log(`✅ [PAGE POST] Post ${isLiked ? 'liked' : 'unliked'}:`, postId);
 
+    // ✅ ARCHITECTURE FIX: Mirror the like onto the distributed FeedPost copy(ies) so
+    // Feed viewers see the same like state/count as the Page's own profile.
+    try {
+      const feedCopies = await FeedPost.find({ pagePostId: post._id });
+      for (const copy of feedCopies) {
+        const alreadyLikedThere = copy.likes.includes(req.user.userId);
+        if (isLiked && !alreadyLikedThere) {
+          copy.likes.push(req.user.userId);
+          copy.likesCount += 1;
+          await copy.save();
+        } else if (!isLiked && alreadyLikedThere) {
+          copy.likes = copy.likes.filter(id => id !== req.user.userId);
+          copy.likesCount = Math.max(0, copy.likesCount - 1);
+          await copy.save();
+        }
+      }
+    } catch (syncError) {
+      console.error('❌ [LIKE SYNC] Failed to mirror like onto FeedPost copy:', syncError);
+    }
+
     // ✅ WEEK 2 FIX: Track engagement for page followers
     if (isLiked) {
       try {
@@ -640,18 +674,36 @@ const addCommentToPagePost = async (req, res) => {
       });
     }
 
-    await post.addComment(req.user._id, content);
+    const user = await User.findById(req.user._id).select('name profileImage');
 
-    // Populate the newly added comment
-    await post.populate('comments.user', 'name username profileImage');
+    const newComment = new Comment({
+      postId: post._id,
+      postType: 'PagePost',
+      pageId: page ? page._id : null,
+      userId: req.user.userId,
+      userName: user?.name || 'User',
+      userProfileImage: user?.profileImage,
+      text: content.trim()
+    });
 
-    const newComment = post.comments[post.comments.length - 1];
+    await newComment.save();
+
+    // Update the canonical comment count
+    const commentCount = await Comment.getCommentCount(post._id, 'PagePost');
+    post.commentCount = commentCount;
+    await post.save();
+
+    // Sync the distributed FeedPost copies so the count matches in the main feed
+    try {
+      await FeedPost.updateMany({ pagePostId: post._id }, { $set: { commentsCount: commentCount } });
+    } catch (syncError) {
+      console.error('❌ [PAGE POST] Error syncing FeedPost commentsCount:', syncError);
+    }
 
     console.log('✅ [PAGE POST] Comment added to post:', postId);
 
-    // ✅ WEEK 2 FIX: Track engagement for page followers
+    // Track engagement for page followers
     try {
-      const PageFollower = require('../models/PageFollower');
       const follower = await PageFollower.findOne({
         pageId: pageId,
         userId: req.user._id
@@ -663,20 +715,304 @@ const addCommentToPagePost = async (req, res) => {
       }
     } catch (engagementError) {
       console.error('❌ [PAGE POST] Error tracking engagement:', engagementError);
-      // Don't fail the request if engagement tracking fails
+    }
+
+    // Notify the page owner (WebSocket + persisted notification + FCM push fallback)
+    try {
+      const ownerUserId = await getPageOwnerUserId(page);
+      if (ownerUserId && ownerUserId !== req.user.userId) {
+        await enhancedNotificationService.sendCommentNotification(
+          ownerUserId,
+          { userId: req.user.userId, name: user?.name || 'Someone', profileImage: user?.profileImage },
+          { postId: post._id, isPagePost: true, pageId: page ? page._id : null },
+          content.trim()
+        );
+      }
+    } catch (notifyError) {
+      console.error('❌ [PAGE POST] Error sending comment notification:', notifyError);
     }
 
     res.status(201).json({
       success: true,
       message: 'Comment added successfully',
       comment: newComment,
-      commentCount: post.commentCount
+      commentCount
     });
   } catch (error) {
     console.error('❌ [PAGE POST] Error adding comment:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to add comment',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Get comments for a post (unified Comment collection)
+const getPagePostComments = async (req, res) => {
+  try {
+    const { pageId, postId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const post = await PagePost.findOne({ _id: postId, page: pageId });
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    const comments = await Comment.getPostComments(post._id, 'PagePost', page, limit);
+
+    res.json({
+      success: true,
+      data: comments,
+      pagination: {
+        page,
+        limit,
+        total: comments.length
+      }
+    });
+  } catch (error) {
+    console.error('❌ [PAGE POST] Error getting comments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get comments',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Add reply to a page post comment
+const addReplyToPagePost = async (req, res) => {
+  try {
+    const { pageId, postId, commentId } = req.params;
+    const { content } = req.body;
+
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reply content is required'
+      });
+    }
+
+    const post = await PagePost.findOne({ _id: postId, page: pageId });
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    const page = await Page.findById(pageId);
+    if (page && !page.allowComments && !page.canEdit(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Comments are disabled for this page'
+      });
+    }
+
+    const comment = await Comment.findOne({ _id: commentId, postId: post._id, postType: 'PagePost' });
+    if (!comment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Comment not found'
+      });
+    }
+
+    const user = await User.findById(req.user._id).select('name profileImage');
+
+    comment.replies.push({
+      userId: req.user.userId,
+      userName: user?.name || 'User',
+      userProfileImage: user?.profileImage,
+      text: content.trim()
+    });
+    comment.repliesCount = comment.replies.length;
+    await comment.save();
+
+    const commentCount = await Comment.getCommentCount(post._id, 'PagePost');
+    post.commentCount = commentCount;
+    await post.save();
+
+    try {
+      await FeedPost.updateMany({ pagePostId: post._id }, { $set: { commentsCount: commentCount } });
+    } catch (syncError) {
+      console.error('❌ [PAGE POST] Error syncing FeedPost commentsCount:', syncError);
+    }
+
+    // Notify the comment owner (WebSocket + persisted notification + FCM push fallback)
+    try {
+      if (comment.userId !== req.user.userId) {
+        await enhancedNotificationService.sendCommentReplyNotification(
+          comment.userId,
+          { userId: req.user.userId, name: user?.name || 'Someone', profileImage: user?.profileImage },
+          { postId: post._id, commentId: comment._id, isPagePost: true, pageId: page ? page._id : null },
+          content.trim()
+        );
+      }
+    } catch (notifyError) {
+      console.error('❌ [PAGE POST] Error sending reply notification:', notifyError);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Reply added successfully',
+      comment,
+      commentCount
+    });
+  } catch (error) {
+    console.error('❌ [PAGE POST] Error adding reply:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to add reply',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Toggle like on a page post comment
+const togglePagePostCommentLike = async (req, res) => {
+  try {
+    const { pageId, postId, commentId } = req.params;
+
+    const post = await PagePost.findOne({ _id: postId, page: pageId });
+    if (!post) {
+      return res.status(404).json({ success: false, message: 'Post not found' });
+    }
+
+    const comment = await Comment.findOne({ _id: commentId, postId: post._id, postType: 'PagePost' });
+    if (!comment) {
+      return res.status(404).json({ success: false, message: 'Comment not found' });
+    }
+
+    await comment.toggleLike(req.user.userId);
+    const isLiked = comment.likes.includes(req.user.userId);
+
+    // Notify comment owner only when it becomes liked (not on unlike)
+    if (isLiked && comment.userId !== req.user.userId) {
+      try {
+        const liker = await User.findById(req.user._id).select('name profileImage');
+        await enhancedNotificationService.sendCommentLikeNotification(
+          comment.userId,
+          { userId: req.user.userId, name: liker?.name || 'Someone', profileImage: liker?.profileImage },
+          { postId: post._id, commentId, isPagePost: true, pageId }
+        );
+      } catch (notifyError) {
+        console.error('❌ [PAGE POST] Error sending comment like notification:', notifyError);
+      }
+    }
+
+    res.json({
+      success: true,
+      isLiked,
+      likesCount: comment.likesCount,
+      likes: comment.likes
+    });
+  } catch (error) {
+    console.error('❌ [PAGE POST] Error toggling comment like:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to toggle like',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Toggle like on a page post reply
+const togglePagePostReplyLike = async (req, res) => {
+  try {
+    const { pageId, postId, commentId, replyId } = req.params;
+
+    const post = await PagePost.findOne({ _id: postId, page: pageId });
+    if (!post) {
+      return res.status(404).json({ success: false, message: 'Post not found' });
+    }
+
+    const comment = await Comment.findOne({ _id: commentId, postId: post._id, postType: 'PagePost' });
+    if (!comment) {
+      return res.status(404).json({ success: false, message: 'Comment not found' });
+    }
+
+    await comment.toggleReplyLike(replyId, req.user.userId);
+    const reply = comment.replies.id(replyId);
+    const isLiked = reply ? reply.likes.includes(req.user.userId) : false;
+
+    // Notify reply owner only when it becomes liked (not on unlike)
+    if (isLiked && reply && reply.userId !== req.user.userId) {
+      try {
+        const liker = await User.findById(req.user._id).select('name profileImage');
+        await enhancedNotificationService.sendReplyLikeNotification(
+          reply.userId,
+          { userId: req.user.userId, name: liker?.name || 'Someone', profileImage: liker?.profileImage },
+          { postId: post._id, commentId, replyId, isPagePost: true, pageId }
+        );
+      } catch (notifyError) {
+        console.error('❌ [PAGE POST] Error sending reply like notification:', notifyError);
+      }
+    }
+
+    res.json({
+      success: true,
+      isLiked,
+      likesCount: reply ? reply.likesCount : 0
+    });
+  } catch (error) {
+    console.error('❌ [PAGE POST] Error toggling reply like:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to toggle reply like',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Delete reply from a page post comment
+const deletePagePostReply = async (req, res) => {
+  try {
+    const { pageId, postId, commentId, replyId } = req.params;
+
+    const post = await PagePost.findOne({ _id: postId, page: pageId });
+    if (!post) {
+      return res.status(404).json({ success: false, message: 'Post not found' });
+    }
+
+    const comment = await Comment.findOne({ _id: commentId, postId: post._id, postType: 'PagePost' });
+    if (!comment) {
+      return res.status(404).json({ success: false, message: 'Comment not found' });
+    }
+
+    const reply = comment.replies.id(replyId);
+    if (!reply) {
+      return res.status(404).json({ success: false, message: 'Reply not found' });
+    }
+
+    const page = await Page.findById(pageId);
+    if (reply.userId !== req.user.userId && !page.canEdit(req.user._id)) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+
+    comment.replies.pull(replyId);
+    comment.repliesCount = comment.replies.length;
+    await comment.save();
+
+    const commentCount = await Comment.getCommentCount(post._id, 'PagePost');
+    post.commentCount = commentCount;
+    await post.save();
+
+    try {
+      await FeedPost.updateMany({ pagePostId: post._id }, { $set: { commentsCount: commentCount } });
+    } catch (syncError) {
+      console.error('❌ [PAGE POST] Error syncing FeedPost commentsCount:', syncError);
+    }
+
+    res.json({ success: true, message: 'Reply deleted successfully', commentCount });
+  } catch (error) {
+    console.error('❌ [PAGE POST] Error deleting reply:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete reply',
       error: error.message
     });
   }
@@ -696,7 +1032,7 @@ const deleteCommentFromPagePost = async (req, res) => {
       });
     }
 
-    const comment = post.comments.id(commentId);
+    const comment = await Comment.findOne({ _id: commentId, postId: post._id, postType: 'PagePost' });
     
     if (!comment) {
       return res.status(404).json({
@@ -707,21 +1043,33 @@ const deleteCommentFromPagePost = async (req, res) => {
 
     // Check if user is comment author or page owner/editor
     const page = await Page.findById(pageId);
-    if (comment.user.toString() !== req.user._id.toString() && !page.canEdit(req.user._id)) {
+    if (comment.userId !== req.user.userId && !page.canEdit(req.user._id)) {
       return res.status(403).json({
         success: false,
         message: 'You do not have permission to delete this comment'
       });
     }
 
-    await post.removeComment(commentId);
+    comment.isActive = false;
+    await comment.save();
+
+    // Update canonical count and sync to feed copies
+    const commentCount = await Comment.getCommentCount(post._id, 'PagePost');
+    post.commentCount = commentCount;
+    await post.save();
+
+    try {
+      await FeedPost.updateMany({ pagePostId: post._id }, { $set: { commentsCount: commentCount } });
+    } catch (syncError) {
+      console.error('❌ [PAGE POST] Error syncing FeedPost commentsCount:', syncError);
+    }
 
     console.log('✅ [PAGE POST] Comment deleted from post:', postId);
 
     res.json({
       success: true,
       message: 'Comment deleted successfully',
-      commentCount: post.commentCount
+      commentCount
     });
   } catch (error) {
     console.error('❌ [PAGE POST] Error deleting comment:', error);
@@ -792,6 +1140,11 @@ module.exports = {
   deletePagePost,
   toggleLikePagePost,
   addCommentToPagePost,
+  getPagePostComments,
+  addReplyToPagePost,
+  togglePagePostCommentLike,
+  togglePagePostReplyLike,
+  deletePagePostReply,
   deleteCommentFromPagePost,
   sharePagePost
 };

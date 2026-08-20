@@ -9,6 +9,11 @@ const {
   deletePagePost,
   toggleLikePagePost,
   addCommentToPagePost,
+  getPagePostComments,
+  addReplyToPagePost,
+  togglePagePostCommentLike,
+  togglePagePostReplyLike,
+  deletePagePostReply,
   deleteCommentFromPagePost,
   sharePagePost
 } = require('../controllers/pagePostController');
@@ -40,7 +45,12 @@ router.post('/:pageId/posts/:postId/like', protect, likeLimiter, validatePageId,
 router.post('/:pageId/posts/:postId/share', protect, validatePageId, validatePostId, sharePagePost);
 
 // ✅ Comment routes (with validation + rate limiting)
+router.get('/:pageId/posts/:postId/comments', protect, validatePageId, validatePostId, getPagePostComments);
 router.post('/:pageId/posts/:postId/comments', protect, commentLimiter, validatePageId, validatePostId, validateComment, addCommentToPagePost);
+router.post('/:pageId/posts/:postId/comments/:commentId/like', protect, likeLimiter, validatePageId, validatePostId, togglePagePostCommentLike);
+router.post('/:pageId/posts/:postId/comments/:commentId/reply', protect, commentLimiter, validatePageId, validatePostId, addReplyToPagePost);
+router.post('/:pageId/posts/:postId/comments/:commentId/replies/:replyId/like', protect, likeLimiter, validatePageId, validatePostId, togglePagePostReplyLike);
+router.delete('/:pageId/posts/:postId/comments/:commentId/replies/:replyId', protect, validatePageId, validatePostId, deletePagePostReply);
 router.delete('/:pageId/posts/:postId/comments/:commentId', protect, validatePageId, validatePostId, deleteCommentFromPagePost);
 
 module.exports = router;

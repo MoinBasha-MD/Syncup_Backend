@@ -37,11 +37,25 @@ const commentReplySchema = new mongoose.Schema({
 }, { _id: true });
 
 const commentSchema = new mongoose.Schema({
+  // ✅ UNIFIED: postId now refers to either a FeedPost (personal/friend vibe)
+  // or a PagePost (page vibe). Use postType to know which collection.
   postId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'FeedPost',
     required: true,
     index: true
+  },
+  postType: {
+    type: String,
+    enum: ['FeedPost', 'PagePost'],
+    default: 'FeedPost',
+    index: true
+  },
+  // For PagePost comments, the owning page (helps with permissions/URLs)
+  pageId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Page',
+    index: true,
+    default: null
   },
   userId: {
     type: String,
@@ -100,9 +114,9 @@ const commentSchema = new mongoose.Schema({
 });
 
 // Indexes for efficient queries
-commentSchema.index({ postId: 1, createdAt: -1 });
+commentSchema.index({ postId: 1, postType: 1, createdAt: -1 });
 commentSchema.index({ userId: 1, createdAt: -1 });
-commentSchema.index({ postId: 1, isActive: 1, createdAt: -1 });
+commentSchema.index({ postId: 1, postType: 1, isActive: 1, createdAt: -1 });
 commentSchema.index({ mentions: 1 });
 commentSchema.index({ hashtags: 1 });
 
@@ -225,13 +239,16 @@ commentSchema.methods.deleteReply = function(replyId) {
 };
 
 // Static method to get comments for a post
-commentSchema.statics.getPostComments = async function(postId, page = 1, limit = 20) {
+commentSchema.statics.getPostComments = async function(postId, postType, page = 1, limit = 20) {
   const skip = (page - 1) * limit;
   
-  const comments = await this.find({
+  const query = {
     postId: postId,
     isActive: true
-  })
+  };
+  if (postType) query.postType = postType;
+  
+  const comments = await this.find(query)
   .sort({ createdAt: -1 })
   .skip(skip)
   .limit(limit)
@@ -284,11 +301,13 @@ commentSchema.statics.getPostComments = async function(postId, page = 1, limit =
 };
 
 // Static method to get comment count for a post
-commentSchema.statics.getCommentCount = async function(postId) {
-  return this.countDocuments({
+commentSchema.statics.getCommentCount = async function(postId, postType) {
+  const query = {
     postId: postId,
     isActive: true
-  });
+  };
+  if (postType) query.postType = postType;
+  return this.countDocuments(query);
 };
 
 const Comment = mongoose.model('Comment', commentSchema);

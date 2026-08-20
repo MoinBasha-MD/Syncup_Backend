@@ -9,6 +9,19 @@ const createFeedPost = async (req, res) => {
     const { caption, type, mediaUrls, mediaMetadata, location, privacy, pageId, music } = req.body;
     const userId = req.user.userId;
 
+    // ✅ ARCHITECTURE FIX: Page posts must go through POST /api/pages/:pageId/posts
+    // (pagePostController.createPagePost), which creates the canonical PagePost record
+    // and handles visibility/distribution correctly. This endpoint used to also accept
+    // a `pageId` and create a bare, undistributed FeedPost with isPagePost=true and no
+    // backing PagePost — an inconsistent bypass of the whole Pages system. Reject it
+    // explicitly instead of silently creating orphaned page content.
+    if (pageId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Page posts must be created via POST /api/pages/:pageId/posts'
+      });
+    }
+
     // Validate required fields
     const validTypes = ['photo', 'video', 'carousel', 'text'];
     const validPrivacy = ['public', 'friends', 'private'];
@@ -55,30 +68,6 @@ const createFeedPost = async (req, res) => {
         success: false,
         message: 'User not found'
       });
-    }
-
-    // Phase 2: Check if posting as page
-    let isPagePost = false;
-    let page = null;
-    if (pageId) {
-      page = await Page.findById(pageId);
-      if (!page) {
-        return res.status(404).json({
-          success: false,
-          message: 'Page not found'
-        });
-      }
-
-      // Check if user can post to this page
-      if (!page.canPost(req.user._id)) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to post to this page'
-        });
-      }
-
-      isPagePost = true;
-      console.log(`📄 [PAGE POST] User ${userId} posting as page ${page.name}`);
     }
 
     // Create media items with encryption metadata (empty for text-only posts)
@@ -140,21 +129,12 @@ const createFeedPost = async (req, res) => {
       media,
       music: musicData,
       location: location ? { name: location } : undefined,
-      privacy: privacy || 'public',
-      // Phase 2: Page post fields
-      pageId: pageId || null,
-      isPagePost: isPagePost
+      privacy: privacy || 'public'
     });
 
     await newPost.save();
 
-    // Phase 2: Update page post count if page post
-    if (isPagePost && page) {
-      await Page.findByIdAndUpdate(pageId, { $inc: { postCount: 1 } });
-      console.log(`✅ Page post created for ${page.name}:`, newPost._id);
-    } else {
-      console.log(`✅ Feed post created by ${user.name}:`, newPost._id);
-    }
+    console.log(`✅ Feed post created by ${user.name}:`, newPost._id);
 
     // 🔓 Decrypt post before returning to client
     const decryptedPost = newPost.toObject();
@@ -202,27 +182,6 @@ const createFeedPost = async (req, res) => {
       });
 
       console.log(`📡 Post broadcast: ${successfulBroadcasts}/${contactUserIds.length} successful`);
-
-      // If this is a page post, also notify page followers
-      if (isPagePost && page) {
-        try {
-          const PageFollower = require('../models/PageFollower');
-          const { broadcastToUser: pageBroadcast } = require('../socketManager');
-          const pageFollowers = await PageFollower.find({ pageId: page._id }).select('userId');
-
-          pageFollowers.forEach(follower => {
-            const followerUserId = follower.userId.toString();
-            // Avoid duplicate broadcast to the author if they're also a contact
-            if (!contactUserIds.includes(followerUserId)) {
-              pageBroadcast(followerUserId, 'feed:new_post', postData);
-            }
-          });
-
-          console.log(`📡 Page post broadcast to ${pageFollowers.length} followers`);
-        } catch (pageBroadcastError) {
-          console.error('❌ Error broadcasting page post to followers:', pageBroadcastError);
-        }
-      }
     } catch (broadcastError) {
       console.error('❌ Error broadcasting post:', broadcastError);
     }
@@ -415,6 +374,17 @@ const deletePost = async (req, res) => {
       });
     }
 
+    // ✅ ARCHITECTURE FIX: Page posts are denormalized copies of canonical `PagePost`
+    // records. Deleting the feed copy from here would only hide that copy and corrupt
+    // `Page.postCount`, while the canonical PagePost remains. Force clients to go through
+    // `DELETE /api/pages/:pageId/posts/:postId` for page content.
+    if (post.isPagePost && post.pageId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Page posts must be deleted via DELETE /api/pages/:pageId/posts/:postId'
+      });
+    }
+
     post.isActive = false;
     await post.save();
 
@@ -481,6 +451,30 @@ const toggleLike = async (req, res) => {
         console.log(`📊 Page ${post.pageId} totalLikes ${isLiked ? 'incremented' : 'decremented'}`);
       } catch (pageError) {
         console.error('❌ Error updating page likes:', pageError);
+      }
+    }
+
+    // ✅ ARCHITECTURE FIX: This FeedPost may just be a distributed copy of a canonical
+    // PagePost. Mirror the like there too so counts/state don't diverge depending on
+    // whether the user liked it from the Feed or from the Page's own profile.
+    if (post.isPagePost && post.pagePostId) {
+      try {
+        const PagePost = require('../models/PagePost');
+        const pagePost = await PagePost.findById(post.pagePostId);
+        if (pagePost) {
+          const alreadyLikedThere = pagePost.likes.some(id => id.toString() === req.user._id.toString());
+          if (isLiked && !alreadyLikedThere) {
+            pagePost.likes.push(req.user._id);
+            pagePost.likeCount += 1;
+            await pagePost.save();
+          } else if (!isLiked && alreadyLikedThere) {
+            pagePost.likes = pagePost.likes.filter(id => id.toString() !== req.user._id.toString());
+            pagePost.likeCount = Math.max(0, pagePost.likeCount - 1);
+            await pagePost.save();
+          }
+        }
+      } catch (syncError) {
+        console.error('❌ [LIKE SYNC] Failed to mirror like onto PagePost:', syncError);
       }
     }
 
@@ -580,6 +574,16 @@ const updatePost = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'You do not have permission to edit this post'
+      });
+    }
+
+    // ✅ ARCHITECTURE FIX: Page posts are denormalized `FeedPost` copies. Editing a copy
+    // here would not sync the canonical `PagePost`, so the Feed and the Page profile would
+    // show different content. Force clients to use `PUT /api/pages/:pageId/posts/:postId`.
+    if (post.isPagePost && post.pageId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Page posts must be edited via PUT /api/pages/:pageId/posts/:postId'
       });
     }
 
@@ -1101,42 +1105,6 @@ const getPostViewStats = async (req, res) => {
   }
 };
 
-// Get posts for a specific page (Phase 2)
-const getPagePosts = async (req, res) => {
-  try {
-    const { pageId } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-
-    console.log(`📄 Getting posts for page: ${pageId}`);
-
-    const posts = await FeedPost.getPagePosts(pageId, page, limit);
-
-    // ENCRYPTION DISABLED - Posts stored as plain text
-    const decryptedPosts = posts;
-
-    console.log(`✅ Returning ${decryptedPosts.length} page posts`);
-
-    res.status(200).json({
-      success: true,
-      data: decryptedPosts,
-      pagination: {
-        page,
-        limit,
-        total: decryptedPosts.length
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Get page posts error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get page posts',
-      error: error.message
-    });
-  }
-};
-
 // Get explore posts (public posts from non-friends)
 const getExplorePosts = async (req, res) => {
   try {
@@ -1355,7 +1323,6 @@ module.exports = {
   getLikedPosts,
   getCommentedPosts,
   getPostViewStats,
-  getPagePosts,  // Phase 2
   trackInteraction,  // NEW: Track user interactions
   getUserInterests,  // NEW: Get user's learned interests
   getTrendingHashtags  // NEW: Get trending hashtags

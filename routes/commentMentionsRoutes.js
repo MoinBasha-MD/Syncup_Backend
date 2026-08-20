@@ -8,7 +8,7 @@ const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const Comment = require('../models/Comment');
 const User = require('../models/userModel');
-const Notification = require('../models/Notification');
+const enhancedNotificationService = require('../services/enhancedNotificationService');
 
 // Save comment with mentions
 router.post('/comments/:commentId/mentions', protect, async (req, res) => {
@@ -65,21 +65,14 @@ router.post('/comments/:commentId/mentions', protect, async (req, res) => {
     comment.mentions = validMentions;
     await comment.save();
 
-    // Send notifications to mentioned friends
+    // Send notifications to mentioned friends (persisted + real-time WebSocket + FCM push fallback)
     for (const mention of validMentions) {
       try {
-        await Notification.create({
-          userId: mention.userId,
-          type: 'comment_mention',
-          fromUserId: userId,
-          message: `${req.user.name} mentioned you in a comment`,
-          data: {
-            commentId: comment._id,
-            postId: comment.postId,
-            mentionText: mention.userName,
-          },
-          createdAt: new Date()
-        });
+        await enhancedNotificationService.sendCommentMentionNotification(
+          mention.userId,
+          { userId: req.user.userId || userId, name: req.user.name, profileImage: req.user.profileImage },
+          { postId: comment.postId, commentId: comment._id, isPagePost: comment.postType === 'PagePost', pageId: comment.pageId }
+        );
         console.log('✅ [MENTIONS] Notification sent to:', mention.userId);
       } catch (notifError) {
         console.error('❌ [MENTIONS] Error sending notification:', notifError);

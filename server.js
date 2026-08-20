@@ -613,6 +613,7 @@ app.use('/api/hashtags', apiLimiter, require('./routes/hashtagRoutes')); // Hash
 app.use('/api/music', apiLimiter, musicRoutes); // Music library routes (browse, stream, trending)
 
 app.use('/api/notifications', apiLimiter, require('./routes/fcmRoutes')); // FCM token registration routes
+app.use('/api/notifications', apiLimiter, require('./routes/notificationFeedRoutes')); // Notification feed (comments, replies, likes, mentions)
 
 app.use('/api/fcm-diagnostics', apiLimiter, require('./routes/fcmDiagnostics')); // FCM token diagnostics
 

@@ -3,13 +3,30 @@ const FeedPost = require('../models/FeedPost');
 const User = require('../models/userModel');
 const mongoose = require('mongoose');
 const { getInstance: getPostEncryption } = require('../utils/postEncryption');
+const enhancedNotificationService = require('../services/enhancedNotificationService');
+
+// ✅ ARCHITECTURE FIX: A page post shown in the Feed is a denormalized `FeedPost` copy
+// of the canonical `PagePost` document. Comments made from the Feed live in this
+// generic `Comment` collection (keyed by the FeedPost copy's _id), while comments made
+// directly on the Page profile live in `PagePost.comments`. Until these are fully
+// unified (see AGENTS.md "Pages ↔ Feed architecture"), keep the *counts* in sync so the
+// number shown doesn't visibly disagree depending on where the user is looking.
+async function syncPagePostCommentCount(post) {
+  if (!post || !post.isPagePost || !post.pagePostId) return;
+  try {
+    const PagePost = require('../models/PagePost');
+    await PagePost.findByIdAndUpdate(post.pagePostId, { commentCount: post.commentsCount });
+  } catch (syncError) {
+    console.error('❌ [COMMENT SYNC] Failed to sync PagePost.commentCount:', syncError);
+  }
+}
 
 // Create a comment on a post
 const createComment = async (req, res) => {
   try {
     const userId = req.user.userId;
     const { postId } = req.params;
-    const { text } = req.body;
+    const { text, parentId } = req.body;
 
     if (!text || text.trim().length === 0) {
       return res.status(400).json({
@@ -36,13 +53,15 @@ const createComment = async (req, res) => {
       });
     }
 
-    // Create comment
+    // Create comment (top-level; replies are still embedded for now)
     const comment = new Comment({
       postId,
+      postType: 'FeedPost',
       userId,
       userName: user.name,
       userProfileImage: user.profileImage,
-      text: text.trim()
+      text: text.trim(),
+      parentId: parentId || null
     });
 
     await comment.save();
@@ -68,6 +87,7 @@ const createComment = async (req, res) => {
     
     post.commentsCount = totalComments.length > 0 ? totalComments[0].totalCount : 0;
     await post.save();
+    await syncPagePostCommentCount(post);
 
     // Update page statistics if it's a page post
     if (post.isPagePost && post.pageId) {
@@ -105,25 +125,22 @@ const createComment = async (req, res) => {
       });
       
       console.log(`📡 Comment update broadcasted to all users for post ${postId}`);
-      
-      // Also notify post owner specifically if it's not their own comment
-      if (post.userId !== userId) {
-        broadcastToUser(post.userId, 'post:new_comment', {
-          postId,
-          comment: {
-            _id: comment._id,
-            userId: comment.userId,
-            userName: comment.userName,
-            userProfileImage: comment.userProfileImage,
-            text: decryptedComment.text, // Send decrypted text
-            likesCount: comment.likesCount,
-            repliesCount: comment.repliesCount,
-            createdAt: comment.createdAt
-          }
-        });
-      }
     } catch (broadcastError) {
       console.error('❌ Error broadcasting comment:', broadcastError);
+    }
+
+    // Notify the post owner (WebSocket + persisted notification + FCM push fallback)
+    try {
+      if (post.userId !== userId) {
+        await enhancedNotificationService.sendCommentNotification(
+          post.userId,
+          { userId, name: user.name, profileImage: user.profileImage },
+          { postId, isPagePost: post.isPagePost, pageId: post.pageId },
+          decryptedComment.text
+        );
+      }
+    } catch (notifyError) {
+      console.error('❌ Error sending comment notification:', notifyError);
     }
 
     res.status(201).json({
@@ -149,7 +166,7 @@ const getComments = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    const comments = await Comment.getPostComments(postId, page, limit);
+    const comments = await Comment.getPostComments(postId, 'FeedPost', page, limit);
 
     res.status(200).json({
       success: true,
@@ -265,6 +282,7 @@ const deleteComment = async (req, res) => {
       
       post.commentsCount = totalComments.length > 0 ? totalComments[0].totalCount : 0;
       await post.save();
+      await syncPagePostCommentCount(post);
 
       // Update page statistics if it's a page post
       if (post.isPagePost && post.pageId) {
@@ -320,6 +338,21 @@ const toggleCommentLike = async (req, res) => {
     const isLiked = comment.likes.includes(userId);
 
     console.log(`${isLiked ? '❤️' : '💔'} Comment ${commentId} ${isLiked ? 'liked' : 'unliked'}`);
+
+    // Notify comment owner only when it becomes liked (not on unlike)
+    if (isLiked && comment.userId !== userId) {
+      try {
+        const liker = await User.findOne({ userId }).select('name profileImage');
+        const post = await FeedPost.findById(comment.postId).select('isPagePost pageId');
+        await enhancedNotificationService.sendCommentLikeNotification(
+          comment.userId,
+          { userId, name: liker?.name || 'Someone', profileImage: liker?.profileImage },
+          { postId: comment.postId, commentId, isPagePost: post && post.isPagePost, pageId: post && post.pageId }
+        );
+      } catch (notifyError) {
+        console.error('❌ Error sending comment like notification:', notifyError);
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -403,6 +436,7 @@ const addReply = async (req, res) => {
       
       post.commentsCount = totalComments.length > 0 ? totalComments[0].totalCount : 0;
       await post.save();
+      await syncPagePostCommentCount(post);
       
       // Broadcast to WebSocket for real-time updates
       try {
@@ -422,19 +456,18 @@ const addReply = async (req, res) => {
 
     console.log(`💬 Reply added to comment ${commentId}`);
 
-    // Broadcast to WebSocket
+    // Notify comment owner (WebSocket + persisted notification + FCM push fallback)
     try {
-      const { broadcastToUser } = require('../socketManager');
-      
-      // Notify comment owner if it's not their own reply
       if (comment.userId !== userId) {
-        broadcastToUser(comment.userId, 'comment:new_reply', {
-          commentId,
-          reply: replyData
-        });
+        await enhancedNotificationService.sendCommentReplyNotification(
+          comment.userId,
+          { userId, name: user.name, profileImage: user.profileImage },
+          { postId: comment.postId, commentId, isPagePost: post && post.isPagePost, pageId: post && post.pageId },
+          text.trim()
+        );
       }
-    } catch (broadcastError) {
-      console.error('❌ Error broadcasting reply:', broadcastError);
+    } catch (notifyError) {
+      console.error('❌ Error sending reply notification:', notifyError);
     }
 
     res.status(201).json({
@@ -477,6 +510,21 @@ const toggleReplyLike = async (req, res) => {
     const isLiked = reply.likes.includes(userId);
 
     console.log(`${isLiked ? '❤️' : '💔'} Reply ${replyId} ${isLiked ? 'liked' : 'unliked'}`);
+
+    // Notify reply owner only when it becomes liked (not on unlike)
+    if (isLiked && reply.userId !== userId) {
+      try {
+        const liker = await User.findOne({ userId }).select('name profileImage');
+        const post = await FeedPost.findById(comment.postId).select('isPagePost pageId');
+        await enhancedNotificationService.sendReplyLikeNotification(
+          reply.userId,
+          { userId, name: liker?.name || 'Someone', profileImage: liker?.profileImage },
+          { postId: comment.postId, commentId, replyId, isPagePost: post && post.isPagePost, pageId: post && post.pageId }
+        );
+      } catch (notifyError) {
+        console.error('❌ Error sending reply like notification:', notifyError);
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -553,6 +601,7 @@ const deleteReply = async (req, res) => {
       
       post.commentsCount = totalComments.length > 0 ? totalComments[0].totalCount : 0;
       await post.save();
+      await syncPagePostCommentCount(post);
       
       // Broadcast to WebSocket for real-time updates
       try {
