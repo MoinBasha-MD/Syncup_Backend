@@ -3,7 +3,7 @@ const Page = require('../models/Page');
 const FeedPost = require('../models/FeedPost');
 const PageFollower = require('../models/PageFollower');
 const Comment = require('../models/Comment');
-const User = require('../models/User');
+const User = require('../models/userModel');
 const enhancedNotificationService = require('../services/enhancedNotificationService');
 
 // Resolve the string `userId` (not Mongo _id) of a Page's owner, used to key
