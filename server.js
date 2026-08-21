@@ -585,6 +585,8 @@ app.use('/api/pages', apiLimiter, pageRoutes); // Pages management routes (Phase
 
 app.use('/api/pages', apiLimiter, pagePostRoutes); // Page posts routes (Phase 2)
 
+app.use('/api/pages', apiLimiter, require('./routes/pageChatRoutes')); // Page chat / messaging routes
+
 app.use('/api/daily-schedule', apiLimiter, dailyScheduleRoutes); // Daily schedule management routes
 
 app.use('/api/doc-space', apiLimiter, docSpaceRoutes); // Doc Space management routes (Maya AI document sharing)
