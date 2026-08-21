@@ -306,4 +306,124 @@ router.get('/test-email', async (req, res) => {
   }
 });
 
+/**
+ * @route   POST /api/otp/send-sms
+ * @desc    Send an OTP to a phone number via the active SMS provider
+ * @access  Public
+ */
+router.post('/send-sms', async (req, res) => {
+  try {
+    const { phoneNumber, type } = req.body;
+
+    console.log(`📱 [OTP ROUTES] Send SMS OTP: ${phoneNumber} (${type})`);
+
+    if (!phoneNumber || !type) {
+      return res.status(400).json({
+        success: false,
+        message: 'phoneNumber and type are required',
+      });
+    }
+
+    const validTypes = ['phone_verification', 'phone_test', 'phone_reverify'];
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP type for SMS. Use one of: ' + validTypes.join(', '),
+      });
+    }
+
+    const { isValidPhoneNumber } = require('../utils/phoneUtils');
+    if (!isValidPhoneNumber(phoneNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid phone number format',
+      });
+    }
+
+    const result = await otpService.createPhoneOTP(
+      phoneNumber,
+      type,
+      req.ip,
+      req.get('user-agent')
+    );
+
+    if (!result.success) {
+      const status = result.rateLimitExceeded ? 429 : 502;
+      return res.status(status).json({
+        success: false,
+        message: result.error,
+        trialRestriction: result.trialRestriction,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'OTP sent successfully to your phone',
+      expiresIn: result.expiresIn,
+    });
+  } catch (error) {
+    console.error('❌ [OTP ROUTES] Error in /send-sms:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again.',
+    });
+  }
+});
+
+/**
+ * @route   POST /api/otp/verify-sms
+ * @desc    Verify a phone OTP
+ * @access  Public
+ */
+router.post('/verify-sms', async (req, res) => {
+  try {
+    const { phoneNumber, otp, type } = req.body;
+
+    console.log(`🔍 [OTP ROUTES] Verify SMS OTP: ${phoneNumber} (${type})`);
+
+    if (!phoneNumber || !otp || !type) {
+      return res.status(400).json({
+        success: false,
+        message: 'phoneNumber, otp, and type are required',
+      });
+    }
+
+    if (!/^\d{4,8}$/.test(otp)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP format. Must be 4-8 digits.',
+      });
+    }
+
+    const validTypes = ['phone_verification', 'phone_test', 'phone_reverify'];
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP type for SMS.',
+      });
+    }
+
+    const result = await otpService.verifyPhoneOTP(phoneNumber, otp, type);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.error,
+        attemptsLeft: result.attemptsLeft,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Phone OTP verified successfully',
+    });
+  } catch (error) {
+    console.error('❌ [OTP ROUTES] Error in /verify-sms:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again.',
+    });
+  }
+});
+
 module.exports = router;
