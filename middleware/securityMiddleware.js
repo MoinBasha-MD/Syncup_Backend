@@ -42,6 +42,20 @@ const uploadLimiter = rateLimit({
   }
 });
 
+// Pulse send rate limiter - keyed by authenticated user, not IP
+const pulseLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 60, // 60 pulses per 5 minutes per user
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.userId?.toString?.() || req.ip,
+  message: {
+    success: false,
+    message: 'Too many pulses sent, please slow down',
+    error: 'RateLimitError'
+  }
+});
+
 // Auth endpoints rate limiter - 20 requests per 15 minutes
 const authLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
@@ -245,6 +259,7 @@ const requestSizeLimiter = (req, res, next) => {
 module.exports = {
   apiLimiter,
   uploadLimiter,
+  pulseLimiter,
   authLimiter,
   userDataLimiter,
   contactLimiter,

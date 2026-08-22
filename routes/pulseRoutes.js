@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const { pulseLimiter } = require('../middleware/securityMiddleware');
 const {
   getFriends,
   getChains,
@@ -29,6 +30,6 @@ router.get('/chains/:chainId', getChainMoments);
 // @route   POST /api/pulse
 // @desc    Send a pulse to a friend
 // @access  Private
-router.post('/', sendPulse);
+router.post('/', pulseLimiter, sendPulse);
 
 module.exports = router;

@@ -75,5 +75,10 @@ const pulseSchema = new mongoose.Schema({
 
 pulseSchema.index({ chainId: 1, createdAt: -1 });
 pulseSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
+// ✅ FIX: getChainMoments runs `Pulse.updateMany({ chainId, receiverId, status: { $ne: 'seen' } })`
+// on every chain open to mark pulses as seen. Without a targeted index this
+// falls back to scanning the chainId index and filtering receiverId/status
+// per document. This compound index lets Mongo satisfy that filter directly.
+pulseSchema.index({ chainId: 1, receiverId: 1, status: 1 });
 
 module.exports = mongoose.model('Pulse', pulseSchema);
