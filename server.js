@@ -94,6 +94,7 @@ const storyRoutes = require('./routes/storyRoutes');
 const blinkRoutes = require('./routes/blinkRoutes');
 
 const friendRoutes = require('./routes/friendRoutes');
+const pulseRoutes = require('./routes/pulseRoutes');
 
 const profileRoutes = require('./routes/profileRoutes');
 
@@ -556,6 +557,8 @@ app.use('/api/stories', apiLimiter, storyRoutes); // Stories management routes
 app.use('/api/blinks', apiLimiter, blinkRoutes); // Blinks management routes
 
 app.use('/api/friends', apiLimiter, friendRoutes); // Friends management routes (NEW)
+
+app.use('/api/pulse', apiLimiter, pulseRoutes); // Pulse feature routes
 
 app.use('/api', apiLimiter, profileRoutes); // Profile routes (public profile, friend profile, follow/unfollow)
 
