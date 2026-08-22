@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const Pulse = require('../models/Pulse');
 const PulseChain = require('../models/PulseChain');
 const User = require('../models/userModel');
+const friendService = require('../services/friendService');
 const { sanitizeUser } = require('../utils/logSanitizer');
 
 function buildChainId(a, b) {
@@ -21,17 +22,15 @@ const mapUserToPulseUser = (user) => ({
 const getFriends = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.userId;
-    const friends = await User.find({
-      userId: { $ne: userId },
-      isActive: { $ne: false }
-    })
-      .select('userId name profileImage')
-      .limit(500)
-      .lean();
+    const friends = await friendService.getFriends(userId, { status: 'accepted' });
 
     res.status(200).json({
       success: true,
-      data: friends.map(mapUserToPulseUser)
+      data: friends.map((friend) => ({
+        userId: friend.friendUserId,
+        name: friend.name,
+        profileImage: friend.profileImage || null
+      }))
     });
   } catch (error) {
     console.error('❌ [PULSE] Error getting friends:', error.message);
@@ -110,12 +109,11 @@ const getChainMoments = asyncHandler(async (req, res) => {
     );
 
     // Clear unseen count for this user
-    chain.unseenCounts = chain.unseenCounts || new Map();
-    chain.unseenCounts.set(userId, 0);
-    await PulseChain.findOneAndUpdate(
-      { chainId },
-      { $set: { [`unseenCounts.${userId}`]: 0 } }
-    );
+    const chainDoc = await PulseChain.findOne({ chainId });
+    if (chainDoc) {
+      chainDoc.unseenCounts.set(userId, 0);
+      await chainDoc.save();
+    }
 
     res.status(200).json({ success: true, data: moments });
   } catch (error) {
