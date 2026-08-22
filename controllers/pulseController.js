@@ -74,7 +74,23 @@ const getChainMoments = asyncHandler(async (req, res) => {
     const userId = req.user.userId;
 
     const chain = await PulseChain.findOne({ chainId }).lean();
-    if (!chain || !chain.participants.some((p) => p.userId === userId)) {
+
+    if (!chain) {
+      // No pulses have been exchanged yet for this pair, so the chain
+      // document doesn't exist in the DB. This is a valid state (not an
+      // error) as long as the requesting user is actually one of the two
+      // participants encoded in the chainId (buildChainId output).
+      const memberIds = chainId.split('_');
+      if (!memberIds.includes(userId)) {
+        res.status(403);
+        throw new Error('Not authorized to view this chain');
+      }
+
+      res.status(200).json({ success: true, data: [] });
+      return;
+    }
+
+    if (!chain.participants.some((p) => p.userId === userId)) {
       res.status(403);
       throw new Error('Not authorized to view this chain');
     }
