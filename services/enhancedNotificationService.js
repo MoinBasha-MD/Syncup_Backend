@@ -119,6 +119,7 @@ class EnhancedNotificationService {
       const fcmResult = await fcmNotificationService.sendWakeupNotification(receiverId, {
         senderId,
         senderName: sender.name,
+        senderProfileImage: sender.profileImage,
         messageId: message._id,
         messagePreview: this.formatMessagePreview(message)
       });

@@ -92,6 +92,7 @@ class FCMNotificationService {
           action: 'reconnect_websocket',
           senderId: String(messageData.senderId || ''),
           senderName: String(messageData.senderName || ''),
+          senderProfileImage: String(messageData.senderProfileImage || ''),
           messageId: String(messageData.messageId || ''),
           chatId: String(messageData.senderId || ''),
           timestamp: new Date().toISOString()

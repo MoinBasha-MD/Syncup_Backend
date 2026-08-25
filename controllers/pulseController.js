@@ -6,6 +6,7 @@ const Friend = require('../models/Friend');
 const friendService = require('../services/friendService');
 const { broadcastToUser } = require('../socketManager');
 const { sanitizeUser } = require('../utils/logSanitizer');
+const fcmNotificationService = require('../services/fcmNotificationService');
 
 function buildChainId(a, b) {
   return [a, b].sort().join('_');
@@ -341,6 +342,25 @@ const sendPulse = asyncHandler(async (req, res) => {
       console.log(`💗 [PULSE] Socket emit to ${receiverId}: pulse:new`);
     } catch (socketErr) {
       console.warn('⚠️ [PULSE] Socket emit failed:', socketErr.message);
+    }
+
+    try {
+      await fcmNotificationService.sendVisibleNotification(receiverId, {
+        title: sender.name || 'New Pulse',
+        body: caption?.trim() || `Sent you a ${type} Pulse`,
+        channelId: 'pulse_notifications',
+        data: {
+          type: 'pulse',
+          pulseId: pulse._id,
+          chainId,
+          senderId,
+          senderName: sender.name,
+          senderProfileImage: sender.profileImage || '',
+          pulseType: type
+        }
+      });
+    } catch (fcmErr) {
+      console.warn('⚠️ [PULSE] FCM notification failed:', fcmErr.message);
     }
 
     res.status(201).json({
