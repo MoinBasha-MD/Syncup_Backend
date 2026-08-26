@@ -404,6 +404,48 @@ const revokeAllDevices = async (req, res) => {
   }
 };
 
+// @desc    Verify a browser session is still active (called by the browser)
+// @route   GET /api/devices/session/verify
+// @access  Public (session-scoped via sessionId in query)
+const verifySession = async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
+    const sessionId = req.query.sessionId || (req.headers['x-session-id']);
+    if (!sessionId) {
+      return res.status(400).json({ success: false, active: false, message: 'sessionId is required' });
+    }
+
+    const session = await DeviceSession.findOne({ sessionId });
+
+    if (!session) {
+      return res.json({ success: true, active: false, reason: 'not_found' });
+    }
+
+    if (session.status !== 'active') {
+      console.log(`🚪 [VERIFY SESSION] ${sessionId} → ${session.status}`);
+      return res.json({ success: true, active: false, reason: session.status });
+    }
+
+    // Update lastSeenAt
+    session.lastSeenAt = new Date();
+    await session.save();
+
+    return res.json({
+      success: true,
+      active: true,
+      data: {
+        sessionId: session.sessionId,
+        userId: session.userId,
+        deviceName: session.deviceName,
+      },
+    });
+  } catch (error) {
+    console.error('❌ [DEVICE CONTROLLER] verifySession error:', error);
+    res.status(500).json({ success: false, active: false, message: 'Failed to verify session' });
+  }
+};
+
 module.exports = {
   createChallengeLimiter,
   challengeActionLimiter,
@@ -413,6 +455,7 @@ module.exports = {
   getChallengeStatus,
   activateSession,
   refreshSession,
+  verifySession,
   getDevices,
   revokeDevice,
   revokeAllDevices,

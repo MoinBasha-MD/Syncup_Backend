@@ -10,6 +10,7 @@ const {
   getChallengeStatus,
   activateSession,
   refreshSession,
+  verifySession,
   getDevices,
   revokeDevice,
   revokeAllDevices,
@@ -20,6 +21,7 @@ router.post('/challenge', createChallengeLimiter, createChallenge);
 router.get('/challenge/:pairingId', getChallengeStatus);
 router.post('/activate', activateSession);
 router.post('/refresh', refreshSession);
+router.get('/session/verify', verifySession);
 
 // Private mobile endpoints
 router.post('/challenge/inspect', protect, challengeActionLimiter, inspectChallenge);
