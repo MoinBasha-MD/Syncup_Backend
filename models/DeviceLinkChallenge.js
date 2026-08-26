@@ -15,7 +15,7 @@ const deviceLinkChallengeSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'consumed', 'expired', 'cancelled'],
+      enum: ['pending', 'scanned', 'approved', 'consumed', 'expired', 'cancelled'],
       default: 'pending',
       index: true,
     },

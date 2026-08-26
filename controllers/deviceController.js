@@ -59,12 +59,18 @@ const inspectChallenge = async (req, res) => {
     const challenge = await DeviceLinkChallenge.findOne({
       pairingId,
       secret,
-      status: 'pending',
+      status: { $in: ['pending', 'scanned'] },
       expiresAt: { $gt: new Date() },
     });
 
     if (!challenge) {
       return res.status(404).json({ success: false, message: 'Invalid or expired pairing code' });
+    }
+
+    // Mark as scanned so the browser can show "Phone scanned — waiting for approval"
+    if (challenge.status === 'pending') {
+      challenge.status = 'scanned';
+      await challenge.save();
     }
 
     res.json({
@@ -97,7 +103,7 @@ const approveChallenge = async (req, res) => {
     const challenge = await DeviceLinkChallenge.findOne({
       pairingId,
       secret,
-      status: 'pending',
+      status: { $in: ['pending', 'scanned'] },
       expiresAt: { $gt: new Date() },
     });
 
