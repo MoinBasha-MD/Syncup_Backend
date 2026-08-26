@@ -100,6 +100,7 @@ const approveChallenge = async (req, res) => {
       return res.status(400).json({ success: false, message: 'pairingId and secret are required' });
     }
 
+    console.log(`🔐 [APPROVE] User ${userId} approving pairing ${pairingId}`);
     const challenge = await DeviceLinkChallenge.findOne({
       pairingId,
       secret,
@@ -108,6 +109,7 @@ const approveChallenge = async (req, res) => {
     });
 
     if (!challenge) {
+      console.log(`❌ [APPROVE] Challenge not found or expired: ${pairingId}`);
       return res.status(404).json({ success: false, message: 'Invalid or expired pairing code' });
     }
 
@@ -118,10 +120,11 @@ const approveChallenge = async (req, res) => {
     challenge.userId = userId;
     challenge.authCode = authCode;
     challenge.authCodeHash = authCodeHash;
-    challenge.authCodeExpiresAt = new Date(Date.now() + 60 * 1000);
+    challenge.authCodeExpiresAt = new Date(Date.now() + 300 * 1000); // 5 minutes
     challenge.approvedAt = new Date();
     await challenge.save();
 
+    console.log(`✅ [APPROVE] Challenge approved, authCode generated for user ${userId}`);
     res.json({
       success: true,
       data: {
@@ -148,6 +151,7 @@ const getChallengeStatus = async (req, res) => {
     const challenge = await DeviceLinkChallenge.findOne({ pairingId });
 
     if (!challenge) {
+      console.log(`📋 [CHALLENGE STATUS] ${pairingId} → not found`);
       return res.status(404).json({ success: false, message: 'Pairing not found' });
     }
 
@@ -167,9 +171,11 @@ const getChallengeStatus = async (req, res) => {
         response.authCode = challenge.authCode;
       } else {
         response.status = 'expired';
+        console.log(`📋 [CHALLENGE STATUS] ${pairingId} → authCode expired`);
       }
     }
 
+    console.log(`📋 [CHALLENGE STATUS] ${pairingId} → ${response.status}, authCode: ${response.authCode ? 'yes' : 'no'}`);
     res.json({ success: true, data: response });
   } catch (error) {
     console.error('❌ [DEVICE CONTROLLER] getChallengeStatus error:', error);
@@ -188,12 +194,15 @@ const activateSession = async (req, res) => {
       return res.status(400).json({ success: false, message: 'authCode is required' });
     }
 
+    console.log(`🔑 [ACTIVATE] Attempting to consume authCode: ${authCode.slice(0, 12)}...`);
     const challenge = await DeviceLinkChallenge.consumeByAuthCode(authCode);
 
     if (!challenge) {
+      console.log(`❌ [ACTIVATE] Invalid or expired authCode`);
       return res.status(400).json({ success: false, message: 'Invalid or expired auth code' });
     }
 
+    console.log(`✅ [ACTIVATE] Challenge consumed for user ${challenge.userId}, creating session...`);
     const { session, refreshToken } = await DeviceSession.createSession(
       challenge.userId,
       deviceName,
@@ -210,6 +219,7 @@ const activateSession = async (req, res) => {
       }
     );
 
+    console.log(`✅ [ACTIVATE] Session created: ${session.sessionId} for user ${challenge.userId}`);
     res.json({
       success: true,
       data: {
