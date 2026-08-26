@@ -27,6 +27,7 @@ const buildPairingUrl = (pairingId, secret) => {
 const createChallenge = async (req, res) => {
   try {
     const { browserInfo } = req.body || {};
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     const challenge = await DeviceLinkChallenge.createChallenge(300, browserInfo);
 
     res.status(201).json({
@@ -177,6 +178,11 @@ const getChallengeStatus = async (req, res) => {
   try {
     const { pairingId } = req.params;
     const { browserKey } = req.query;
+
+    // Never cache pairing status — the browser polls this every 2 seconds
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
 
     const challenge = await DeviceLinkChallenge.findOne({ pairingId });
 

@@ -75,9 +75,19 @@ const responseCache = (duration = 300) => { // 5 minutes default
     if (req.method !== 'GET') {
       return next();
     }
-    
+
     // Skip caching for authenticated requests (unless specifically allowed)
     if (req.headers.authorization && !req.url.includes('/health') && !req.url.includes('/metrics')) {
+      return next();
+    }
+
+    // Skip caching for device pairing/polling endpoints (must always return fresh data)
+    if (req.url.includes('/api/devices/')) {
+      return next();
+    }
+
+    // Skip caching for challenge/status/polling endpoints
+    if (req.url.includes('/challenge') || req.url.includes('/status') || req.url.includes('/poll')) {
       return next();
     }
     
