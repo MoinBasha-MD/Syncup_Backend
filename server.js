@@ -145,6 +145,7 @@ const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
 const otpRoutes = require('./routes/otpRoutes');
 
 const cryptoRoutes = require('./routes/cryptoRoutes');
+const deviceRoutes = require('./routes/deviceRoutes');
 
 const placesRoutes = require('./routes/placesRoutes');
 
@@ -613,6 +614,7 @@ app.use('/api/sos', apiLimiter, require('./routes/sosRoutes')); // SOS emergency
 app.use('/api/otp', apiLimiter, otpRoutes); // OTP verification routes (email verification)
 
 app.use('/api/crypto', apiLimiter, cryptoRoutes); // E2EE key exchange routes (Phase 1)
+app.use('/api/devices', apiLimiter, deviceRoutes); // Linked device pairing and session routes
 
 app.use('/api/hashtags', apiLimiter, require('./routes/hashtagRoutes')); // Hashtag management routes (trending, search, stats)
 app.use('/api/music', apiLimiter, musicRoutes); // Music library routes (browse, stream, trending)

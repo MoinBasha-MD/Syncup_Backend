@@ -58,7 +58,10 @@ const protect = async (req, res, next) => {
         ...user.toObject(),
         id: user._id, // Set id to _id for controller compatibility
         userId: user.userId, // Ensure userId is explicitly available
-        _id: user._id
+        _id: user._id,
+        sessionId: decoded.sessionId || null,
+        deviceId: decoded.deviceId || null,
+        tokenType: decoded.tokenType || 'mobile',
       };
       
       console.log('✅ [AUTH MIDDLEWARE] User authenticated successfully');
