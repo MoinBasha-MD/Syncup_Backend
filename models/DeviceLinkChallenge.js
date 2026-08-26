@@ -9,6 +9,12 @@ const deviceLinkChallengeSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    shortCode: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
     secret: {
       type: String,
       required: true,
@@ -61,14 +67,36 @@ const deviceLinkChallengeSchema = new mongoose.Schema(
 // TTL index: auto-remove expired pending/cancelled challenges
 deviceLinkChallengeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-deviceLinkChallengeSchema.statics.createChallenge = async function (ttlSeconds = 120, browserInfo = null) {
+// Generate a human-readable short code like "A7K-9M2"
+function generateShortCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No confusing chars (0/O, 1/I)
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    if (i === 2) code += '-';
+  }
+  return code;
+}
+
+deviceLinkChallengeSchema.statics.createChallenge = async function (ttlSeconds = 300, browserInfo = null) {
   const pairingId = crypto.randomBytes(16).toString('hex');
   const secret = crypto.randomBytes(32).toString('base64url');
   const browserKey = crypto.randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
+  // Generate a unique short code (retry on collision)
+  let shortCode;
+  let attempts = 0;
+  do {
+    shortCode = generateShortCode();
+    const existing = await this.findOne({ shortCode });
+    if (!existing) break;
+    attempts++;
+  } while (attempts < 5);
+
   const challenge = await this.create({
     pairingId,
+    shortCode,
     secret,
     browserKey,
     status: 'pending',

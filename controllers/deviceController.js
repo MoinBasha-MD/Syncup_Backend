@@ -33,6 +33,7 @@ const createChallenge = async (req, res) => {
       success: true,
       data: {
         pairingId: challenge.pairingId,
+        shortCode: challenge.shortCode,
         pairingUrl: buildPairingUrl(challenge.pairingId, challenge.secret),
         browserKey: challenge.browserKey,
         expiresAt: challenge.expiresAt,
@@ -49,19 +50,34 @@ const createChallenge = async (req, res) => {
 // @access  Private
 const inspectChallenge = async (req, res) => {
   try {
-    const { pairingId, secret } = req.body;
+    const { shortCode, pairingId, secret } = req.body;
     const userId = req.user.userId;
 
-    if (!pairingId || !secret) {
-      return res.status(400).json({ success: false, message: 'pairingId and secret are required' });
+    if (!shortCode && (!pairingId || !secret)) {
+      return res.status(400).json({ success: false, message: 'shortCode (or pairingId+secret) is required' });
     }
 
-    const challenge = await DeviceLinkChallenge.findOne({
-      pairingId,
-      secret,
-      status: { $in: ['pending', 'scanned'] },
-      expiresAt: { $gt: new Date() },
-    });
+    let challenge;
+    if (shortCode) {
+      // Normalize: uppercase and add dash if missing (e.g., "a7k9m2" → "A7K-9M2")
+      const normalized = shortCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const formatted = normalized.length === 6
+        ? normalized.slice(0, 3) + '-' + normalized.slice(3)
+        : normalized;
+
+      challenge = await DeviceLinkChallenge.findOne({
+        shortCode: formatted,
+        status: { $in: ['pending', 'scanned'] },
+        expiresAt: { $gt: new Date() },
+      });
+    } else {
+      challenge = await DeviceLinkChallenge.findOne({
+        pairingId,
+        secret,
+        status: { $in: ['pending', 'scanned'] },
+        expiresAt: { $gt: new Date() },
+      });
+    }
 
     if (!challenge) {
       return res.status(404).json({ success: false, message: 'Invalid or expired pairing code' });
@@ -73,6 +89,7 @@ const inspectChallenge = async (req, res) => {
       await challenge.save();
     }
 
+    console.log(`🔍 [INSPECT] User ${userId} inspected challenge ${challenge.pairingId} (code: ${challenge.shortCode})`);
     res.json({
       success: true,
       data: {
@@ -93,23 +110,36 @@ const inspectChallenge = async (req, res) => {
 // @access  Private
 const approveChallenge = async (req, res) => {
   try {
-    const { pairingId, secret } = req.body;
+    const { shortCode, pairingId, secret } = req.body;
     const userId = req.user.userId;
 
-    if (!pairingId || !secret) {
-      return res.status(400).json({ success: false, message: 'pairingId and secret are required' });
+    if (!shortCode && (!pairingId || !secret)) {
+      return res.status(400).json({ success: false, message: 'shortCode (or pairingId+secret) is required' });
     }
 
-    console.log(`🔐 [APPROVE] User ${userId} approving pairing ${pairingId}`);
-    const challenge = await DeviceLinkChallenge.findOne({
-      pairingId,
-      secret,
-      status: { $in: ['pending', 'scanned'] },
-      expiresAt: { $gt: new Date() },
-    });
+    let challenge;
+    if (shortCode) {
+      const normalized = shortCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const formatted = normalized.length === 6
+        ? normalized.slice(0, 3) + '-' + normalized.slice(3)
+        : normalized;
+
+      challenge = await DeviceLinkChallenge.findOne({
+        shortCode: formatted,
+        status: { $in: ['pending', 'scanned'] },
+        expiresAt: { $gt: new Date() },
+      });
+    } else {
+      challenge = await DeviceLinkChallenge.findOne({
+        pairingId,
+        secret,
+        status: { $in: ['pending', 'scanned'] },
+        expiresAt: { $gt: new Date() },
+      });
+    }
 
     if (!challenge) {
-      console.log(`❌ [APPROVE] Challenge not found or expired: ${pairingId}`);
+      console.log(`❌ [APPROVE] Challenge not found or expired. shortCode: ${shortCode}`);
       return res.status(404).json({ success: false, message: 'Invalid or expired pairing code' });
     }
 
