@@ -27,7 +27,7 @@ const buildPairingUrl = (pairingId, secret) => {
 const createChallenge = async (req, res) => {
   try {
     const { browserInfo } = req.body || {};
-    const challenge = await DeviceLinkChallenge.createChallenge(120, browserInfo);
+    const challenge = await DeviceLinkChallenge.createChallenge(300, browserInfo);
 
     res.status(201).json({
       success: true,
