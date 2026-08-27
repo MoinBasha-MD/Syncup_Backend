@@ -3,6 +3,7 @@ const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const {
   sendMessage,
+  getConversations,
   getChatHistory,
   markMessagesAsRead,
   getUnreadCount,
@@ -30,6 +31,8 @@ router.use(protect);
 
 // Send a message
 router.post('/send', sendMessage);
+
+router.get('/conversations', getConversations);
 
 // Get chat history with a specific contact
 router.get('/history/:contactId', getChatHistory);

@@ -1622,8 +1622,86 @@ const deleteConversation = async (req, res) => {
   }
 };
 
+const getConversations = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const limit = Math.min(parseInt(req.query.limit) || 100, 200);
+    const rows = await Message.aggregate([
+      {
+        $match: {
+          $or: [{ senderId: userId }, { receiverId: userId }],
+          deletedFor: { $ne: userId }
+        }
+      },
+      { $sort: { timestamp: -1 } },
+      {
+        $addFields: {
+          otherUserId: {
+            $cond: [{ $eq: ['$senderId', userId] }, '$receiverId', '$senderId']
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$otherUserId',
+          lastMessage: { $first: '$message' },
+          lastMessageType: { $first: '$messageType' },
+          lastMessageAt: { $first: '$timestamp' },
+          lastMessageStatus: { $first: '$status' },
+          lastMessageSenderId: { $first: '$senderId' },
+          unreadCount: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$receiverId', userId] }, { $ne: ['$status', 'read'] }] },
+                1,
+                0
+              ]
+            }
+          }
+        }
+      },
+      { $sort: { lastMessageAt: -1 } },
+      { $limit: limit }
+    ]);
+
+    const users = await User.find({ userId: { $in: rows.map((row) => row._id) } })
+      .select('userId name username phoneNumber email profileImage status customStatus isOnline lastSeen')
+      .lean();
+    const usersById = new Map(users.map((user) => [user.userId, user]));
+    const conversations = rows
+      .map((row) => {
+        const user = usersById.get(row._id);
+        if (!user) return null;
+        return {
+          userId: user.userId,
+          name: user.name,
+          username: user.username,
+          phoneNumber: user.phoneNumber,
+          email: user.email,
+          profileImage: user.profileImage,
+          status: user.customStatus || user.status,
+          isOnline: user.isOnline,
+          lastSeen: user.lastSeen,
+          lastMessage: row.lastMessage,
+          lastMessageType: row.lastMessageType,
+          lastMessageAt: row.lastMessageAt,
+          lastMessageStatus: row.lastMessageStatus,
+          lastMessageSenderId: row.lastMessageSenderId,
+          unreadCount: row.unreadCount
+        };
+      })
+      .filter(Boolean);
+
+    res.status(200).json({ success: true, data: conversations });
+  } catch (error) {
+    console.error('❌ Error getting conversations:', error);
+    res.status(500).json({ success: false, message: 'Failed to get conversations', error: error.message });
+  }
+};
+
 module.exports = {
   sendMessage,
+  getConversations,
   getChatHistory,
   markMessagesAsRead,
   getUnreadCount,
