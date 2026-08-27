@@ -125,11 +125,27 @@ const initializeSocketIO = (server) => {
       // Verify JWT token
       console.log('🔍 Verifying JWT token...');
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log('✅ JWT token verified for user ID:', decoded.id);
-      
+      console.log('✅ JWT token verified for user ID:', decoded.id, 'tokenType:', decoded.tokenType);
+
       // Get user from database with minimal fields
       console.log('🔍 Looking up user in database...');
-      const user = await User.findById(decoded.id).select('userId name isActive').lean();
+      let user;
+      if (decoded.tokenType === 'desk') {
+        const DeviceSession = require('./models/DeviceSession');
+        const session = await DeviceSession.findOne({
+          sessionId: decoded.sessionId,
+          userId: decoded.userId,
+          status: 'active',
+        }).select('_id').lean();
+        if (!session) {
+          connectionStats.authFailures++;
+          console.log('❌ Desk session revoked:', decoded.sessionId);
+          return next(new Error('Authentication error: Device session revoked'));
+        }
+        user = await User.findOne({ userId: decoded.userId }).select('userId name isActive').lean();
+      } else {
+        user = await User.findById(decoded.id).select('userId name isActive').lean();
+      }
       
       if (!user) {
         connectionStats.authFailures++;
