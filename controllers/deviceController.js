@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
 const DeviceLinkChallenge = require('../models/DeviceLinkChallenge');
 const DeviceSession = require('../models/DeviceSession');
 const { generateDeskToken, generateRefreshToken } = require('../utils/generateToken');
@@ -283,21 +282,7 @@ const refreshSession = async (req, res) => {
       return res.status(400).json({ success: false, message: 'refreshToken is required' });
     }
 
-    let decoded;
-    try {
-      decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
-    } catch (err) {
-      return res.status(401).json({ success: false, message: 'Invalid or expired refresh token' });
-    }
-
-    if (decoded.tokenType !== 'refresh' || !decoded.sessionId) {
-      return res.status(401).json({ success: false, message: 'Invalid refresh token' });
-    }
-
-    const session = await DeviceSession.findOne({
-      sessionId: decoded.sessionId,
-      status: 'active',
-    });
+    const session = await DeviceSession.findByRefreshToken(refreshToken);
 
     if (!session) {
       return res.status(401).json({ success: false, message: 'Session not found or revoked' });

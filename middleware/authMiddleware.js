@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
+const DeviceSession = require('../models/DeviceSession');
 const { UnauthorizedError } = require('../utils/errorClasses');
 
 // Protect routes middleware
@@ -31,6 +32,17 @@ const protect = async (req, res, next) => {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       console.log('✅ [AUTH MIDDLEWARE] Token verified for user:', decoded.id);
+
+      if (decoded.tokenType === 'desk') {
+        const session = await DeviceSession.findOne({
+          sessionId: decoded.sessionId,
+          userId: decoded.userId,
+          status: 'active',
+        }).select('_id');
+        if (!session) {
+          throw new UnauthorizedError('Device session has been revoked');
+        }
+      }
 
       // Get user from the token (exclude password)
       const user = await User.findById(decoded.id).select('-password');
