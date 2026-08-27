@@ -33,6 +33,7 @@ const protect = async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       console.log('✅ [AUTH MIDDLEWARE] Token verified for user:', decoded.id);
 
+      let user;
       if (decoded.tokenType === 'desk') {
         const session = await DeviceSession.findOne({
           sessionId: decoded.sessionId,
@@ -42,13 +43,13 @@ const protect = async (req, res, next) => {
         if (!session) {
           throw new UnauthorizedError('Device session has been revoked');
         }
+        user = await User.findOne({ userId: decoded.userId }).select('-password');
+      } else {
+        user = await User.findById(decoded.id).select('-password');
       }
-
-      // Get user from the token (exclude password)
-      const user = await User.findById(decoded.id).select('-password');
       
       if (!user) {
-        console.log('❌ [AUTH MIDDLEWARE] User not found for token:', decoded.id);
+        console.log('❌ [AUTH MIDDLEWARE] User not found for token:', decoded.userId || decoded.id);
         throw new UnauthorizedError('User not found - token may be invalid');
       }
 
@@ -136,7 +137,17 @@ const optionalProtect = async (req, res, next) => {
       const token = req.headers.authorization.split(' ')[1];
       if (token && token !== 'null' && token !== 'undefined') {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id).select('-password');
+        let user = null;
+        if (decoded.tokenType === 'desk') {
+          const session = await DeviceSession.findOne({
+            sessionId: decoded.sessionId,
+            userId: decoded.userId,
+            status: 'active',
+          }).select('_id');
+          if (session) user = await User.findOne({ userId: decoded.userId }).select('-password');
+        } else {
+          user = await User.findById(decoded.id).select('-password');
+        }
         if (user && user.isActive !== false) {
           req.user = {
             ...user.toObject(),
