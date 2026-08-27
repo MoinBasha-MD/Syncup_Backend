@@ -49,6 +49,32 @@ class EnhancedNotificationService {
         return false;
       }
 
+      // Persist a durable notification record so it survives even if FCM is
+      // dropped (TTL expires, device offline, etc.). The frontend will sync
+      // unread notifications on app resume / socket reconnect.
+      try {
+        await Notification.create({
+          userId: receiverId,
+          type: 'message',
+          fromUserId: senderId,
+          message: `${sender.name}: ${this.formatMessagePreview(message)}`,
+          data: {
+            type: 'chat_message',
+            senderId,
+            receiverId,
+            messageId: message._id ? message._id.toString() : undefined,
+            chatId: senderId,
+            senderName: sender.name,
+            senderProfileImage: sender.profileImage,
+            messageType: message.messageType,
+            timestamp: new Date().toISOString()
+          }
+        });
+        console.log('✅ [NOTIFICATION] Chat message notification persisted to Notification collection');
+      } catch (dbErr) {
+        console.error('❌ [NOTIFICATION] Failed to persist chat notification:', dbErr.message);
+      }
+
       // Prepare notification data
       const notificationData = {
         title: sender.name || 'New Message',

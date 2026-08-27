@@ -9,6 +9,7 @@ const AIMessageService = require('./services/aiMessageService');
 const AISocketService = require('./services/aiSocketService');
 const { connectionLogger } = require('./utils/loggerSetup');
 const fcmNotificationService = require('./services/fcmNotificationService');
+const Notification = require('./models/Notification');
 
 // Use the enhanced logging system
 const socketLogger = connectionLogger;
@@ -398,7 +399,38 @@ const initializeSocketIO = (server) => {
     } catch (error) {
       console.error('Error caching user contacts:', error);
     }
-    
+
+    // ── Deliver pending unread notifications on connect ──────────────────────
+    // When a user reconnects (app resume, network recovery), push any durable
+    // notifications they haven't seen yet so they don't miss messages/calls
+    // that arrived while they were offline (FCM may have been dropped).
+    try {
+      const pendingNotifications = await Notification.find({
+        userId,
+        isRead: false
+      })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+      if (pendingNotifications.length > 0) {
+        console.log(`📬 [PENDING NOTIFICATIONS] Delivering ${pendingNotifications.length} unread notification(s) to ${userName}`);
+        socket.emit('notifications:pending', {
+          count: pendingNotifications.length,
+          notifications: pendingNotifications.map(n => ({
+            id: n._id.toString(),
+            type: n.type,
+            fromUserId: n.fromUserId,
+            message: n.message,
+            data: n.data || {},
+            createdAt: n.createdAt
+          }))
+        });
+      }
+    } catch (pendingErr) {
+      console.error('❌ [PENDING NOTIFICATIONS] Error delivering pending notifications:', pendingErr);
+    }
+
     // Handle disconnection with detailed logging
     socket.on('disconnect', async (reason) => {
       connectionStats.activeConnections--;
@@ -1172,6 +1204,27 @@ const initializeSocketIO = (server) => {
             
             // Send missed call FCM notification to receiver
             try {
+              // Persist a durable notification record so the missed call
+              // survives even if FCM is dropped (device offline, TTL expired).
+              try {
+                await Notification.create({
+                  userId: receiver.userId,
+                  type: 'call_missed',
+                  fromUserId: userId,
+                  message: `Missed ${callType} call from ${caller?.name || 'Unknown'}`,
+                  data: {
+                    type: 'missed_call',
+                    callId,
+                    callerId: userId,
+                    callerName: caller?.name || 'Unknown',
+                    callType,
+                  }
+                });
+                console.log(`✅ [CALL] Missed call notification persisted to Notification collection`);
+              } catch (dbErr) {
+                console.error('❌ [CALL] Failed to persist missed call notification:', dbErr.message);
+              }
+
               await fcmNotificationService.sendVisibleNotification(receiver.userId, {
                 title: `Missed ${callType} call`,
                 body: `You missed a ${callType} call from ${caller?.name || 'Unknown'}`,
@@ -1828,6 +1881,37 @@ const initializeSocketIO = (server) => {
         
       } catch (error) {
         console.error(`❌ [STATUS] Error processing direct status update from ${userName}:`, error);
+      }
+    });
+
+    // 📬 PENDING NOTIFICATIONS: Client requests unread notifications (e.g. on app resume)
+    socket.on('request_pending_notifications', async () => {
+      try {
+        console.log(`📬 [PENDING NOTIFICATIONS] Request from ${userName} (${userId})`);
+
+        const pendingNotifications = await Notification.find({
+          userId,
+          isRead: false
+        })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+
+        console.log(`📬 [PENDING NOTIFICATIONS] Found ${pendingNotifications.length} unread for ${userName}`);
+
+        socket.emit('notifications:pending', {
+          count: pendingNotifications.length,
+          notifications: pendingNotifications.map(n => ({
+            id: n._id.toString(),
+            type: n.type,
+            fromUserId: n.fromUserId,
+            message: n.message,
+            data: n.data || {},
+            createdAt: n.createdAt
+          }))
+        });
+      } catch (error) {
+        console.error('❌ [PENDING NOTIFICATIONS] Error handling request:', error);
       }
     });
 
