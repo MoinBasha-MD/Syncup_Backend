@@ -63,12 +63,12 @@ class EnhancedNotificationService {
           timestamp: new Date().toISOString()
         },
         android: {
-          channelId: 'chat_messages',
+          channelId: 'syncup-chat-channel',
           priority: 'high',
           notification: {
             icon: 'ic_notification',
             color: '#007AFF',
-            sound: 'message_sound',
+            sound: 'mess_tone',
             clickAction: 'FLUTTER_NOTIFICATION_CLICK'
           }
         },

@@ -102,7 +102,7 @@ class FCMNotificationService {
           priority: 'high',
           ttl: 60000, // 1 minute
           notification: {
-            channelId: 'chat_messages',
+            channelId: 'syncup-chat-channel',
             sound: 'mess_tone', // Custom notification sound
             priority: 'high',
             defaultSound: false,
@@ -291,7 +291,7 @@ class FCMNotificationService {
           priority: 'high',
           notification: {
             sound: 'default',
-            channelId: 'chat_messages',
+            channelId: 'syncup-general-channel',
             color: '#007AFF'
           }
         },

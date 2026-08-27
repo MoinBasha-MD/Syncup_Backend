@@ -1175,7 +1175,7 @@ const initializeSocketIO = (server) => {
               await fcmNotificationService.sendVisibleNotification(receiver.userId, {
                 title: `Missed ${callType} call`,
                 body: `You missed a ${callType} call from ${caller?.name || 'Unknown'}`,
-                channelId: 'chat_messages',
+                channelId: 'syncup-general-channel',
                 sound: 'default',
                 data: {
                   type: 'missed_call',

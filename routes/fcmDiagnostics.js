@@ -202,7 +202,7 @@ router.post('/test-notification', protect, async (req, res) => {
       android: {
         priority: 'high',
         notification: {
-          channelId: 'chat_messages',
+          channelId: 'syncup-chat-channel',
           sound: 'default'
         }
       }
