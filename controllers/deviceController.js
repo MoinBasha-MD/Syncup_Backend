@@ -339,7 +339,8 @@ const refreshSession = async (req, res) => {
 const getDevices = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const sessions = await DeviceSession.find({ userId }).sort({ lastSeenAt: -1 });
+    // Only return active sessions — revoked devices are hidden from the list
+    const sessions = await DeviceSession.find({ userId, status: 'active' }).sort({ lastSeenAt: -1 });
 
     res.json({
       success: true,
