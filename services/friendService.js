@@ -208,10 +208,11 @@ class FriendService {
           status: 'pending',
           isDeleted: false
         }),
+        // Search for ANY soft-deleted document (not just status='removed'),
+        // since a friendship may have been soft-deleted with a different status
         Friend.findOne({
           userId,
           friendUserId,
-          status: 'removed',
           isDeleted: true
         })
       ]);
