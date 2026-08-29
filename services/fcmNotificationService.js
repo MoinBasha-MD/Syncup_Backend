@@ -2,10 +2,68 @@ const admin = require('firebase-admin');
 const path = require('path');
 const User = require('../models/userModel');
 
+// Transient network errors that warrant a retry (DNS failures, timeouts,
+// connection resets, etc.). These are typically temporary and resolve
+// within a few seconds — without retry, the notification is silently lost.
+const RETRYABLE_ERROR_CODES = [
+  'EAI_AGAIN',      // DNS lookup temporarily failed
+  'EAI_NODATA',     // DNS server returned no answer
+  'ECONNRESET',     // Connection reset by peer
+  'ETIMEDOUT',      // Connection timed out
+  'ENETUNREACH',    // Network is unreachable
+  'EHOSTUNREACH',   // Host is unreachable
+  'ECONNREFUSED',   // Connection refused (transient)
+  'app/network-error', // Firebase Admin SDK network error code
+];
+
+const MAX_FCM_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 2000; // 2s, 4s, 8s
+
 class FCMNotificationService {
   constructor() {
     this.initialized = false;
     this.fcmEnabled = false;
+  }
+
+  /**
+   * Check if an error is a transient network error that warrants retry.
+   */
+  _isRetryableError(error) {
+    if (!error) return false;
+    const code = error.code || error.errorInfo?.code || '';
+    const message = error.message || error.errorInfo?.message || '';
+    // Check by error code
+    if (RETRYABLE_ERROR_CODES.includes(code)) return true;
+    // Check by message content (getaddrinfo errors, network errors)
+    if (message.includes('EAI_AGAIN') || message.includes('getaddrinfo')) return true;
+    if (message.includes('network-error') || message.includes('ETIMEDOUT')) return true;
+    if (message.includes('ECONNRESET') || message.includes('socket hang up')) return true;
+    return false;
+  }
+
+  /**
+   * Send an FCM multicast message with retry logic for transient network errors.
+   * DNS failures (EAI_AGAIN) and connection timeouts are automatically retried
+   * with exponential backoff so notifications aren't silently lost.
+   */
+  async _sendWithRetry(message, label = 'FCM') {
+    let lastError = null;
+    for (let attempt = 1; attempt <= MAX_FCM_RETRIES; attempt++) {
+      try {
+        const response = await admin.messaging().sendEachForMulticast(message);
+        return response;
+      } catch (error) {
+        lastError = error;
+        if (this._isRetryableError(error) && attempt < MAX_FCM_RETRIES) {
+          const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+          console.warn(`⚠️ [FCM] ${label} attempt ${attempt}/${MAX_FCM_RETRIES} failed with transient error, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw error;
+        }
+      }
+    }
+    throw lastError;
   }
 
   /**
@@ -102,7 +160,7 @@ class FCMNotificationService {
           priority: 'high',
           ttl: 60000, // 1 minute
           notification: {
-            channelId: 'syncup-chat-channel',
+            channelId: 'chat_messages',
             sound: 'mess_tone', // Custom notification sound
             priority: 'high',
             defaultSound: false,
@@ -125,8 +183,8 @@ class FCMNotificationService {
         }
       };
 
-      // Send notification
-      const response = await admin.messaging().sendEachForMulticast(message);
+      // Send notification (with retry for transient network errors)
+      const response = await this._sendWithRetry(message, 'Wakeup');
 
       console.log(`✅ [FCM] Wakeup notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
 
@@ -231,7 +289,7 @@ class FCMNotificationService {
         }
       };
 
-      const response = await admin.messaging().sendEachForMulticast(message);
+      const response = await this._sendWithRetry(message, 'Visible');
 
       console.log(`✅ [FCM] Visible notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
 
@@ -305,7 +363,7 @@ class FCMNotificationService {
         }
       };
 
-      const response = await admin.messaging().sendEachForMulticast(message);
+      const response = await this._sendWithRetry(message, 'Test');
 
       console.log(`✅ [FCM TEST] Notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
 
@@ -407,7 +465,7 @@ class FCMNotificationService {
         }
       };
 
-      const response = await admin.messaging().sendEachForMulticast(message);
+      const response = await this._sendWithRetry(message, 'Call');
 
       console.log(`✅ [FCM CALL] Call notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
 
