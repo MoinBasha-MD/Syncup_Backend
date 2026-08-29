@@ -344,24 +344,29 @@ const sendPulse = asyncHandler(async (req, res) => {
       console.warn('⚠️ [PULSE] Socket emit failed:', socketErr.message);
     }
 
-    try {
-      await fcmNotificationService.sendVisibleNotification(receiverId, {
-        title: sender.name || 'New Pulse',
-        body: caption?.trim() || `Sent you a ${type} Pulse`,
-        channelId: 'pulse_notifications',
-        data: {
-          type: 'pulse',
-          pulseId: pulse._id,
-          chainId,
-          senderId,
-          senderName: sender.name,
-          senderProfileImage: sender.profileImage || '',
-          pulseType: type
-        }
-      });
-    } catch (fcmErr) {
+    // ✅ FIX: Send FCM push notification in the background (fire-and-forget).
+    // Previously this was `await`ed, which blocked the HTTP response. When the
+    // server had transient DNS issues (EAI_AGAIN for fcm.googleapis.com), the
+    // DNS resolution hung for 30+ seconds, causing nginx to return 502 Bad
+    // Gateway to the client — even though the pulse was already saved to the
+    // DB. The client never received the success response.
+    // Now we respond immediately and let FCM happen asynchronously.
+    fcmNotificationService.sendVisibleNotification(receiverId, {
+      title: sender.name || 'New Pulse',
+      body: caption?.trim() || `Sent you a ${type} Pulse`,
+      channelId: 'pulse_notifications',
+      data: {
+        type: 'pulse',
+        pulseId: pulse._id,
+        chainId,
+        senderId,
+        senderName: sender.name,
+        senderProfileImage: sender.profileImage || '',
+        pulseType: type
+      }
+    }).catch((fcmErr) => {
       console.warn('⚠️ [PULSE] FCM notification failed:', fcmErr.message);
-    }
+    });
 
     res.status(201).json({
       success: true,

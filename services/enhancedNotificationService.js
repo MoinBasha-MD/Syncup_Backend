@@ -140,29 +140,37 @@ class EnhancedNotificationService {
 
       // CRITICAL FIX: Always send FCM notification regardless of WebSocket status
       // This ensures notifications work when app is in background or closed
+      // ✅ FIX: Fire-and-forget — previously `await`ed, which blocked the HTTP
+      // response in chat message handlers. When FCM had DNS issues (EAI_AGAIN),
+      // the request hung until nginx returned 502.
       console.log('📱 [FCM] Sending push notification to ensure delivery...');
-      
-      const fcmResult = await fcmNotificationService.sendWakeupNotification(receiverId, {
+
+      fcmNotificationService.sendWakeupNotification(receiverId, {
         senderId,
         senderName: sender.name,
         senderProfileImage: sender.profileImage,
         messageId: message._id,
         messagePreview: this.formatMessagePreview(message)
-      });
-      
-      if (fcmResult.success) {
-        console.log('✅ [FCM] Push notification sent successfully');
-        if (!socketSuccess) {
-          this.notificationStats.totalDelivered++;
+      }).then((fcmResult) => {
+        if (fcmResult.success) {
+          console.log('✅ [FCM] Push notification sent successfully');
+          if (!socketSuccess) {
+            this.notificationStats.totalDelivered++;
+          }
+        } else {
+          console.log(`⚠️ [FCM] Push notification failed: ${fcmResult.reason || 'Unknown error'}`);
+          if (!socketSuccess) {
+            this.notificationStats.totalFailed++;
+          }
         }
-      } else {
-        console.log(`⚠️ [FCM] Push notification failed: ${fcmResult.reason || 'Unknown error'}`);
+      }).catch((err) => {
+        console.log(`⚠️ [FCM] Push notification failed: ${err.message || 'Unknown error'}`);
         if (!socketSuccess) {
           this.notificationStats.totalFailed++;
         }
-      }
+      });
 
-      return socketSuccess || fcmResult.success;
+      return socketSuccess;
 
     } catch (error) {
       console.error('❌ Error sending chat message notification:', error);
@@ -215,21 +223,26 @@ class EnhancedNotificationService {
       });
 
       // Always also send a visible FCM push so background/killed devices are notified too
-      const fcmResult = await fcmNotificationService.sendVisibleNotification(recipientUserId, {
+      // ✅ FIX: Fire-and-forget — previously `await`ed, which blocked the HTTP
+      // response in comment/reply/like handlers. When FCM had DNS issues
+      // (EAI_AGAIN), the request hung until nginx returned 502.
+      fcmNotificationService.sendVisibleNotification(recipientUserId, {
         title: actorName || 'Syncup',
         body: message,
         channelId: 'syncup-comments-channel',
         data: notificationPayload
+      }).then((fcmResult) => {
+        if (socketSuccess || (fcmResult && fcmResult.success)) {
+          this.notificationStats.totalDelivered++;
+        } else {
+          this.notificationStats.totalFailed++;
+        }
+      }).catch(() => {
+        this.notificationStats.totalFailed++;
       });
 
       this.notificationStats.totalSent++;
-      if (socketSuccess || (fcmResult && fcmResult.success)) {
-        this.notificationStats.totalDelivered++;
-      } else {
-        this.notificationStats.totalFailed++;
-      }
-
-      return socketSuccess || (fcmResult && fcmResult.success);
+      return socketSuccess;
     } catch (error) {
       console.error('❌ [COMMENT NOTIFICATION] Error sending comment activity notification:', error);
       this.notificationStats.totalFailed++;

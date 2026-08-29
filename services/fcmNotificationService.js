@@ -45,16 +45,25 @@ class FCMNotificationService {
    * Send an FCM multicast message with retry logic for transient network errors.
    * DNS failures (EAI_AGAIN) and connection timeouts are automatically retried
    * with exponential backoff so notifications aren't silently lost.
+   * Each attempt is wrapped in a 15s timeout so a hung DNS resolution or
+   * stalled HTTP/2 connection can't block the process indefinitely.
    */
   async _sendWithRetry(message, label = 'FCM') {
+    const FCM_TIMEOUT_MS = 15000; // 15s per attempt
     let lastError = null;
     for (let attempt = 1; attempt <= MAX_FCM_RETRIES; attempt++) {
       try {
-        const response = await admin.messaging().sendEachForMulticast(message);
+        const response = await Promise.race([
+          admin.messaging().sendEachForMulticast(message),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`FCM ${label} timed out after ${FCM_TIMEOUT_MS}ms`)), FCM_TIMEOUT_MS)
+          ),
+        ]);
         return response;
       } catch (error) {
         lastError = error;
-        if (this._isRetryableError(error) && attempt < MAX_FCM_RETRIES) {
+        const retryable = this._isRetryableError(error) || (error.message && error.message.includes('timed out'));
+        if (retryable && attempt < MAX_FCM_RETRIES) {
           const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
           console.warn(`⚠️ [FCM] ${label} attempt ${attempt}/${MAX_FCM_RETRIES} failed with transient error, retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));

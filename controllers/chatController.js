@@ -255,14 +255,21 @@ const sendMessage = async (req, res) => {
       console.log('📡 [BROADCAST] Broadcast result:', broadcastSuccess ? 'SUCCESS' : 'FAILED');
       
       // CRITICAL: Send notification via enhancedNotificationService
+      // ✅ FIX: Fire-and-forget — previously `await`ed, which blocked the HTTP
+      // response. When FCM had DNS issues (EAI_AGAIN), the request hung until
+      // nginx returned 502. The message is already saved to the DB at this
+      // point, so the client should get the response immediately.
       try {
         console.log('🔔 [NOTIFICATION] Sending chat message notification...');
-        await enhancedNotificationService.sendChatMessageNotification(
+        enhancedNotificationService.sendChatMessageNotification(
           senderId,
           receiverId,
           savedMessage
-        );
-        console.log('✅ [NOTIFICATION] Notification sent successfully');
+        ).then(() => {
+          console.log('✅ [NOTIFICATION] Notification sent successfully');
+        }).catch((notifError) => {
+          console.error('❌ [NOTIFICATION] Error sending notification:', notifError);
+        });
       } catch (notifError) {
         console.error('❌ [NOTIFICATION] Error sending notification:', notifError);
         // Don't fail the message send if notification fails

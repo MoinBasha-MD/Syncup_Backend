@@ -86,15 +86,20 @@ const createGame = async (req, res) => {
     }
 
     // Send FCM notification as backup (in case user doesn't have chat open)
+    // ✅ FIX: Fire-and-forget — previously `await`ed, which blocked the HTTP
+    // response and caused 502 errors when FCM had DNS issues.
     try {
       const fcmNotificationService = require('../services/fcmNotificationService');
-      await fcmNotificationService.sendWakeupNotification(opponentUserId, {
+      fcmNotificationService.sendWakeupNotification(opponentUserId, {
         senderId: creatorUserId,
         senderName: creator.name,
         messagePreview: `🎮 ${creator.name} wants to play Tic-Tac-Toe!`,
         messageId: gameId
+      }).then(() => {
+        console.log('📱 [GAME] FCM notification sent to opponent');
+      }).catch((fcmError) => {
+        console.error('⚠️ [GAME] Failed to send FCM notification:', fcmError);
       });
-      console.log('📱 [GAME] FCM notification sent to opponent');
     } catch (fcmError) {
       console.error('⚠️ [GAME] Failed to send FCM notification:', fcmError);
     }

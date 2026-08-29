@@ -323,14 +323,19 @@ exports.startSession = async (req, res) => {
         console.log('📤 [LOCATION SHARING] Broadcast to sender: SUCCESS');
         
         // Send push notification using the same service as chat
+        // ✅ FIX: Fire-and-forget — previously `await`ed, which blocked the
+        // HTTP response and caused 502 errors when FCM had DNS issues.
         try {
           console.log('🔔 [LOCATION SHARING] Sending notification via enhancedNotificationService...');
-          await enhancedNotificationService.sendChatMessageNotification(
+          enhancedNotificationService.sendChatMessageNotification(
             userId,
             friendId,
             createdLocationMessage
-          );
-          console.log('✅ [LOCATION SHARING] Notification sent successfully');
+          ).then(() => {
+            console.log('✅ [LOCATION SHARING] Notification sent successfully');
+          }).catch((notifError) => {
+            console.error('❌ [LOCATION SHARING] Notification error:', notifError);
+          });
         } catch (notifError) {
           console.error('❌ [LOCATION SHARING] Notification error:', notifError);
           // Don't fail if notification fails
