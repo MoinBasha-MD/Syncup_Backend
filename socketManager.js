@@ -2364,11 +2364,25 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
       // Merge ALL sources as ObjectId strings (remove duplicates)
       const allUsersToNotify = [...new Set([...cacheHitObjectIds, ...dbUserIds, ...friendUserObjectIds])];
       usersToNotify = allUsersToNotify;
-      
+
       console.log(`📋 Total unique users to notify: ${usersToNotify.length}`);
     } catch (dbError) {
       console.error('❌ Error querying database for contacts:', dbError);
-      // Continue with cache results if database query fails
+      // ✅ FIX: If the DB query failed before we could convert cache-hit userId
+      // strings to ObjectIds, usersToNotify still contains UUID strings (e.g.
+      // '38283786-efcf-45bf-9f8b-42c3122857b5'). These CANNOT be used in
+      // `{ _id: { $in: [...] } }` queries — Mongoose throws a BSONError
+      // because they're not 24-char hex ObjectIds. Attempt the conversion
+      // here so the broadcast still works; if that also fails, clear the
+      // list to avoid crashing the server.
+      try {
+        const cacheHitUsers = await User.find({ userId: { $in: usersToNotify } }).select('_id').lean();
+        usersToNotify = cacheHitUsers.map(u => u._id.toString());
+        console.log(`📋 Recovered ${usersToNotify.length} users from cache after DB error`);
+      } catch (recoveryErr) {
+        console.error('❌ Could not recover cache users after DB error, clearing notify list:', recoveryErr.message);
+        usersToNotify = [];
+      }
     }
     
     console.log(`📢 Broadcasting status update for ${user.name} to ${usersToNotify.length} users`);
@@ -2454,10 +2468,21 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
     }
     
     console.log(`🔒 Privacy filtering: ${usersToNotify.length} potential recipients → ${authorizedUsers.length} authorized recipients`);
-    
+
+    // ✅ FIX: Filter out any values that aren't valid 24-char hex ObjectId strings.
+    // UUIDs (e.g. '38283786-efcf-45bf-9f8b-42c3122857b5') or other non-ObjectId
+    // strings in authorizedUsers would cause a BSONError in the $in query below,
+    // crashing the entire status broadcast.
+    const validObjectIdPattern = /^[0-9a-fA-F]{24}$/;
+    authorizedUsers = authorizedUsers.filter(id => validObjectIdPattern.test(id.toString()));
+    if (authorizedUsers.length === 0) {
+      console.log(`⚠️ No valid ObjectId recipients after filtering, skipping broadcast`);
+      return 0;
+    }
+
     // PERF FIX: Batch lookup all authorized recipients in ONE query instead of N+1 findById calls
     let successfulBroadcasts = 0;
-    
+
     if (authorizedUsers.length > 0) {
       // Single batch query to get userId for all authorized recipients
       const recipientDocs = await User.find(
