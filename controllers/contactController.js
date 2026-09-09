@@ -370,6 +370,8 @@ const getStatusByPhone = asyncHandler(async (req, res) => {
         status: user.status,
         customStatus: user.customStatus,
         statusUntil: user.statusUntil,
+        statusChangedAt: user.statusChangedAt,
+        statusWithheld: user.statusWithheld === true,
         isOnline: user.isOnline,
         lastSeen: user.lastSeen,
         // ✅ FIX Bug B: Include hierarchical status fields in response

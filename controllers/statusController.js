@@ -205,6 +205,7 @@ const updateUserStatus = async (req, res) => {
       status: updatedUser.status,
       customStatus: updatedUser.customStatus,
       statusUntil: updatedUser.statusUntil,
+      statusChangedAt: updatedUser.statusChangedAt,
       statusLocation: updatedUser.statusLocation,
       
       // NEW: Hierarchical status
@@ -255,6 +256,7 @@ const updateUserStatus = async (req, res) => {
           mainStatus: updatedUser.mainStatus,
           subStatus: updatedUser.subStatus,
           statusUntil: updatedUser.statusUntil,
+          statusChangedAt: updatedUser.statusChangedAt,
           mainEndTime: updatedUser.mainEndTime,
           subEndTime: updatedUser.subEndTime,
         });
@@ -272,6 +274,7 @@ const updateUserStatus = async (req, res) => {
         status: updatedUser.status,
         customStatus: updatedUser.customStatus,
         statusUntil: updatedUser.statusUntil,
+        statusChangedAt: updatedUser.statusChangedAt,
         statusLocation: updatedUser.statusLocation,
         // NEW: Hierarchical status
         mainStatus: updatedUser.mainStatus,

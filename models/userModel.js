@@ -70,6 +70,10 @@ const userSchema = mongoose.Schema(
       type: Date,
       default: null
     },
+    statusChangedAt: {
+      type: Date,
+      default: null
+    },
     // ✅ NEW: Track previous status for display when user has no current status
     previousStatus: {
       type: String,
@@ -448,6 +452,11 @@ const userSchema = mongoose.Schema(
     timestamps: true,
   }
 );
+
+userSchema.pre('save', function trackStatusChange() {
+  const fields = ['status', 'customStatus', 'mainStatus', 'subStatus', 'statusUntil', 'mainEndTime', 'subEndTime', 'mainDuration', 'subDuration', 'statusLocation.placeName'];
+  if (fields.some(field => this.isModified(field))) this.statusChangedAt = new Date();
+});
 
 // Normalize phone number before saving
 userSchema.pre('save', async function (next) {

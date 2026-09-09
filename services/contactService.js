@@ -231,7 +231,7 @@ class ContactService {
       // Find user with matching phone number
       const user = await User.findOne(
         phoneQuery,
-        '_id userId name phoneNumber email profileImage status customStatus statusUntil mainStatus mainDuration mainDurationLabel mainStartTime mainEndTime subStatus subDuration subDurationLabel subStartTime subEndTime isOnline lastSeen'
+        '_id userId name phoneNumber email profileImage status customStatus statusUntil statusChangedAt mainStatus mainDuration mainDurationLabel mainStartTime mainEndTime subStatus subDuration subDurationLabel subStartTime subEndTime isOnline lastSeen'
       );
       
       console.log(`📞 [CONTACT SERVICE] User ${user ? 'found' : 'not found'}`);
@@ -316,7 +316,8 @@ class ContactService {
         subDuration: user.subDuration,
         subDurationLabel: user.subDurationLabel,
         subStartTime: user.subStartTime,
-        subEndTime: user.subEndTime
+        subEndTime: user.subEndTime,
+        ...await StatusPrivacy.projectStatusForViewer(user, requestingUserId),
       };
     } catch (error) {
       console.error('Error getting contact by phone:', error);

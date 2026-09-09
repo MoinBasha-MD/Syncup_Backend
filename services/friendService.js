@@ -1,6 +1,7 @@
 const Friend = require('../models/Friend');
 const User = require('../models/userModel');
 const Block = require('../models/blockModel');
+const StatusPrivacy = require('../models/statusPrivacyModel');
 const friendWebSocketService = require('./friendWebSocketService');
 const { createPhoneNumberQuery } = require('../utils/phoneNormalization');
 
@@ -50,9 +51,11 @@ class FriendService {
       const friendUserIds = filteredFriends.map(f => f.friendUserId);
       
       // Fetch fresh user data: profileImage + live status fields
-      const freshUserData = await User.find({ userId: { $in: friendUserIds } })
-        .select('userId profileImage mainStatus customStatus statusUntil mainEndTime subStatus')
+      const viewer = await User.findOne({ userId }).select('_id');
+      const rawUserData = await User.find({ userId: { $in: friendUserIds } })
+        .select('userId profileImage mainStatus customStatus statusUntil statusChangedAt mainDuration mainDurationLabel mainStartTime mainEndTime subStatus subDuration subDurationLabel subStartTime subEndTime statusLocation')
         .lean();
+      const freshUserData = await Promise.all(rawUserData.map(user => StatusPrivacy.projectStatusForViewer(user, viewer?._id)));
       
       // Create a map for quick lookup
       const userDataMap = new Map(freshUserData.map(u => [u.userId, u]));
@@ -68,7 +71,7 @@ class FriendService {
         const rawMainStatus = freshUser.mainStatus;
         const liveMainStatus = (rawMainStatus && rawMainStatus.toLowerCase() !== 'available')
           ? rawMainStatus
-          : undefined;
+          : null;
         return {
           friendUserId: friend.friendUserId,
           name: friend.cachedData.name,
@@ -79,9 +82,20 @@ class FriendService {
           source: friend.source,
           status: friend.status, // Friendship status (accepted/pending)
           mainStatus: liveMainStatus, // Live activity status from User model
-          customStatus: freshUser.customStatus || undefined,
-          statusUntil: freshUser.statusUntil || freshUser.mainEndTime || undefined,
-          subStatus: freshUser.subStatus || undefined,
+          customStatus: freshUser.customStatus || '',
+          statusUntil: freshUser.statusUntil || freshUser.mainEndTime || null,
+          subStatus: freshUser.subStatus || null,
+          statusChangedAt: freshUser.statusChangedAt || null,
+          statusWithheld: freshUser.statusWithheld === true,
+          mainStartTime: freshUser.mainStartTime || null,
+          mainEndTime: freshUser.mainEndTime || null,
+          mainDuration: freshUser.mainDuration || 0,
+          mainDurationLabel: freshUser.mainDurationLabel || '',
+          subStartTime: freshUser.subStartTime || null,
+          subEndTime: freshUser.subEndTime || null,
+          subDuration: freshUser.subDuration || 0,
+          subDurationLabel: freshUser.subDurationLabel || '',
+          location: freshUser.statusLocation?.placeName || '',
           addedAt: friend.addedAt,
           isDeviceContact: friend.isDeviceContact,
           // PRIVACY: Only return phone number for device contacts

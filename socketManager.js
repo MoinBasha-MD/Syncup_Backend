@@ -355,10 +355,11 @@ const initializeSocketIO = (server) => {
         
         // ⚡ PERFORMANCE OPTIMIZATION: Limit initial status load to 100 contacts max
         if (allContactIds.length > 0) {
-          const contacts = await User.find(
+          let contacts = await User.find(
             { _id: { $in: allContactIds } },
-            'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
+            'userId name phoneNumber status customStatus statusUntil statusChangedAt isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
           ).limit(100).lean();
+          contacts = await Promise.all(contacts.map(contact => StatusPrivacy.projectStatusForViewer(contact, socket.user.id)));
           
           if (contacts.length > 0) {
             const statusData = {
@@ -370,6 +371,8 @@ const initializeSocketIO = (server) => {
                 status: contact.status,
                 customStatus: contact.customStatus,
                 statusUntil: contact.statusUntil,
+                statusChangedAt: contact.statusChangedAt,
+                statusWithheld: contact.statusWithheld === true,
                 isOnline: contact.isOnline,
                 lastSeen: contact.lastSeen,
                 statusLocation: contact.statusLocation,
@@ -1967,11 +1970,12 @@ const initializeSocketIO = (server) => {
         }
         
         // Fetch current status of all contacts AND friends
-        const contacts = await User.find(
+        let contacts = await User.find(
           { _id: { $in: allContactIds } },
-          'userId name phoneNumber status customStatus statusUntil isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
+          'userId name phoneNumber status customStatus statusUntil statusChangedAt isOnline lastSeen statusLocation mainStatus subStatus mainDuration subDuration mainDurationLabel subDurationLabel mainStartTime mainEndTime subStartTime subEndTime'
         );
         
+        contacts = await Promise.all(contacts.map(contact => StatusPrivacy.projectStatusForViewer(contact, socket.user.id)));
         console.log(`📊 [STATUS SYNC] Fetched ${contacts.length} user records from database`);
         console.log(`📊 [STATUS SYNC] Sending status for ${contacts.length} contacts+friends to ${userName}`);
         
@@ -1993,6 +1997,8 @@ const initializeSocketIO = (server) => {
             status: contact.status,
             customStatus: contact.customStatus,
             statusUntil: contact.statusUntil,
+            statusChangedAt: contact.statusChangedAt,
+            statusWithheld: contact.statusWithheld === true,
             isOnline: contact.isOnline,
             lastSeen: contact.lastSeen,
             statusLocation: contact.statusLocation,
@@ -2501,6 +2507,11 @@ const broadcastStatusUpdate = async (user, statusData, validatedPrivacySettings 
         status: statusData.status,
         customStatus: statusData.customStatus,
         statusUntil: statusData.statusUntil,
+        statusChangedAt: user.statusChangedAt,
+        statusWithheld: false,
+        mainStartTime: user.mainStartTime,
+        subStartTime: user.subStartTime,
+        location: statusData.statusLocation?.placeName || '',
         isOnline: user.isOnline || false,
         lastSeen: user.lastSeen || new Date(),
         mainStatus: statusData.mainStatus || statusData.status,

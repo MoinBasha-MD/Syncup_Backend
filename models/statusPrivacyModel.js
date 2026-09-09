@@ -520,4 +520,17 @@ statusPrivacySchema.statics.isUserInAllowedGroups = async function(userId, allow
   return foundInGroup;
 };
 
+statusPrivacySchema.statics.projectStatusForViewer = async function(contact, viewerId) {
+  const data = contact.toObject ? contact.toObject() : { ...contact };
+  const visible = viewerId && await this.canUserSeeStatus(data._id, viewerId);
+  if (visible) return data;
+  return {
+    ...data, status: 'Available', customStatus: '', mainStatus: null, subStatus: null,
+    statusUntil: null, statusChangedAt: null, mainStartTime: null, mainEndTime: null,
+    subStartTime: null, subEndTime: null, mainDuration: 0, subDuration: 0,
+    mainDurationLabel: '', subDurationLabel: '', statusLocation: null, location: '',
+    isOnline: false, lastSeen: null, statusWithheld: true,
+  };
+};
+
 module.exports = mongoose.model('StatusPrivacy', statusPrivacySchema);
