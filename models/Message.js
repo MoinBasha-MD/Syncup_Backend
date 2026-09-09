@@ -570,10 +570,9 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
     {
       $lookup: {
         from: 'messages',
-        localField: 'replyTo',
-        foreignField: '_id',
-        as: 'replyToMessage',
+        let: { replyId: '$replyTo' },
         pipeline: [
+          { $match: { $expr: { $eq: ['$_id', '$$replyId'] } } },
           {
             $project: {
               senderId: 1,
@@ -581,7 +580,8 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
               timestamp: 1
             }
           }
-        ]
+        ],
+        as: 'replyToMessage'
       }
     },
     {
