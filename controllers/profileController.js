@@ -77,48 +77,64 @@ exports.getPublicProfile = async (req, res) => {
     // Check if current user is following this user
     const isFollowing = user.following && user.following.includes(currentUserId);
 
-    // Check if they are friends
-    const friendship = await Friend.findOne({
-      $or: [
-        { userId: currentUserId, friendUserId: targetUserId, status: 'accepted' },
-        { userId: targetUserId, friendUserId: currentUserId, status: 'accepted' }
-      ],
-      isDeleted: { $ne: true }
-    });
-    const isFriend = !!friendship;
-    
+    // Load both directional records so we can distinguish a mutual friendship
+    // from a one-way device contact.
+    const [forwardFriendship, reverseFriendship] = await Promise.all([
+      Friend.findOne({
+        userId: currentUserId,
+        friendUserId: targetUserId,
+        isDeleted: { $ne: true }
+      }).lean(),
+      Friend.findOne({
+        userId: targetUserId,
+        friendUserId: currentUserId,
+        isDeleted: { $ne: true }
+      }).lean()
+    ]);
+
+    // isFriend is true only for a mutual connection (or an app connection, which
+    // is created as reciprocal by the accept flow). One-way device contacts are
+    // not considered friends.
+    const isFriend = !!forwardFriendship &&
+      forwardFriendship.status === 'accepted' &&
+      (!forwardFriendship.isDeviceContact ||
+        (reverseFriendship && reverseFriendship.status === 'accepted'));
+
     console.log('🤝 [PROFILE] Are friends?', isFriend);
 
-    // Check friendship/request status (matching /friends/status endpoint)
-    const existingRequest = await Friend.findOne({
-      $or: [
-        { userId: currentUserId, friendUserId: targetUserId },
-        { userId: targetUserId, friendUserId: currentUserId }
-      ],
-      isDeleted: { $ne: true }
-    });
-    
-    // Determine detailed connection status
-    let canSendRequest = !existingRequest;
+    // Determine detailed connection status from the current user's POV
+    let canSendRequest = true;
     let hasPendingRequest = false;
     let hasReceivedRequest = false;
     let connectionStatus = 'none';
     let requestId = null;
-    
-    if (existingRequest) {
-      requestId = existingRequest._id;
-      if (existingRequest.status === 'accepted') {
+
+    if (forwardFriendship) {
+      requestId = forwardFriendship._id;
+      if (forwardFriendship.status === 'accepted') {
         connectionStatus = 'connected';
-      } else if (existingRequest.status === 'pending') {
-        if (existingRequest.userId === currentUserId) {
-          // Current user sent the request
-          hasPendingRequest = true;
-          connectionStatus = 'pending';
-        } else {
-          // Current user received the request
-          hasReceivedRequest = true;
-          connectionStatus = 'received';
-        }
+        canSendRequest = false;
+      } else if (forwardFriendship.status === 'pending') {
+        hasPendingRequest = true;
+        connectionStatus = 'pending';
+        canSendRequest = false;
+      } else if (forwardFriendship.status === 'blocked') {
+        connectionStatus = 'blocked';
+        canSendRequest = false;
+      }
+    } else if (reverseFriendship) {
+      requestId = reverseFriendship._id;
+      if (reverseFriendship.status === 'pending') {
+        hasReceivedRequest = true;
+        connectionStatus = 'received';
+        canSendRequest = false;
+      } else if (reverseFriendship.status === 'accepted') {
+        // The other user has us as a contact/friend; we can send a request.
+        connectionStatus = 'none';
+        canSendRequest = true;
+      } else if (reverseFriendship.status === 'blocked') {
+        connectionStatus = 'blocked';
+        canSendRequest = false;
       }
     }
     

@@ -220,6 +220,26 @@ class FriendService {
       // Check existing friendship (sender → recipient)
       if (existingFriendship) {
         if (existingFriendship.status === 'accepted') {
+          // For one-way device contacts, the user already has them as a contact
+          // but they are not mutual friends. Return a clear status instead of an error.
+          if (existingFriendship.isDeviceContact) {
+            const reciprocal = await Friend.findOne({
+              userId: friendUserId,
+              friendUserId: userId,
+              status: 'accepted',
+              isDeleted: false
+            }).lean();
+            if (!reciprocal) {
+              return {
+                requestId: existingFriendship._id.toString(),
+                userId,
+                friendUserId,
+                status: 'accepted',
+                isContact: true,
+                message: 'Already in your contacts'
+              };
+            }
+          }
           throw new Error('Already friends');
         } else if (existingFriendship.status === 'pending') {
           throw new Error('Friend request already sent');
@@ -227,7 +247,45 @@ class FriendService {
           throw new Error('Cannot send friend request to blocked user');
         }
       }
-      
+
+      // If the recipient already has the sender as an accepted friend/contact,
+      // create the reciprocal friendship so they become mutual friends.
+      const reverseAccepted = await Friend.findOne({
+        userId: friendUserId,
+        friendUserId: userId,
+        status: 'accepted',
+        isDeleted: false
+      }).lean();
+
+      if (reverseAccepted) {
+        console.log(`🔄 [FRIEND SERVICE] Recipient already has sender as accepted - creating reciprocal friendship`);
+
+        const reciprocal = new Friend({
+          userId,
+          friendUserId,
+          source: metadata.source || 'app_search',
+          status: 'accepted',
+          acceptedAt: new Date(),
+          isDeviceContact: false,
+          cachedData: {
+            name: friendUser.name,
+            profileImage: friendUser.profileImage || '',
+            username: friendUser.username || '',
+            lastCacheUpdate: new Date()
+          }
+        });
+        await reciprocal.save();
+
+        return {
+          requestId: reciprocal._id.toString(),
+          userId,
+          friendUserId,
+          status: 'accepted',
+          autoAccepted: true,
+          message: 'You are now friends'
+        };
+      }
+
       // Handle removed friendship - reactivate it as pending
       if (removedFriendship) {
         console.log(`🔄 [FRIEND SERVICE] Found removed friendship - reactivating as pending request`);

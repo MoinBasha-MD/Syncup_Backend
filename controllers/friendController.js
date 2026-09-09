@@ -582,16 +582,15 @@ class FriendController {
       }
       
       const Friend = require('../models/Friend');
-      
-      // Check for any friendship record between these users
-      const friendship = await Friend.findOne({
-        $or: [
-          { userId, friendUserId: targetUserId, isDeleted: false },
-          { userId: targetUserId, friendUserId: userId, isDeleted: false }
-        ]
-      });
-      
-      if (!friendship) {
+
+      // Load both directional records so we can tell the difference between a
+      // mutual friendship and a one-way device contact.
+      const [forward, reverse] = await Promise.all([
+        Friend.findOne({ userId, friendUserId: targetUserId, isDeleted: false }).lean(),
+        Friend.findOne({ userId: targetUserId, friendUserId: userId, isDeleted: false }).lean()
+      ]);
+
+      if (!forward && !reverse) {
         console.log(`📊 [FRIEND CONTROLLER] No friendship found - status: none`);
         return res.status(200).json({
           success: true,
@@ -603,34 +602,60 @@ class FriendController {
           message: 'Not connected'
         });
       }
-      
-      // Determine the relationship
-      const isSentByMe = friendship.userId === userId;
+
+      // Determine the relationship from the current user's point of view.
       let status = 'none';
       let isFriend = false;
       let hasPendingRequest = false;
       let hasReceivedRequest = false;
-      let canSendRequest = false;
+      let canSendRequest = true;
       let requestId = null;
-      
-      if (friendship.status === 'accepted') {
-        status = 'connected';
-        isFriend = true;
-      } else if (friendship.status === 'pending') {
-        if (isSentByMe) {
+
+      if (forward) {
+        if (forward.status === 'accepted') {
+          // App connections are mutual by design (accept creates a reciprocal).
+          // Device contacts are only "friends" when the other side also has us.
+          const isDeviceContact = forward.isDeviceContact === true;
+          const isMutual = reverse && reverse.status === 'accepted';
+
+          if (!isDeviceContact || isMutual) {
+            status = 'connected';
+            isFriend = true;
+            canSendRequest = false;
+          } else {
+            // One-way device contact: current user has their number, but they
+            // don't have current user's number. Treat as a contact, not a friend.
+            status = 'connected';
+            canSendRequest = false;
+          }
+        } else if (forward.status === 'pending') {
           status = 'pending';
           hasPendingRequest = true;
-        } else {
+          canSendRequest = false;
+          requestId = forward._id.toString();
+        } else if (forward.status === 'blocked') {
+          status = 'blocked';
+          canSendRequest = false;
+        }
+      } else if (reverse) {
+        if (reverse.status === 'pending') {
           status = 'received';
           hasReceivedRequest = true;
-          requestId = friendship._id.toString();
+          canSendRequest = false;
+          requestId = reverse._id.toString();
+        } else if (reverse.status === 'blocked') {
+          status = 'blocked';
+          canSendRequest = false;
+        } else if (reverse.status === 'accepted') {
+          // The other user has us as a contact/friend, but we don't have them.
+          // We can send a request which the backend will auto-accept.
+          status = 'none';
+          canSendRequest = true;
         }
-      } else if (friendship.status === 'blocked') {
-        status = 'blocked';
       }
-      
+
       console.log(`📊 [FRIEND CONTROLLER] Friendship status: ${status}, isFriend: ${isFriend}`);
-      
+
       res.status(200).json({
         success: true,
         status,
@@ -639,7 +664,7 @@ class FriendController {
         hasReceivedRequest,
         canSendRequest,
         requestId,
-        message: isFriend ? 'You are friends' : 
+        message: isFriend ? 'You are friends' :
                  hasPendingRequest ? 'Friend request sent' :
                  hasReceivedRequest ? 'You have a pending request from this user' :
                  status === 'blocked' ? 'User is blocked' : 'Not connected'
