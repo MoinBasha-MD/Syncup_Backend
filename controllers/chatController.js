@@ -444,6 +444,7 @@ const getChatHistory = async (req, res) => {
 const markMessagesAsRead = async (req, res) => {
   try {
     const { contactId, messageIds } = req.body;
+    const markAll = req.body.markAll === true;
     const userId = req.user.userId;
     const userObjectId = req.user.id; // MongoDB _id of current user
 
@@ -451,14 +452,15 @@ const markMessagesAsRead = async (req, res) => {
       userId,
       userObjectId,
       contactId,
+      markAll,
       messageCount: messageIds?.length
     });
 
     // Validate input
-    if (!contactId || !messageIds || !Array.isArray(messageIds)) {
+    if (!contactId || (!markAll && (!messageIds || !Array.isArray(messageIds)))) {
       return res.status(400).json({
         success: false,
-        message: 'Contact ID and message IDs array are required'
+        message: markAll ? 'Contact ID is required' : 'Contact ID and message IDs array are required'
       });
     }
 
@@ -480,16 +482,18 @@ const markMessagesAsRead = async (req, res) => {
     });
 
     // Mark messages as read in database
-    const updateResult = await Message.updateMany(
-      {
-        _id: { $in: messageIds },
-        receiverId: userId,
-        senderId: contactId
-      },
-      {
-        $set: { status: 'read' }
-      }
-    );
+    const updateResult = markAll
+      ? await Message.markAsRead(contactId, userId)
+      : await Message.updateMany(
+          {
+            _id: { $in: messageIds },
+            receiverId: userId,
+            senderId: contactId
+          },
+          {
+            $set: { status: 'read' }
+          }
+        );
 
     console.log(`✅ Marked ${updateResult.modifiedCount} messages as read`);
 
@@ -498,28 +502,30 @@ const markMessagesAsRead = async (req, res) => {
       console.log('📡 [READ RECEIPT] Broadcasting read receipts to contact...');
       console.log('📡 [READ RECEIPT] Broadcasting to contactId (userId):', contactId);
       console.log('📡 [READ RECEIPT] Contact MongoDB ObjectId:', contactObjectId);
-      console.log('📡 [READ RECEIPT] Number of messages marked as read:', messageIds.length);
+      console.log('📡 [READ RECEIPT] Number of messages marked as read:', markAll ? 'ALL' : (messageIds?.length || 0));
       
       let successCount = 0;
       let failCount = 0;
       
-      messageIds.forEach(messageId => {
-        console.log(`📤 [READ RECEIPT] Attempting to broadcast for message: ${messageId}`);
-        const broadcastSuccess = broadcastToUser(contactId, 'message:read', { messageId });
-        
-        if (broadcastSuccess) {
-          successCount++;
-          console.log(`✅ [READ RECEIPT] Successfully broadcasted for message ${messageId}`);
-        } else {
-          failCount++;
-          console.log(`⚠️ [READ RECEIPT] Failed to broadcast for message ${messageId}`);
-          console.log(`⚠️ [READ RECEIPT] Reason: Contact is offline or not connected`);
-          console.log(`⚠️ [READ RECEIPT] Status saved to DB - will be loaded when contact reopens chat`);
-        }
-      });
+      if (!markAll && messageIds && messageIds.length > 0) {
+        messageIds.forEach(messageId => {
+          console.log(`📤 [READ RECEIPT] Attempting to broadcast for message: ${messageId}`);
+          const broadcastSuccess = broadcastToUser(contactId, 'message:read', { messageId });
+          
+          if (broadcastSuccess) {
+            successCount++;
+            console.log(`✅ [READ RECEIPT] Successfully broadcasted for message ${messageId}`);
+          } else {
+            failCount++;
+            console.log(`⚠️ [READ RECEIPT] Failed to broadcast for message ${messageId}`);
+            console.log(`⚠️ [READ RECEIPT] Reason: Contact is offline or not connected`);
+            console.log(`⚠️ [READ RECEIPT] Status saved to DB - will be loaded when contact reopens chat`);
+          }
+        });
+      }
       
       console.log('📡 [READ RECEIPT] Broadcasting summary:', {
-        total: messageIds.length,
+        total: markAll ? 'ALL' : (messageIds?.length || 0),
         success: successCount,
         failed: failCount
       });

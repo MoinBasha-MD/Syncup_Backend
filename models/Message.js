@@ -466,6 +466,7 @@ messageSchema.statics.getAllUnreadCounts = async function(userId) {
     {
       $project: {
         senderId: '$_id',
+        contactId: '$_id',
         count: 1,
         lastMessage: 1,
         _id: 0
