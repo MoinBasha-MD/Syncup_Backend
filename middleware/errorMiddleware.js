@@ -40,7 +40,10 @@ const errorHandler = (err, req, res, next) => {
       success: false,
       message: err.message,
       stack: process.env.NODE_ENV === 'production' ? undefined : err.stack,
-      error: err.name
+      error: err.name,
+      // Passthrough: handlers may stamp a stable machine code (err.code) for
+      // client-side branching. Undefined on older errors -> omitted from JSON.
+      code: err.code || undefined
     });
   }
 

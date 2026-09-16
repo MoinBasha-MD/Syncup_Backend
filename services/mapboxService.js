@@ -81,6 +81,48 @@ class MapboxService {
   }
 
   /**
+   * Reverse geocode with the full context breakdown (Open Network needs
+   * neighborhood/state/country short_code for its place + cityKey fields).
+   * Returns null on failure — callers own their fallback.
+   * @param {number} latitude
+   * @param {number} longitude
+   * @returns {Promise<Object|null>}
+   */
+  async reverseGeocodeDetailed(latitude, longitude) {
+    if (!this.geocodingClient) return null;
+
+    const response = await this.geocodingClient
+      .reverseGeocode({
+        query: [longitude, latitude],
+        limit: 1,
+        types: ['place', 'locality', 'neighborhood', 'region', 'address', 'poi'],
+      })
+      .send();
+
+    const feature = response.body && response.body.features && response.body.features[0];
+    if (!feature) return null;
+
+    const context = feature.context || [];
+    const byType = (prefix) => context.find((c) => (c.id || '').startsWith(prefix));
+    const ownTypes = feature.place_type || [];
+
+    return {
+      label: feature.place_name || feature.text || '',
+      neighborhood:
+        (byType('neighborhood') && byType('neighborhood').text) ||
+        (ownTypes.includes('neighborhood') ? feature.text : ''),
+      city:
+        (byType('place') && byType('place').text) ||
+        (ownTypes.includes('place') ? feature.text : '') ||
+        (byType('locality') && byType('locality').text) ||
+        '',
+      state: (byType('region') && byType('region').text) || '',
+      country: (byType('country') && byType('country').text) || '',
+      countryCode: ((byType('country') && byType('country').short_code) || '').toUpperCase(),
+    };
+  }
+
+  /**
    * Forward geocode - Convert address to coordinates
    * @param {string} query - Address or place name
    * @param {number} limit - Number of results

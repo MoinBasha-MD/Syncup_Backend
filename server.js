@@ -636,6 +636,10 @@ app.use('/api/intent-notifications', apiLimiter, require('./routes/intentNotific
 
 app.use('/api/places', apiLimiter, placesRoutes); // Places caching and nearby places (Geoapify integration)
 
+app.use('/api/open-network', apiLimiter, require('./routes/openNetworkRoutes')); // Open Network: membership, viewport, nearby, feed
+
+app.use('/api/ripples', apiLimiter, require('./routes/rippleRoutes')); // Open Network: Ripple CRUD
+
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 
