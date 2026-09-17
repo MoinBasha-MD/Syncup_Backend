@@ -179,6 +179,22 @@ const getViewport = asyncHandler(async (req, res) => {
   };
   const counts = { active: activeCount, memories: memoriesCount };
 
+  /**
+   * "My Ripples" — the ones I host, plus the ones I've joined.
+   *
+   * These are ALWAYS returned as individual markers, at every zoom level.
+   * Without this, a Ripple you just created collapses into an anonymous
+   * cluster at world zoom and appears not to exist — which is exactly the
+   * "my own Ripple isn't showing" bug.
+   */
+  const joinedRows = await Rippler.find({ userId, status: 'approved' })
+    .select('rippleId')
+    .lean();
+  const joinedIds = joinedRows.map((r) => r.rippleId);
+  const mineClause = {
+    $or: [{ hostUserId: userId }, { _id: { $in: joinedIds } }],
+  };
+
   const cellSize = cellSizeForZoom(zoom);
   if (cellSize === null) {
     const ripples = await Ripple.find(match).limit(300).lean();
@@ -192,22 +208,31 @@ const getViewport = asyncHandler(async (req, res) => {
     });
   }
 
-  const groups = await Ripple.aggregate([
-    { $match: match },
-    {
-      $group: {
-        _id: {
-          lngCell: { $floor: { $divide: ['$lng', cellSize] } },
-          latCell: { $floor: { $divide: ['$lat', cellSize] } },
-        },
-        centroidLng: { $avg: '$lng' },
-        centroidLat: { $avg: '$lat' },
-        count: { $sum: 1 },
-        hasLive: {
-          $max: { $cond: [{ $in: ['$lifecycle', ['active', 'wrapping']] }, 1, 0] },
+  // Clusters describe *other people's* activity; my own Ripples are pulled out
+  // and rendered individually, so the two never double-count the same Ripple.
+  const clusterMatch = {
+    $and: [...match.$and, { $nor: [mineClause] }],
+  };
+
+  const [groups, mine] = await Promise.all([
+    Ripple.aggregate([
+      { $match: clusterMatch },
+      {
+        $group: {
+          _id: {
+            lngCell: { $floor: { $divide: ['$lng', cellSize] } },
+            latCell: { $floor: { $divide: ['$lat', cellSize] } },
+          },
+          centroidLng: { $avg: '$lng' },
+          centroidLat: { $avg: '$lat' },
+          count: { $sum: 1 },
+          hasLive: {
+            $max: { $cond: [{ $in: ['$lifecycle', ['active', 'wrapping']] }, 1, 0] },
+          },
         },
       },
-    },
+    ]),
+    Ripple.find({ $and: [...match.$and, mineClause] }).limit(100).lean(),
   ]);
 
   res.status(200).json({
@@ -219,7 +244,8 @@ const getViewport = asyncHandler(async (req, res) => {
       count: g.count < MIN_CLUSTER_EXACT_COUNT ? null : g.count,
       hasLive: !!g.hasLive,
     })),
-    ripples: [],
+    // My own Ripples, always visible as markers regardless of zoom.
+    ripples: mine.map((r) => toRippleSummary(r, { viewerUserId: userId })),
     region,
     counts,
   });

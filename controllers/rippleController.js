@@ -470,6 +470,34 @@ const endRipple = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Tell everyone who joined that the Ripple changed state.
+ * Cancelling previously left participants with no signal at all — they'd only
+ * discover it by reopening the Ripple. Best-effort: never fails the request.
+ */
+const notifyParticipants = async (ripple, event, body) => {
+  try {
+    const rows = await Rippler.find({
+      rippleId: ripple._id,
+      status: 'approved',
+      userId: { $ne: ripple.hostUserId },
+    }).select('userId').lean();
+    if (!rows.length) return;
+    const { broadcastToUser } = require('../socketManager');
+    rows.forEach((r) => {
+      try {
+        broadcastToUser(r.userId, event, {
+          rippleId: String(ripple._id),
+          title: ripple.title,
+          body,
+        });
+      } catch (e) { /* best-effort per user */ }
+    });
+  } catch (e) {
+    console.error('❌ [RIPPLE] participant notify failed:', e.message);
+  }
+};
+
 // @route POST /api/ripples/:id/cancel — draft/scheduled/active -> cancelled
 const cancelRipple = asyncHandler(async (req, res) => {
   const { ripple, member } = await loadForLifecycle(req);
@@ -480,11 +508,44 @@ const cancelRipple = asyncHandler(async (req, res) => {
   }
   ripple.lifecycle = 'cancelled';
   await ripple.save();
+  await notifyParticipants(ripple, 'ripple:cancelled', `"${ripple.title}" was cancelled`);
   res.status(200).json({
     success: true,
     ripple: toRippleDetail(ripple, buildViewerBlock(ripple, member, req.user.userId)),
   });
 });
+
+// @route DELETE /api/ripples/:id — hard-delete drafts only; live ones use cancel
+/**
+ * Remove every record that belongs to a Ripple.
+ *
+ * A draft delete used to remove only the Rippler rows and the Ripple itself,
+ * orphaning its events, ratings, reports and — worst — leaving a live GroupChat
+ * behind with no parent. Every child collection must be cleaned up together.
+ * Lazy-required so this module stays loadable without the event/trust models.
+ */
+const purgeRippleChildren = async (ripple) => {
+  const RippleEvent = require('../models/RippleEvent');
+  const RippleRating = require('../models/RippleRating');
+  const RippleReport = require('../models/RippleReport');
+  const GroupChat = require('../models/groupChatModel');
+  const GroupMember = require('../models/groupMemberModel');
+  const GroupMessage = require('../models/groupMessageModel');
+
+  await RippleEvent.deleteMany({ rippleId: ripple._id });
+  await RippleRating.deleteMany({ rippleId: ripple._id });
+  await RippleReport.deleteMany({ rippleId: ripple._id });
+  await Rippler.deleteMany({ rippleId: ripple._id });
+
+  if (ripple.groupChatId) {
+    // Messages must go before the chat that owns them.
+    await GroupMessage.deleteMany({ groupId: ripple.groupChatId });
+    await GroupMember.deleteMany({ groupId: ripple.groupChatId });
+    await GroupChat.deleteOne({ _id: ripple.groupChatId });
+  }
+
+  await Ripple.deleteOne({ _id: ripple._id });
+};
 
 // @route DELETE /api/ripples/:id — hard-delete drafts only; live ones use cancel
 const deleteRipple = asyncHandler(async (req, res) => {
@@ -497,8 +558,7 @@ const deleteRipple = asyncHandler(async (req, res) => {
     e.statusCode = 409;
     throw e;
   }
-  await Rippler.deleteMany({ rippleId: ripple._id });
-  await Ripple.deleteOne({ _id: ripple._id });
+  await purgeRippleChildren(ripple);
   res.status(200).json({ success: true, deleted: true });
 });
 
@@ -593,4 +653,6 @@ module.exports = {
   cancelRipple,
   deleteRipple,
   getRippleArcs,
+  // Exported so the cascade can be exercised directly in a test.
+  purgeRippleChildren,
 };
