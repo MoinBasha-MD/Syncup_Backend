@@ -154,6 +154,11 @@ rippleSchema.pre('save', function (next) {
   } else {
     this.lng = null;
     this.lat = null;
+    // Critical for `reach: 'online'`: location.type defaults to 'Point', which
+    // would otherwise materialize a `{type:'Point'}` subdoc with no coords.
+    // The 2dsphere index then rejects it ("Point must be an array or object").
+    // An online Ripple must store NO location subdocument at all.
+    this.location = undefined;
   }
   next();
 });

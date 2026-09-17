@@ -20,6 +20,10 @@ const JOIN_POLICIES = ['open', 'approval', 'invite'];
 const DISCOVERABILITIES = ['listed', 'unlisted'];
 const LIVE_LIFECYCLES = ['active', 'scheduled', 'wrapping'];
 
+// Spam guard: a brand-new account shouldn't be able to carpet the globe.
+const DAILY_RIPPLE_LIMIT = 10;
+const GLOBAL_REACH_MIN_ACCOUNT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 const enumCheck = (value, allowed, field) => {
   if (value !== undefined && value !== null && !allowed.includes(value)) {
     const err = new BadRequestError(`${field} must be one of: ${allowed.join(', ')}`);
@@ -174,6 +178,34 @@ const createRipple = asyncHandler(async (req, res) => {
     hostPageId = page._id;
     hostName = page.name || hostName;
     hostIsPage = true;
+  }
+
+  // --- Abuse guards ---
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const createdRecently = await Ripple.countDocuments({
+    hostUserId: userId,
+    createdAt: { $gte: since },
+  });
+  if (createdRecently >= DAILY_RIPPLE_LIMIT) {
+    const err = new BadRequestError(
+      `You can create at most ${DAILY_RIPPLE_LIMIT} Ripples per day`,
+    );
+    err.code = 'RIPPLE_RATE_LIMITED';
+    err.statusCode = 429;
+    throw err;
+  }
+
+  // Global reach is the highest-blast-radius setting, so it needs an account
+  // with some history behind it.
+  if (reach === 'global' && req.user.createdAt) {
+    const age = Date.now() - new Date(req.user.createdAt).getTime();
+    if (age < GLOBAL_REACH_MIN_ACCOUNT_AGE_MS) {
+      const err = new BadRequestError(
+        'Global reach is available once your account is a week old. Use city reach for now.',
+      );
+      err.code = 'GLOBAL_REACH_TOO_NEW';
+      throw err;
+    }
   }
 
   const place = isOnline
@@ -390,9 +422,175 @@ const publishRipple = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Shared host/cohost guard for lifecycle endpoints. 404 (not 403) when the
+ * Ripple doesn't exist or is removed; 403 when it exists but the caller can't
+ * manage it.
+ */
+const loadForLifecycle = async (req) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    const e = new NotFoundError('Ripple not found');
+    e.code = 'NOT_FOUND';
+    throw e;
+  }
+  const ripple = await Ripple.findById(req.params.id);
+  if (!ripple || ripple.lifecycle === 'removed') {
+    const e = new NotFoundError('Ripple not found');
+    e.code = 'NOT_FOUND';
+    throw e;
+  }
+  const member = await Rippler.findOne({ rippleId: ripple._id, userId: req.user.userId }).lean();
+  const isManager =
+    ripple.hostUserId === req.user.userId ||
+    (member && ['host', 'cohost'].includes(member.role));
+  if (!isManager) {
+    const e = new ForbiddenError('Only the host or a cohost can do this');
+    e.code = 'FORBIDDEN';
+    throw e;
+  }
+  return { ripple, member };
+};
+
+const WRAP_WINDOW_MS = 48 * 60 * 60 * 1000; // 48h grace before a Ripple freezes
+
+// @route POST /api/ripples/:id/end — active -> wrapping (grace) -> memory (cron)
+const endRipple = asyncHandler(async (req, res) => {
+  const { ripple, member } = await loadForLifecycle(req);
+  if (ripple.lifecycle !== 'active' && ripple.lifecycle !== 'scheduled') {
+    const e = new BadRequestError('Only an active or scheduled Ripple can be ended');
+    e.code = 'NOT_ENDABLE';
+    throw e;
+  }
+  ripple.lifecycle = 'wrapping';
+  ripple.wrapUntil = new Date(Date.now() + WRAP_WINDOW_MS);
+  await ripple.save();
+  res.status(200).json({
+    success: true,
+    ripple: toRippleDetail(ripple, buildViewerBlock(ripple, member, req.user.userId)),
+  });
+});
+
+// @route POST /api/ripples/:id/cancel — draft/scheduled/active -> cancelled
+const cancelRipple = asyncHandler(async (req, res) => {
+  const { ripple, member } = await loadForLifecycle(req);
+  if (!['draft', 'scheduled', 'active'].includes(ripple.lifecycle)) {
+    const e = new BadRequestError('This Ripple can no longer be cancelled');
+    e.code = 'NOT_CANCELLABLE';
+    throw e;
+  }
+  ripple.lifecycle = 'cancelled';
+  await ripple.save();
+  res.status(200).json({
+    success: true,
+    ripple: toRippleDetail(ripple, buildViewerBlock(ripple, member, req.user.userId)),
+  });
+});
+
+// @route DELETE /api/ripples/:id — hard-delete drafts only; live ones use cancel
+const deleteRipple = asyncHandler(async (req, res) => {
+  const { ripple } = await loadForLifecycle(req);
+  if (ripple.lifecycle !== 'draft') {
+    const e = new BadRequestError(
+      'Only a draft can be deleted. Cancel an active or scheduled Ripple instead.',
+    );
+    e.code = 'ONLY_DRAFT_DELETABLE';
+    e.statusCode = 409;
+    throw e;
+  }
+  await Rippler.deleteMany({ rippleId: ripple._id });
+  await Ripple.deleteOne({ _id: ripple._id });
+  res.status(200).json({ success: true, deleted: true });
+});
+
+// A source city needs at least this many Ripplers before it gets its own arc.
+// Below it, the count folds into `otherCount` — an arc from a city with one
+// joiner would pin that individual to a place, which is exactly the inference
+// this whole feature must never allow.
+const ARC_MIN_COUNT = 3;
+
+// @route GET /api/ripples/:id/arcs — where Ripplers joined from (city-level)
+const getRippleArcs = asyncHandler(async (req, res) => {
+  const userId = req.user.userId;
+  const ripple = await Ripple.findById(
+    mongoose.Types.ObjectId.isValid(req.params.id) ? req.params.id : new mongoose.Types.ObjectId(),
+  );
+  if (!ripple || ripple.lifecycle === 'removed') {
+    const e = new NotFoundError('Ripple not found');
+    e.code = 'NOT_FOUND';
+    throw e;
+  }
+
+  const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
+  const ctx = await getViewerContext(userId);
+  if (ctx.blockedIds.has(ripple.hostUserId)) {
+    const e = new NotFoundError('Ripple not found');
+    e.code = 'NOT_FOUND';
+    throw e;
+  }
+  if (!canView(ripple, member, ctx, userId)) {
+    const e = new NotFoundError('Ripple not found');
+    e.code = 'NOT_FOUND';
+    throw e;
+  }
+
+  const rows = await Rippler.aggregate([
+    {
+      $match: {
+        rippleId: ripple._id,
+        status: 'approved',
+        role: { $ne: 'follower' },
+        originCityKey: { $type: 'string' },
+        originCentroid: { $type: 'array' },
+      },
+    },
+    {
+      $group: {
+        _id: '$originCityKey',
+        count: { $sum: 1 },
+        lng: { $avg: { $arrayElemAt: ['$originCentroid', 0] } },
+        lat: { $avg: { $arrayElemAt: ['$originCentroid', 1] } },
+      },
+    },
+  ]);
+
+  const hostCityKey = ripple.place?.cityKey || null;
+  const arcs = [];
+  let otherCount = 0;
+
+  rows.forEach((r) => {
+    // No arc from the anchor city to itself.
+    if (hostCityKey && r._id === hostCityKey) return;
+    if (r.count < ARC_MIN_COUNT) {
+      otherCount += r.count;
+      return;
+    }
+    arcs.push({
+      cityKey: r._id,
+      // cityKey is `${countryCode}:${slug}` — the label is cosmetic.
+      label: String(r._id).split(':').slice(1).join(':').replace(/-/g, ' '),
+      coordinates: [Number(r.lng.toFixed(4)), Number(r.lat.toFixed(4))],
+      count: r.count,
+    });
+  });
+
+  arcs.sort((a, b) => b.count - a.count);
+
+  res.status(200).json({
+    success: true,
+    arcs,
+    otherCount,
+    totalRemote: arcs.reduce((n, a) => n + a.count, 0) + otherCount,
+    minimumForArc: ARC_MIN_COUNT,
+  });
+});
+
 module.exports = {
   createRipple,
   getRipple,
   updateRipple,
   publishRipple,
+  endRipple,
+  cancelRipple,
+  deleteRipple,
+  getRippleArcs,
 };

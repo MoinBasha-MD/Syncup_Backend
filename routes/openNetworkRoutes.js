@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const OpenNetworkProfile = require('../models/OpenNetworkProfile');
+const { getReputation } = require('../controllers/rippleTrustController');
 const {
   getMe,
   joinOpenNetwork,
@@ -56,5 +57,9 @@ router.patch('/settings', updateSettings);
 router.get('/viewport', getViewport);
 router.get('/nearby', getNearby);
 router.get('/feed', getFeed);
+
+// Trust — public host score (suppressed below the minimum sample) and a
+// reliability band that is only returned to the subject or to a host.
+router.get('/users/:userId/reputation', getReputation);
 
 module.exports = router;

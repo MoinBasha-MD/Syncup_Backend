@@ -33,7 +33,8 @@ class MasterScheduler {
         await Promise.allSettled([
           this.runPrimaryTimeScheduler(),
           this.runLocationSharingCleanup(),
-          this.runStatusExpiration()
+          this.runStatusExpiration(),
+          this.runRippleLifecycle()
         ]);
         
         const duration = Date.now() - startTime;
@@ -132,6 +133,20 @@ class MasterScheduler {
       await statusExpirationService.checkExpiredStatuses();
     } catch (error) {
       console.error('❌ [STATUS EXPIRATION] Error:', error.message);
+    }
+  }
+
+  /**
+   * Open Network: scheduled -> active -> wrapping -> memory.
+   * Same 1-minute cadence as the other lifecycle work; the service owns the
+   * transition rules.
+   */
+  async runRippleLifecycle() {
+    try {
+      const rippleLifecycleService = require('./rippleLifecycleService');
+      await rippleLifecycleService.runRippleLifecycle();
+    } catch (error) {
+      console.error('❌ [RIPPLE LIFECYCLE] Error:', error.message);
     }
   }
 
