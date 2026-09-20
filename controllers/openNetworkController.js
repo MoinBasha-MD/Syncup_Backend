@@ -180,19 +180,27 @@ const getViewport = asyncHandler(async (req, res) => {
   const counts = { active: activeCount, memories: memoriesCount };
 
   /**
-   * "My Ripples" — the ones I host, plus the ones I've joined.
+   * "My circle" — the Ripples I host, the Ripples I've joined, and the
+   * Ripples hosted by my friends.
    *
    * These are ALWAYS returned as individual markers, at every zoom level.
-   * Without this, a Ripple you just created collapses into an anonymous
-   * cluster at world zoom and appears not to exist — which is exactly the
-   * "my own Ripple isn't showing" bug.
+   * Without this, a Ripple you just created (or a friend's public Ripple you
+   * are meant to see) collapses into an anonymous cluster dot at world zoom
+   * and appears not to exist — which is exactly the "my own Ripple isn't
+   * showing on the globe" and "my friend's Ripple isn't showing" bugs. Only
+   * the aggregation is skipped: the visibility filter still decides what this
+   * viewer may see at all.
    */
   const joinedRows = await Rippler.find({ userId, status: 'approved' })
     .select('rippleId')
     .lean();
   const joinedIds = joinedRows.map((r) => r.rippleId);
-  const mineClause = {
-    $or: [{ hostUserId: userId }, { _id: { $in: joinedIds } }],
+  const circleClause = {
+    $or: [
+      { hostUserId: userId },
+      { hostUserId: { $in: [...ctx.friendIds] } },
+      { _id: { $in: joinedIds } },
+    ],
   };
 
   const cellSize = cellSizeForZoom(zoom);
@@ -208,13 +216,14 @@ const getViewport = asyncHandler(async (req, res) => {
     });
   }
 
-  // Clusters describe *other people's* activity; my own Ripples are pulled out
-  // and rendered individually, so the two never double-count the same Ripple.
+  // Clusters describe *other people's* activity; my circle's Ripples are
+  // pulled out and rendered individually, so the two never double-count the
+  // same Ripple.
   const clusterMatch = {
-    $and: [...match.$and, { $nor: [mineClause] }],
+    $and: [...match.$and, { $nor: [circleClause] }],
   };
 
-  const [groups, mine] = await Promise.all([
+  const [groups, circleMarkers] = await Promise.all([
     Ripple.aggregate([
       { $match: clusterMatch },
       {
@@ -232,7 +241,7 @@ const getViewport = asyncHandler(async (req, res) => {
         },
       },
     ]),
-    Ripple.find({ $and: [...match.$and, mineClause] }).limit(100).lean(),
+    Ripple.find({ $and: [...match.$and, circleClause] }).limit(200).lean(),
   ]);
 
   res.status(200).json({
@@ -244,8 +253,8 @@ const getViewport = asyncHandler(async (req, res) => {
       count: g.count < MIN_CLUSTER_EXACT_COUNT ? null : g.count,
       hasLive: !!g.hasLive,
     })),
-    // My own Ripples, always visible as markers regardless of zoom.
-    ripples: mine.map((r) => toRippleSummary(r, { viewerUserId: userId })),
+    // My circle's Ripples, always visible as markers regardless of zoom.
+    ripples: circleMarkers.map((r) => toRippleSummary(r, { viewerUserId: userId })),
     region,
     counts,
   });
@@ -344,15 +353,34 @@ const getFeed = asyncHandler(async (req, res) => {
       break;
   }
 
-  // Cursor = ISO value of the sort field of the last item on the previous page.
+  /*
+   * Cursor = "<ISO sort-field value>_<id>" of the last item on the previous
+   * page. The _id tie-break matters: bulk-created Ripples (seed data, imports)
+   * all share the same createdAt/startAt, so a bare date cursor skipped every
+   * row tied on the boundary — with many Ripples the feed silently dropped
+   * whole batches after page one. A legacy bare-ISO cursor still works.
+   */
   if (req.query.cursor) {
-    const cursorDate = new Date(req.query.cursor);
+    const raw = String(req.query.cursor);
+    const sep = raw.lastIndexOf('_');
+    const cursorDate = new Date(sep > 0 ? raw.slice(0, sep) : raw);
     if (Number.isNaN(cursorDate.getTime())) {
       const err = new BadRequestError('cursor must be an ISO date');
       err.code = 'BAD_CURSOR';
       throw err;
     }
-    clauses.push({ [sortField]: sortDir === 1 ? { $gt: cursorDate } : { $lt: cursorDate } });
+    const cmp = sortDir === 1 ? '$gt' : '$lt';
+    const cursorId = sep > 0 ? raw.slice(sep + 1) : null;
+    if (cursorId && /^[0-9a-fA-F]{24}$/.test(cursorId)) {
+      clauses.push({
+        $or: [
+          { [sortField]: { [cmp]: cursorDate } },
+          { [sortField]: cursorDate, _id: { [cmp]: cursorId } },
+        ],
+      });
+    } else {
+      clauses.push({ [sortField]: { [cmp]: cursorDate } });
+    }
   }
 
   const docs = await Ripple.find({ $and: clauses })
@@ -364,7 +392,9 @@ const getFeed = asyncHandler(async (req, res) => {
   const page = hasMore ? docs.slice(0, limit) : docs;
   const last = page[page.length - 1];
   const nextCursor =
-    hasMore && last && last[sortField] ? new Date(last[sortField]).toISOString() : null;
+    hasMore && last && last[sortField]
+      ? `${new Date(last[sortField]).toISOString()}_${last._id.toString()}`
+      : null;
 
   res.status(200).json({
     success: true,

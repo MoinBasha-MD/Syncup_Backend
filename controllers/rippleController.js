@@ -32,6 +32,49 @@ const enumCheck = (value, allowed, field) => {
   }
 };
 
+const MAX_RIPPLE_MEDIA = 10;
+const MEDIA_TYPES = ['image', 'video'];
+const MIX_MODES = ['mix', 'replace', 'mute_original'];
+
+/**
+ * Sanitize media attached to a Ripple.
+ *
+ * Only absolute http(s) URLs are accepted: the client uploads through
+ * /upload/post-media first and posts the resulting URLs, so anything else is a
+ * malformed client and would otherwise be stored as a broken image.
+ */
+const sanitizeMedia = (input) => {
+  if (!Array.isArray(input)) return [];
+  return input
+    .slice(0, MAX_RIPPLE_MEDIA)
+    .map((m) => ({
+      type: MEDIA_TYPES.includes(m?.type) ? m.type : 'image',
+      url: typeof m?.url === 'string' ? m.url.trim() : '',
+      thumbnailUrl: typeof m?.thumbnailUrl === 'string' ? m.thumbnailUrl : null,
+      width: Number.isFinite(Number(m?.width)) ? Number(m.width) : null,
+      height: Number.isFinite(Number(m?.height)) ? Number(m.height) : null,
+      duration: Number.isFinite(Number(m?.duration)) ? Number(m.duration) : null,
+    }))
+    .filter((m) => /^https?:\/\//i.test(m.url));
+};
+
+/** Normalize the optional background track. undefined when none was picked. */
+const sanitizeMusic = (input) => {
+  if (!input || typeof input !== 'object' || !input.trackId) return undefined;
+  const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+  return {
+    trackId: String(input.trackId),
+    title: input.title ? String(input.title).slice(0, 160) : null,
+    artist: input.artist ? String(input.artist).slice(0, 160) : null,
+    filename: input.filename ? String(input.filename) : null,
+    startTime: Math.max(0, num(input.startTime, 0)),
+    endTime: Math.max(0, num(input.endTime, 30)),
+    volume: Math.min(1, Math.max(0, num(input.volume, 0.7))),
+    mixMode: MIX_MODES.includes(input.mixMode) ? input.mixMode : 'mix',
+    loop: input.loop !== false,
+  };
+};
+
 const lifecycleForPublish = (startAt) =>
   startAt && new Date(startAt).getTime() > Date.now() ? 'scheduled' : 'active';
 
@@ -46,6 +89,8 @@ const toRippleDetail = (ripple, viewer) => ({
   joinPolicy: ripple.joinPolicy,
   place: ripple.place,
   wrapUntil: ripple.wrapUntil ? new Date(ripple.wrapUntil).toISOString() : null,
+  media: ripple.media || [],
+  music: ripple.music?.trackId ? ripple.music : null,
   settings: ripple.settings,
   rating: ripple.rating,
   createdAt: ripple.createdAt ? new Date(ripple.createdAt).toISOString() : null,
@@ -224,6 +269,8 @@ const createRipple = asyncHandler(async (req, res) => {
     title,
     description: String(body.description || ''),
     type: body.type,
+    media: sanitizeMedia(body.media),
+    music: sanitizeMusic(body.music),
     reach,
     reachKm: reachToKm(reach),
     visibility: body.visibility || 'public',
@@ -313,6 +360,8 @@ const EDITABLE_FIELDS = [
   'expiresAt',
   'wrapUntil',
   'timezone',
+  'media',
+  'music',
 ];
 
 // @route PATCH /api/ripples/:id — host/cohost only
@@ -367,6 +416,10 @@ const updateRipple = asyncHandler(async (req, res) => {
         throw err;
       }
       ripple.capacity = body.capacity == null ? null : Number(body.capacity);
+    } else if (field === 'media') {
+      ripple.media = sanitizeMedia(body.media);
+    } else if (field === 'music') {
+      ripple.music = sanitizeMusic(body.music);
     } else {
       ripple[field] = body[field];
     }

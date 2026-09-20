@@ -57,6 +57,14 @@ const toRippleSummary = (ripple, opts = {}) => {
       ripple.lat != null && ripple.lng != null
         ? { lat: ripple.lat, lng: ripple.lng }
         : null,
+    /**
+     * First attached photo/video, for the card thumbnail. Deliberately a single
+     * URL rather than the whole array: summaries ride in every viewport/feed
+     * response, and the full media list only matters on the detail screen.
+     */
+    coverMediaUrl: ripple.media?.length ? ripple.media[0].url : null,
+    coverMediaType: ripple.media?.length ? ripple.media[0].type || 'image' : null,
+    mediaCount: ripple.media?.length ?? 0,
     badges,
   };
 };

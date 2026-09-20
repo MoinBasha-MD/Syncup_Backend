@@ -1,6 +1,23 @@
 const mongoose = require('mongoose');
 
 /**
+ * Media attached to a Ripple itself (the host's opening post). Mirrors
+ * RippleEvent's media subdocument so the client renders both with one
+ * component and neither grows a per-item `_id` nobody reads.
+ */
+const mediaSchema = new mongoose.Schema(
+  {
+    type: { type: String, enum: ['image', 'video'], default: 'image' },
+    url: { type: String, required: true },
+    thumbnailUrl: { type: String, default: null },
+    width: { type: Number, default: null },
+    height: { type: Number, default: null },
+    duration: { type: Number, default: null },
+  },
+  { _id: false },
+);
+
+/**
  * Ripple — a place-anchored container for a shared intention (Open Network).
  *
  * Dual location storage is deliberate:
@@ -98,6 +115,27 @@ const rippleSchema = new mongoose.Schema(
       country: { type: String, default: '' },
       countryCode: { type: String, default: '' },
       cityKey: { type: String, default: '' }, // `${countryCode}:${slug(city)}` lowercased
+    },
+    /**
+     * Photos/videos attached to the Ripple itself (the host's opening post).
+     * Same shape as a RippleEvent's media so the detail screen renders both
+     * with one component.
+     */
+    media: {
+      type: [mediaSchema],
+      default: [],
+    },
+    /** Background track, mirroring FeedPost.music so the player is reusable. */
+    music: {
+      trackId: { type: String, default: null },
+      title: { type: String, default: null },
+      artist: { type: String, default: null },
+      filename: { type: String, default: null },
+      startTime: { type: Number, default: 0 },
+      endTime: { type: Number, default: 30 },
+      volume: { type: Number, default: 0.7, min: 0, max: 1 },
+      mixMode: { type: String, enum: ['mix', 'replace', 'mute_original'], default: 'mix' },
+      loop: { type: Boolean, default: true },
     },
     timezone: {
       type: String,
