@@ -1,0 +1,36 @@
+version: "3.9"
+
+# Self-hosted LiveKit SFU for Open Network's "Live" broadcasts.
+#
+# Two services:
+#   - livekit:      the media server (signaling on 7880, RTC media on 7881
+#                    TCP + UDP range below)
+#   - livekit-redis: LiveKit needs Redis for its own room-state bookkeeping.
+#                    Separate from the app's own Redis (different container,
+#                    different port) so the two never compete for memory/keys.
+#
+# Bring it up on the VPS with:
+#   cd livekit && docker compose up -d
+services:
+  livekit-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - livekit-redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    depends_on:
+      - livekit-redis
+    ports:
+      - "7880:7880"        # HTTP/WebSocket signaling (put behind your reverse proxy for TLS)
+      - "7881:7881"        # TCP fallback for WebRTC media
+      - "50000-50100:50000-50100/udp"  # WebRTC media (UDP) — open these on the VPS firewall
+
+volumes:
+  livekit-redis-data:

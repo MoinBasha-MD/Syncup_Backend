@@ -105,7 +105,7 @@ const midLng = (swLng, neLng) => {
  * Apply the optional `section` param as extra match clauses.
  * Returns extra clauses array (possibly empty).
  */
-const sectionClauses = async (section, userId) => {
+const sectionClauses = async (section, userId, ctx) => {
   switch (section) {
     case 'live':
       return [{ lifecycle: { $in: ['active', 'wrapping'] } }];
@@ -119,7 +119,19 @@ const sectionClauses = async (section, userId) => {
         .lean();
       return [{ _id: { $in: rows.map((r) => r.rippleId) } }];
     }
-    // forYou / trending / anything else: the default discoverable set.
+    // Friends' Ripples only — "Ripples" (below) is the public/everyone feed.
+    case 'forYou':
+      return [
+        { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
+        { hostUserId: { $in: [...(ctx?.friendIds ?? [])] } },
+      ];
+    // Explicitly public, regardless of who is hosting — the "everyone" feed.
+    case 'ripples':
+      return [
+        { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
+        { visibility: 'public', discoverability: 'listed' },
+      ];
+    // trending / anything else: the default discoverable set.
     default:
       return [{ lifecycle: { $in: DISCOVERABLE_LIFECYCLES } }];
   }
@@ -158,7 +170,7 @@ const getViewport = asyncHandler(async (req, res) => {
     .map((t) => t.trim())
     .filter(Boolean);
 
-  const clauses = await sectionClauses(req.query.section, userId);
+  const clauses = await sectionClauses(req.query.section, userId, ctx);
   const match = { $and: [...baseMatch.$and, ...clauses] };
   if (typeList.length) match.$and.push({ type: { $in: typeList } });
 
@@ -299,7 +311,7 @@ const getNearby = asyncHandler(async (req, res) => {
   });
 });
 
-const FEED_SECTIONS = ['forYou', 'live', 'trending', 'invited', 'yours', 'memories'];
+const FEED_SECTIONS = ['forYou', 'ripples', 'live', 'trending', 'invited', 'yours', 'memories'];
 
 // @route GET /api/open-network/feed?section&cursor&limit
 const getFeed = asyncHandler(async (req, res) => {
@@ -318,19 +330,29 @@ const getFeed = asyncHandler(async (req, res) => {
   const visibility = buildVisibilityFilter(userId, ctx);
 
   const clauses = [];
-  // sortField doubles as the cursor field (ISO date).
+  // sortField doubles as the cursor field. Either an ISO-date field
+  // (createdAt/startAt) or a numeric field (counts.ripplers for trending) —
+  // `numericSort` picks how the cursor value is parsed/encoded below.
   let sortField = 'createdAt';
   let sortDir = -1;
+  let numericSort = false;
 
   switch (section) {
     case 'live':
       clauses.push(visibility, { lifecycle: { $in: ['active', 'wrapping'] } });
       break;
     case 'trending':
+      // Ranked by current popularity (joins), not just recency — a
+      // 3-day-old Ripple with 40 ripplers should outrank one from an hour
+      // ago with none. Still capped to a rolling window so a long-dead
+      // Ripple that once went viral doesn't camp the section forever.
       clauses.push(visibility, {
         lifecycle: { $in: DISCOVERABLE_LIFECYCLES },
         createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
       });
+      sortField = 'counts.ripplers';
+      sortDir = -1;
+      numericSort = true;
       break;
     case 'memories':
       clauses.push(visibility, { lifecycle: 'memory' });
@@ -345,41 +367,69 @@ const getFeed = asyncHandler(async (req, res) => {
       clauses.push({ _id: { $in: rows.map((r) => r.rippleId) } });
       break;
     }
+    // Friends' Ripples only — this used to be the same broad discoverable
+    // set as "Ripples" below, which made the two sections indistinguishable.
     case 'forYou':
+      clauses.push(visibility, {
+        lifecycle: { $in: ['active', 'scheduled'] },
+        hostUserId: { $in: [...ctx.friendIds] },
+      });
+      sortField = 'startAt';
+      sortDir = 1;
+      break;
+    // Explicitly public — "what's happening" for everyone, not just friends.
+    case 'ripples':
     default:
-      clauses.push(visibility, { lifecycle: { $in: ['active', 'scheduled'] } });
+      clauses.push(
+        { visibility: 'public', discoverability: 'listed' },
+        { lifecycle: { $in: ['active', 'scheduled'] } },
+      );
       sortField = 'startAt';
       sortDir = 1;
       break;
   }
 
   /*
-   * Cursor = "<ISO sort-field value>_<id>" of the last item on the previous
+   * Cursor = "<sort-field value>_<id>" of the last item on the previous
    * page. The _id tie-break matters: bulk-created Ripples (seed data, imports)
-   * all share the same createdAt/startAt, so a bare date cursor skipped every
-   * row tied on the boundary — with many Ripples the feed silently dropped
-   * whole batches after page one. A legacy bare-ISO cursor still works.
+   * all share the same createdAt/startAt/count, so a bare cursor skipped
+   * every row tied on the boundary — with many Ripples the feed silently
+   * dropped whole batches after page one. A legacy bare-ISO cursor (date
+   * sections only) still works.
    */
   if (req.query.cursor) {
     const raw = String(req.query.cursor);
     const sep = raw.lastIndexOf('_');
-    const cursorDate = new Date(sep > 0 ? raw.slice(0, sep) : raw);
-    if (Number.isNaN(cursorDate.getTime())) {
-      const err = new BadRequestError('cursor must be an ISO date');
-      err.code = 'BAD_CURSOR';
-      throw err;
-    }
-    const cmp = sortDir === 1 ? '$gt' : '$lt';
+    const rawValue = sep > 0 ? raw.slice(0, sep) : raw;
     const cursorId = sep > 0 ? raw.slice(sep + 1) : null;
+
+    let cursorValue;
+    if (numericSort) {
+      cursorValue = Number(rawValue);
+      if (!Number.isFinite(cursorValue)) {
+        const err = new BadRequestError('cursor must be a number for this section');
+        err.code = 'BAD_CURSOR';
+        throw err;
+      }
+    } else {
+      cursorValue = new Date(rawValue);
+      if (Number.isNaN(cursorValue.getTime())) {
+        const err = new BadRequestError('cursor must be an ISO date');
+        err.code = 'BAD_CURSOR';
+        throw err;
+      }
+    }
+
+    const cmp = sortDir === 1 ? '$gt' : '$lt';
     if (cursorId && /^[0-9a-fA-F]{24}$/.test(cursorId)) {
       clauses.push({
         $or: [
-          { [sortField]: { [cmp]: cursorDate } },
-          { [sortField]: cursorDate, _id: { [cmp]: cursorId } },
+          { [sortField]: { [cmp]: cursorValue } },
+          { [sortField]: cursorValue, _id: { [cmp]: cursorId } },
         ],
       });
     } else {
-      clauses.push({ [sortField]: { [cmp]: cursorDate } });
+      clauses.push({ [sortField]: { [cmp]: cursorValue } });
     }
   }
 
@@ -391,9 +441,10 @@ const getFeed = asyncHandler(async (req, res) => {
   const hasMore = docs.length > limit;
   const page = hasMore ? docs.slice(0, limit) : docs;
   const last = page[page.length - 1];
+  const lastSortValue = sortField.split('.').reduce((v, k) => v?.[k], last);
   const nextCursor =
-    hasMore && last && last[sortField]
-      ? `${new Date(last[sortField]).toISOString()}_${last._id.toString()}`
+    hasMore && last && lastSortValue != null
+      ? `${numericSort ? lastSortValue : new Date(lastSortValue).toISOString()}_${last._id.toString()}`
       : null;
 
   res.status(200).json({

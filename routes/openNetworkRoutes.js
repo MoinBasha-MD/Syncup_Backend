@@ -12,6 +12,13 @@ const {
   getNearby,
   getFeed,
 } = require('../controllers/openNetworkController');
+const {
+  startLive,
+  listLive,
+  joinLive,
+  leaveLive,
+  endLive,
+} = require('../controllers/liveSessionController');
 
 // Feature flag: unset/anything except the literal string 'false' = enabled.
 const openNetworkEnabled = (req, res, next) => {
@@ -57,6 +64,13 @@ router.patch('/settings', updateSettings);
 router.get('/viewport', getViewport);
 router.get('/nearby', getNearby);
 router.get('/feed', getFeed);
+
+// Live broadcasts (LiveKit-backed one-to-many video)
+router.get('/live', listLive);
+router.post('/live', startLive);
+router.post('/live/:id/join', joinLive);
+router.post('/live/:id/leave', leaveLive);
+router.post('/live/:id/end', endLive);
 
 // Trust — public host score (suppressed below the minimum sample) and a
 // reliability band that is only returned to the subject or to a host.
