@@ -14,6 +14,7 @@
  *   LIVEKIT_API_SECRET
  */
 const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
+const { TrackSource } = require('@livekit/protocol');
 
 const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
 
@@ -58,7 +59,11 @@ const createToken = async ({ identity, name, room, canPublish }) => {
     // to subscribe to itself but there's no harm allowing it (e.g. so a host
     // can see chat/data from viewers).
     canSubscribe: true,
-    canPublishSources: canPublish ? ['camera', 'microphone', 'screen_share'] : undefined,
+    // livekit-server-sdk >=2.19 wants the proto enum values here, not the
+    // string names — passing 'camera' throws "Cannot convert TrackSource".
+    canPublishSources: canPublish
+      ? [TrackSource.CAMERA, TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE]
+      : undefined,
   });
   return at.toJwt();
 };
