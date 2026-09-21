@@ -119,11 +119,12 @@ const sectionClauses = async (section, userId, ctx) => {
         .lean();
       return [{ _id: { $in: rows.map((r) => r.rippleId) } }];
     }
-    // Friends' Ripples only — "Ripples" (below) is the public/everyone feed.
+    // Friends' Ripples plus your own — "Ripples" (below) is the
+    // public/everyone feed.
     case 'forYou':
       return [
         { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
-        { hostUserId: { $in: [...(ctx?.friendIds ?? [])] } },
+        { hostUserId: { $in: [...(ctx?.friendIds ?? []), userId] } },
       ];
     // Explicitly public, regardless of who is hosting — the "everyone" feed.
     case 'ripples':
@@ -378,12 +379,14 @@ const getFeed = asyncHandler(async (req, res) => {
       clauses.push({ _id: { $in: rows.map((r) => r.rippleId) } });
       break;
     }
-    // Friends' Ripples only — this used to be the same broad discoverable
-    // set as "Ripples" below, which made the two sections indistinguishable.
+    // Friends' Ripples plus your own — this used to be the same broad
+    // discoverable set as "Ripples" below, which made the two sections
+    // indistinguishable. Own Ripples pass `visibility` via the filter's
+    // hostUserId clause, so a 'friends'/'invite' Ripple of yours still shows.
     case 'forYou':
       clauses.push(visibility, {
         lifecycle: { $in: ['active', 'scheduled'] },
-        hostUserId: { $in: [...ctx.friendIds] },
+        hostUserId: { $in: [...ctx.friendIds, userId] },
       });
       sortField = 'startAt';
       sortDir = 1;
