@@ -11,6 +11,7 @@ const {
   getViewport,
   getNearby,
   getFeed,
+  resolvePlaceQuery,
 } = require('../controllers/openNetworkController');
 const {
   startLive,
@@ -67,6 +68,7 @@ router.patch('/settings', updateSettings);
 router.get('/viewport', getViewport);
 router.get('/nearby', getNearby);
 router.get('/feed', getFeed);
+router.get('/resolve-place', resolvePlaceQuery);
 
 // Live broadcasts (LiveKit-backed one-to-many video)
 router.get('/live', listLive);

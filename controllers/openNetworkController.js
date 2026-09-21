@@ -187,6 +187,7 @@ const getViewport = asyncHandler(async (req, res) => {
   ]);
   const region = {
     name: place.city || place.country || place.label || '',
+    country: place.country || '',
     countryCode: place.countryCode || '',
   };
   const counts = { active: activeCount, memories: memoriesCount };
@@ -330,6 +331,16 @@ const getFeed = asyncHandler(async (req, res) => {
   const visibility = buildVisibilityFilter(userId, ctx);
 
   const clauses = [];
+
+  // Optional country scope — the globe's "viewing {country}" mode. Applies
+  // to every section uniformly so the sheet consistently shows that
+  // country's Ripples until the user goes back home. place is undefined for
+  // reach 'online', so online-only Ripples simply never match a country
+  // scope.
+  const country = String(req.query.country || '').toUpperCase();
+  if (/^[A-Z]{2}$/.test(country)) {
+    clauses.push({ 'place.countryCode': country });
+  }
   // sortField doubles as the cursor field. Either an ISO-date field
   // (createdAt/startAt) or a numeric field (counts.ripplers for trending) —
   // `numericSort` picks how the cursor value is parsed/encoded below.
@@ -455,6 +466,31 @@ const getFeed = asyncHandler(async (req, res) => {
   });
 });
 
+// @route GET /api/open-network/resolve-place?lng&lat
+// Lightweight reverse geocode — used when the user taps a country on the
+// globe (region detection) and to label the "back to your country" action.
+// resolvePlace never throws; it returns empty strings on any failure.
+const resolvePlaceQuery = asyncHandler(async (req, res) => {
+  const lng = num(req.query.lng);
+  const lat = num(req.query.lat);
+  if (lng === null || lat === null) {
+    const err = new BadRequestError('lng and lat are required numbers');
+    err.code = 'BAD_COORDS';
+    throw err;
+  }
+  const place = await resolvePlace(lng, lat);
+  res.status(200).json({
+    success: true,
+    place: {
+      label: place.label || '',
+      city: place.city || '',
+      state: place.state || '',
+      country: place.country || '',
+      countryCode: place.countryCode || '',
+    },
+  });
+});
+
 module.exports = {
   getMe,
   joinOpenNetwork,
@@ -463,4 +499,5 @@ module.exports = {
   getViewport,
   getNearby,
   getFeed,
+  resolvePlaceQuery,
 };
