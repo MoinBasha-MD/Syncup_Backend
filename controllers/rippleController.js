@@ -2,7 +2,9 @@ const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const Ripple = require('../models/Ripple');
 const Rippler = require('../models/Rippler');
+const RippleSupport = require('../models/RippleSupport');
 const Page = require('../models/Page');
+const User = require('../models/userModel');
 const OpenNetworkProfile = require('../models/OpenNetworkProfile');
 const {
   BadRequestError,
@@ -14,6 +16,7 @@ const { reachToKm, resolvePlace } = require('../services/openNetworkGeo');
 const { getViewerContext } = require('../services/openNetworkVisibility');
 
 const TYPES = ['activity', 'question', 'request', 'plan', 'event', 'interest', 'alert', 'project'];
+const KINDS = ['ripple', 'short'];
 const REACHES = ['neighborhood', 'city', 'region', 'global', 'online'];
 const VISIBILITIES = ['public', 'friends', 'invite'];
 const JOIN_POLICIES = ['open', 'approval', 'invite'];
@@ -79,8 +82,12 @@ const lifecycleForPublish = (startAt) =>
   startAt && new Date(startAt).getTime() > Date.now() ? 'scheduled' : 'active';
 
 /** Full detail = summary DTO + the fields only a detail view needs + viewer block. */
-const toRippleDetail = (ripple, viewer) => ({
-  ...toRippleSummary(ripple, { viewerUserId: viewer.userId }),
+const toRippleDetail = (ripple, viewer, extras = {}) => ({
+  ...toRippleSummary(ripple, {
+    viewerUserId: viewer.userId,
+    ownerAvatar: extras.ownerAvatar ?? null,
+    supportedByMe: !!extras.supported,
+  }),
   description: ripple.description,
   reach: ripple.reach,
   reachKm: ripple.reachKm,
@@ -102,8 +109,9 @@ const toRippleDetail = (ripple, viewer) => ({
  * The viewer block is the single authority on what this user may do —
  * the client must render actions from these flags only.
  */
-const buildViewerBlock = (ripple, member, userId) => {
+const buildViewerBlock = (ripple, member, userId, extras = {}) => {
   const isHost = ripple.hostUserId === userId;
+  const isShort = ripple.kind === 'short';
   let relationship = 'none';
   if (isHost || member?.role === 'host') relationship = 'host';
   else if (member?.role === 'cohost') relationship = 'cohost';
@@ -121,17 +129,23 @@ const buildViewerBlock = (ripple, member, userId) => {
   return {
     userId,
     relationship,
+    // Shorts have no membership — viewers Support + Comment, never join.
     canJoin:
+      !isShort &&
       relationship === 'none' &&
       joinable &&
       !isFull &&
       (ripple.joinPolicy === 'open' || ripple.joinPolicy === 'approval'),
-    canFollow: joinable && relationship === 'none',
-    canPostEvent:
-      isParticipant &&
-      ripple.lifecycle === 'active' &&
-      (isManager || !!ripple.settings?.ripplersCanPostEvents),
+    canFollow: !isShort && joinable && relationship === 'none',
+    // Comments on a Short are open to anyone who can see it while it's live;
+    // regular Ripples keep the ripplers-only gate.
+    canPostEvent: isShort
+      ? ripple.lifecycle === 'active'
+      : isParticipant &&
+        ripple.lifecycle === 'active' &&
+        (isManager || !!ripple.settings?.ripplersCanPostEvents),
     canManage: isManager,
+    supported: !!extras.supported,
   };
 };
 
@@ -163,6 +177,9 @@ const createRipple = asyncHandler(async (req, res) => {
     }
   }
 
+  enumCheck(body.kind, KINDS, 'kind');
+  const kind = body.kind === 'short' ? 'short' : 'ripple';
+
   const title = String(body.title || '').trim();
   if (title.length < 3 || title.length > 120) {
     const err = new BadRequestError('title must be 3-120 characters');
@@ -170,7 +187,10 @@ const createRipple = asyncHandler(async (req, res) => {
     throw err;
   }
   enumCheck(body.type, TYPES, 'type');
-  if (!body.type) {
+  // A Short is just an upload — it carries no "kind of Ripple" picker, so the
+  // type falls back to 'activity' rather than being required.
+  const type = body.type || (kind === 'short' ? 'activity' : null);
+  if (!type) {
     const err = new BadRequestError('type is required');
     err.code = 'VALIDATION';
     throw err;
@@ -261,6 +281,13 @@ const createRipple = asyncHandler(async (req, res) => {
   const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
   const lifecycle = body.publish === true ? lifecycleForPublish(startAt) : 'draft';
 
+  const media = sanitizeMedia(body.media);
+  if (kind === 'short' && media.length === 0) {
+    const err = new BadRequestError('A Short needs at least one photo or video');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
   const ripple = await Ripple.create({
     hostUserId: userId,
     hostPageId,
@@ -268,8 +295,9 @@ const createRipple = asyncHandler(async (req, res) => {
     hostIsPage,
     title,
     description: String(body.description || ''),
-    type: body.type,
-    media: sanitizeMedia(body.media),
+    type,
+    kind,
+    media,
     music: sanitizeMusic(body.music),
     reach,
     reachKm: reachToKm(reach),
@@ -331,9 +359,11 @@ const getRipple = asyncHandler(async (req, res) => {
     throw err;
   }
 
-  const [ctx, member] = await Promise.all([
+  const [ctx, member, supportRow, hostUser] = await Promise.all([
     getViewerContext(userId),
     Rippler.findOne({ rippleId: ripple._id, userId }).lean(),
+    RippleSupport.findOne({ rippleId: ripple._id, userId }).select('_id').lean(),
+    User.findOne({ userId: ripple.hostUserId }).select('profileImage').lean(),
   ]);
 
   if (!canView(ripple, member, ctx, userId)) {
@@ -345,7 +375,11 @@ const getRipple = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    ripple: toRippleDetail(ripple, buildViewerBlock(ripple, member, userId)),
+    ripple: toRippleDetail(
+      ripple,
+      buildViewerBlock(ripple, member, userId, { supported: !!supportRow }),
+      { ownerAvatar: hostUser?.profileImage || null, supported: !!supportRow },
+    ),
   });
 });
 

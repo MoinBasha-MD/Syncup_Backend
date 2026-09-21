@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const Ripple = require('../models/Ripple');
 const Rippler = require('../models/Rippler');
+const RippleSupport = require('../models/RippleSupport');
 const GroupChat = require('../models/groupChatModel');
 const GroupMember = require('../models/groupMemberModel');
 const Notification = require('../models/Notification');
@@ -212,6 +213,11 @@ const joinRipple = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
   await assertNotBlocked(userId, ripple);
+
+  // Shorts have no membership — Support + Comments only.
+  if (ripple.kind === 'short') {
+    throw err(BadRequestError, 'Shorts cannot be joined', 'RIPPLE_NOT_JOINABLE');
+  }
 
   if (!JOINABLE.includes(ripple.lifecycle)) {
     throw err(BadRequestError, 'This Ripple is no longer open to join', 'RIPPLE_NOT_JOINABLE');
@@ -629,6 +635,50 @@ const getOrCreateRippleChat = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, groupId: String(groupId) });
 });
 
+// @route POST /api/ripples/:id/support — toggle the Short's support counter
+const toggleSupport = asyncHandler(async (req, res) => {
+  const userId = req.user.userId;
+  const ripple = await loadRipple(req);
+  const ctx = await assertNotBlocked(userId, ripple);
+
+  // Supporting implies viewing — same visibility rule as canView().
+  const member = await getMember(ripple._id, userId);
+  const viewable =
+    ripple.hostUserId === userId ||
+    !!member ||
+    ripple.visibility === 'public' ||
+    (ripple.visibility === 'friends' && !!ctx?.friendIds.has(ripple.hostUserId));
+  if (!viewable) {
+    throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+  }
+  if (!JOINABLE.includes(ripple.lifecycle) && ripple.lifecycle !== 'wrapping') {
+    throw err(BadRequestError, 'This Ripple is closed to new support', 'RIPPLE_CLOSED');
+  }
+
+  const existing = await RippleSupport.findOne({
+    rippleId: ripple._id,
+    userId,
+  }).lean();
+
+  const delta = existing ? -1 : 1;
+  if (existing) {
+    await RippleSupport.deleteOne({ _id: existing._id });
+  } else {
+    await RippleSupport.create({ rippleId: ripple._id, userId });
+  }
+  const updated = await Ripple.findOneAndUpdate(
+    { _id: ripple._id },
+    { $inc: { 'counts.supports': delta } },
+    { new: true, projection: { counts: 1 } },
+  ).lean();
+
+  res.status(200).json({
+    success: true,
+    supported: !existing,
+    supportCount: Math.max(0, updated?.counts?.supports ?? 0),
+  });
+});
+
 module.exports = {
   joinRipple,
   leaveRipple,
@@ -642,4 +692,5 @@ module.exports = {
   promoteMember,
   demoteMember,
   getOrCreateRippleChat,
+  toggleSupport,
 };

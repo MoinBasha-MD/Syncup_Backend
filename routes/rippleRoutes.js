@@ -39,6 +39,7 @@ const {
   promoteMember,
   demoteMember,
   getOrCreateRippleChat,
+  toggleSupport,
 } = require('../controllers/rippleParticipationController');
 
 // Feature flag: unset/anything except the literal string 'false' = enabled.
@@ -89,7 +90,9 @@ router.post('/:id/publish', publishRipple);   // draft -> active/scheduled
 router.post('/:id/end', endRipple);           // active/scheduled -> wrapping
 router.post('/:id/cancel', cancelRipple);     // draft/scheduled/active -> cancelled
 
-// Participation — the people inside a Ripple are Ripplers
+// Participation — the people inside a Ripple are Ripplers. Shorts have no
+// membership: Support (a like-style counter) is their only join-adjacent act.
+router.post('/:id/support', toggleSupport);
 router.post('/:id/join', joinRipple);
 router.post('/:id/leave', leaveRipple);
 router.post('/:id/follow', followRipple);

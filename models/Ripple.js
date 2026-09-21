@@ -64,6 +64,17 @@ const rippleSchema = new mongoose.Schema(
       enum: ['activity', 'question', 'request', 'plan', 'event', 'interest', 'alert', 'project'],
       required: true,
     },
+    /**
+     * 'short' = a pure upload (photo/video + caption). Shorts have no
+     * Ripplers/join lifecycle — viewers can only Support (a counter, tracked
+     * in RippleSupport) and Comment (the events thread). Everything else
+     * about the doc (place, visibility, lifecycle) works identically.
+     */
+    kind: {
+      type: String,
+      enum: ['ripple', 'short'],
+      default: 'ripple',
+    },
     reach: {
       type: String,
       enum: ['neighborhood', 'city', 'region', 'global', 'online'],
@@ -150,6 +161,8 @@ const rippleSchema = new mongoose.Schema(
       followers: { type: Number, default: 0 },
       events: { type: Number, default: 0 },
       pendingRequests: { type: Number, default: 0 },
+      /** Support tally — the Short's like counter (see RippleSupport). */
+      supports: { type: Number, default: 0 },
     },
     settings: {
       ripplersCanPostEvents: { type: Boolean, default: true },

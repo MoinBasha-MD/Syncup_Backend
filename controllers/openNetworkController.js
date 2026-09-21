@@ -2,6 +2,8 @@ const asyncHandler = require('express-async-handler');
 const OpenNetworkProfile = require('../models/OpenNetworkProfile');
 const Ripple = require('../models/Ripple');
 const Rippler = require('../models/Rippler');
+const RippleSupport = require('../models/RippleSupport');
+const User = require('../models/userModel');
 const { BadRequestError } = require('../utils/errorClasses');
 const { toRippleSummary } = require('../utils/rippleDto');
 const {
@@ -92,6 +94,33 @@ const updateSettings = asyncHandler(async (req, res) => {
 const num = (v) => {
   const n = parseFloat(v);
   return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Batch-hydrate the per-viewer extras summaries carry: host avatars (the same
+ * User lookup the members endpoint does) and which of these Ripples the
+ * viewer has supported. Two queries for the whole page — never per-row.
+ * Returns a mapper producing the `opts` object for toRippleSummary.
+ */
+const hydrateSummaryExtras = async (ripples, userId) => {
+  const hostIds = [...new Set(ripples.map((r) => r.hostUserId).filter(Boolean))];
+  const ids = ripples.map((r) => r._id);
+  const [hosts, supportRows] = await Promise.all([
+    hostIds.length
+      ? User.find({ userId: { $in: hostIds } }).select('userId profileImage').lean()
+      : [],
+    ids.length
+      ? RippleSupport.find({ userId, rippleId: { $in: ids } }).select('rippleId').lean()
+      : [],
+  ]);
+  const avatarByUser = {};
+  hosts.forEach((u) => { avatarByUser[u.userId] = u.profileImage || null; });
+  const supportedIds = new Set(supportRows.map((r) => String(r.rippleId)));
+  return (r) => ({
+    viewerUserId: userId,
+    ownerAvatar: avatarByUser[r.hostUserId] || null,
+    supportedByMe: supportedIds.has(String(r._id)),
+  });
 };
 
 // Longitude midpoint that survives an antimeridian-crossing viewport.
@@ -220,11 +249,12 @@ const getViewport = asyncHandler(async (req, res) => {
   const cellSize = cellSizeForZoom(zoom);
   if (cellSize === null) {
     const ripples = await Ripple.find(match).limit(300).lean();
+    const extras = await hydrateSummaryExtras(ripples, userId);
     return res.status(200).json({
       success: true,
       mode: 'ripples',
       clusters: [],
-      ripples: ripples.map((r) => toRippleSummary(r, { viewerUserId: userId })),
+      ripples: ripples.map((r) => toRippleSummary(r, extras(r))),
       region,
       counts,
     });
@@ -257,6 +287,7 @@ const getViewport = asyncHandler(async (req, res) => {
     ]),
     Ripple.find({ $and: [...match.$and, circleClause] }).limit(200).lean(),
   ]);
+  const circleExtras = await hydrateSummaryExtras(circleMarkers, userId);
 
   res.status(200).json({
     success: true,
@@ -268,7 +299,7 @@ const getViewport = asyncHandler(async (req, res) => {
       hasLive: !!g.hasLive,
     })),
     // My circle's Ripples, always visible as markers regardless of zoom.
-    ripples: circleMarkers.map((r) => toRippleSummary(r, { viewerUserId: userId })),
+    ripples: circleMarkers.map((r) => toRippleSummary(r, circleExtras(r))),
     region,
     counts,
   });
@@ -304,11 +335,12 @@ const getNearby = asyncHandler(async (req, res) => {
     { $limit: 100 },
   ]);
 
+  const nearbyExtras = await hydrateSummaryExtras(rows, userId);
   res.status(200).json({
     success: true,
     ripples: rows.map((r) => {
       const distanceKm = Math.round((r.distMeters / 1000) * 10) / 10;
-      return toRippleSummary(r, { viewerUserId: userId, distanceKm });
+      return toRippleSummary(r, { ...nearbyExtras(r), distanceKm });
     }),
   });
 });
@@ -461,10 +493,11 @@ const getFeed = asyncHandler(async (req, res) => {
       ? `${numericSort ? lastSortValue : new Date(lastSortValue).toISOString()}_${last._id.toString()}`
       : null;
 
+  const feedExtras = await hydrateSummaryExtras(page, userId);
   res.status(200).json({
     success: true,
     section,
-    ripples: page.map((r) => toRippleSummary(r, { viewerUserId: userId })),
+    ripples: page.map((r) => toRippleSummary(r, feedExtras(r))),
     nextCursor,
   });
 });

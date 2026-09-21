@@ -14,6 +14,8 @@ const toIso = (d) => (d ? new Date(d).toISOString() : null);
  * @param {number|null} [opts.friendsCount]
  * @param {string|null} [opts.reason]
  * @param {string} [opts.viewerUserId]     for the 'Yours' badge
+ * @param {string|null} [opts.ownerAvatar] host's profile image URL
+ * @param {boolean} [opts.supportedByMe]   viewer already supports this
  */
 const toRippleSummary = (ripple, opts = {}) => {
   const {
@@ -21,6 +23,8 @@ const toRippleSummary = (ripple, opts = {}) => {
     friendsCount = null,
     reason = null,
     viewerUserId = null,
+    ownerAvatar = null,
+    supportedByMe = false,
   } = opts;
 
   const state = projectState(ripple);
@@ -36,11 +40,13 @@ const toRippleSummary = (ripple, opts = {}) => {
     id: String(ripple._id),
     title: ripple.title,
     type: ripple.type,
+    kind: ripple.kind || 'ripple',
     state,
     lifecycle: ripple.lifecycle,
     ownerId: ripple.hostIsPage ? String(ripple.hostPageId) : ripple.hostUserId,
     ownerName: ripple.hostName,
     ownerIsPage: !!ripple.hostIsPage,
+    ownerAvatar,
     placeLabel: ripple.reach === 'online' ? 'Online' : ripple.place?.label || '',
     distanceKm,
     startAt: toIso(ripple.startAt),
@@ -49,6 +55,9 @@ const toRippleSummary = (ripple, opts = {}) => {
     // Denormalized counter = approved Ripplers (maintained on approval).
     participantCount: ripple.counts?.ripplers ?? 0,
     contributionCount: ripple.counts?.events ?? 0,
+    /** The Short's like counter (0 on regular Ripples). */
+    supportCount: ripple.counts?.supports ?? 0,
+    supportedByMe,
     capacity: ripple.capacity ?? null,
     isFull,
     friendsCount,
@@ -64,6 +73,7 @@ const toRippleSummary = (ripple, opts = {}) => {
      */
     coverMediaUrl: ripple.media?.length ? ripple.media[0].url : null,
     coverMediaType: ripple.media?.length ? ripple.media[0].type || 'image' : null,
+    coverThumbnailUrl: ripple.media?.length ? ripple.media[0].thumbnailUrl ?? null : null,
     mediaCount: ripple.media?.length ?? 0,
     badges,
   };

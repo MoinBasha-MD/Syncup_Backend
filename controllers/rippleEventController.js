@@ -41,6 +41,17 @@ const isParticipant = (ripple, member, userId) =>
   isManager(ripple, member, userId) ||
   (member && member.status === 'approved' && member.role !== 'follower');
 
+/**
+ * Shorts have no membership — anyone who may VIEW the Short may read and
+ * write its comments. Mirrors canView()'s visibility ladder, minus the
+ * 'invite' branch (invite-only Shorts: members only, and there are none).
+ */
+const canViewShort = (ripple, ctx, userId) =>
+  ripple.kind === 'short' &&
+  (ripple.hostUserId === userId ||
+    ripple.visibility === 'public' ||
+    (ripple.visibility === 'friends' && ctx.friendIds.has(ripple.hostUserId)));
+
 const toEventDto = (e) => ({
   id: String(e._id),
   rippleId: String(e.rippleId),
@@ -93,12 +104,13 @@ const createEvent = asyncHandler(async (req, res) => {
 
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
   const manager = isManager(ripple, member, userId);
-  const participant = isParticipant(ripple, member, userId);
+  const participant =
+    isParticipant(ripple, member, userId) || canViewShort(ripple, ctx, userId);
 
   if (!participant) {
     throw err(ForbiddenError, 'Only Ripplers can post in this Ripple', 'NOT_A_RIPPLER');
   }
-  if (!manager && !ripple.settings?.ripplersCanPostEvents) {
+  if (ripple.kind !== 'short' && !manager && !ripple.settings?.ripplersCanPostEvents) {
     throw err(ForbiddenError, 'Only hosts can post in this Ripple', 'POSTING_RESTRICTED');
   }
   // Contributors may post while active; managers may also post during the
@@ -187,7 +199,10 @@ const listEvents = asyncHandler(async (req, res) => {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
-  const canSee = isParticipant(ripple, member, userId) || ripple.visibility === 'public';
+  const canSee =
+    isParticipant(ripple, member, userId) ||
+    ripple.visibility === 'public' ||
+    canViewShort(ripple, ctx, userId);
   if (!canSee) {
     throw err(ForbiddenError, 'You cannot view this Ripple', 'FORBIDDEN');
   }
