@@ -18,6 +18,9 @@ const {
   joinLive,
   leaveLive,
   endLive,
+  getLiveMessages,
+  postLiveMessage,
+  addLiveReactions,
 } = require('../controllers/liveSessionController');
 
 // Feature flag: unset/anything except the literal string 'false' = enabled.
@@ -71,6 +74,9 @@ router.post('/live', startLive);
 router.post('/live/:id/join', joinLive);
 router.post('/live/:id/leave', leaveLive);
 router.post('/live/:id/end', endLive);
+router.get('/live/:id/messages', getLiveMessages);
+router.post('/live/:id/messages', postLiveMessage);
+router.post('/live/:id/react', addLiveReactions);
 
 // Trust — public host score (suppressed below the minimum sample) and a
 // reliability band that is only returned to the subject or to a host.

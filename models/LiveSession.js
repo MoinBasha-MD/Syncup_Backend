@@ -33,6 +33,8 @@ const liveSessionSchema = new mongoose.Schema(
 
     viewerCount: { type: Number, default: 0 },
     peakViewerCount: { type: Number, default: 0 },
+    // Floating-heart taps, incremented in batches via POST /live/:id/react.
+    reactionCount: { type: Number, default: 0 },
   },
   { timestamps: true },
 );

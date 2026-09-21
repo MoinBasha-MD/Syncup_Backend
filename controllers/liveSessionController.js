@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const LiveSession = require('../models/LiveSession');
+const LiveChatMessage = require('../models/LiveChatMessage');
 const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/errorClasses');
 const { getViewerContext } = require('../services/openNetworkVisibility');
 const liveKitService = require('../services/liveKitService');
@@ -20,9 +21,12 @@ const toLiveSummary = (session) => ({
   startedAt: toIso(session.startedAt),
   endedAt: toIso(session.endedAt),
   viewerCount: session.viewerCount || 0,
+  reactionCount: session.reactionCount || 0,
 });
 
 const MAX_LIVE_TITLE = 120;
+const MAX_CHAT_LENGTH = 240;
+const MAX_REACTION_BATCH = 50;
 
 // @route POST /api/open-network/live — start broadcasting
 const startLive = asyncHandler(async (req, res) => {
@@ -173,4 +177,76 @@ const endLive = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, session: toLiveSummary(session) });
 });
 
-module.exports = { startLive, listLive, joinLive, leaveLive, endLive };
+const toChatSummary = (m) => ({
+  id: String(m._id),
+  userId: m.userId,
+  name: m.name,
+  text: m.text,
+  createdAt: toIso(m.createdAt),
+});
+
+// @route GET /api/open-network/live/:id/messages?limit=50 — recent chat transcript.
+// Works on ended sessions too so a host can review their stream's chat after.
+const getLiveMessages = asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    const err = new NotFoundError('Live session not found');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+  const session = await LiveSession.findById(req.params.id);
+  if (!session) {
+    const err = new NotFoundError('Live session not found');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+  const messages = await LiveChatMessage.find({ sessionId: session._id })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+  // Fetched newest-first for the limit, returned oldest-first for rendering.
+  res.status(200).json({ success: true, messages: messages.reverse().map(toChatSummary) });
+});
+
+// @route POST /api/open-network/live/:id/messages — persist a chat line.
+// Real-time delivery is the LiveKit data channel; this is the durable copy.
+const postLiveMessage = asyncHandler(async (req, res) => {
+  const userId = req.user.userId;
+  const session = await loadActive(req.params.id);
+  const text = String(req.body?.text || '').trim().slice(0, MAX_CHAT_LENGTH);
+  if (!text) {
+    const err = new BadRequestError('Message text is required');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+  const message = await LiveChatMessage.create({
+    sessionId: session._id,
+    userId,
+    name: req.user.name || 'Viewer',
+    text,
+  });
+  res.status(201).json({ success: true, message: toChatSummary(message) });
+});
+
+// @route POST /api/open-network/live/:id/react — batched heart count.
+const addLiveReactions = asyncHandler(async (req, res) => {
+  const session = await loadActive(req.params.id);
+  const count = Math.min(Math.max(parseInt(req.body?.count, 10) || 0, 1), MAX_REACTION_BATCH);
+  const updated = await LiveSession.findByIdAndUpdate(
+    session._id,
+    { $inc: { reactionCount: count } },
+    { new: true },
+  );
+  res.status(200).json({ success: true, reactionCount: updated.reactionCount });
+});
+
+module.exports = {
+  startLive,
+  listLive,
+  joinLive,
+  leaveLive,
+  endLive,
+  getLiveMessages,
+  postLiveMessage,
+  addLiveReactions,
+};
