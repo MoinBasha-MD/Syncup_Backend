@@ -374,6 +374,15 @@ const getFeed = asyncHandler(async (req, res) => {
   if (/^[A-Z]{2}$/.test(country)) {
     clauses.push({ 'place.countryCode': country });
   }
+
+  // Text search — title, the place label, or the host name. ANDed with the
+  // active section, so "search" stays scoped to whatever tab is open (Yours
+  // searches your Ripples, Ripples searches the public feed, etc.).
+  const q = String(req.query.q || '').trim().slice(0, 80);
+  if (q) {
+    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    clauses.push({ $or: [{ title: rx }, { 'place.label': rx }, { hostName: rx }] });
+  }
   // sortField doubles as the cursor field. Either an ISO-date field
   // (createdAt/startAt) or a numeric field (counts.ripplers for trending) —
   // `numericSort` picks how the cursor value is parsed/encoded below.

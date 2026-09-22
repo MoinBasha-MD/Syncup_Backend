@@ -74,6 +74,12 @@ const toRippleSummary = (ripple, opts = {}) => {
     coverMediaUrl: ripple.media?.length ? ripple.media[0].url : null,
     coverMediaType: ripple.media?.length ? ripple.media[0].type || 'image' : null,
     coverThumbnailUrl: ripple.media?.length ? ripple.media[0].thumbnailUrl ?? null : null,
+    // w/h of the cover frame — cards size media by content aspect instead of
+    // a fixed strip. null when the upload didn't record dimensions.
+    coverAspect:
+      ripple.media?.length && ripple.media[0].width && ripple.media[0].height
+        ? ripple.media[0].width / ripple.media[0].height
+        : null,
     mediaCount: ripple.media?.length ?? 0,
     badges,
   };

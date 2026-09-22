@@ -622,6 +622,7 @@ const purgeRippleChildren = async (ripple) => {
   await RippleEvent.deleteMany({ rippleId: ripple._id });
   await RippleRating.deleteMany({ rippleId: ripple._id });
   await RippleReport.deleteMany({ rippleId: ripple._id });
+  await RippleSupport.deleteMany({ rippleId: ripple._id });
   await Rippler.deleteMany({ rippleId: ripple._id });
 
   if (ripple.groupChatId) {
@@ -634,14 +635,16 @@ const purgeRippleChildren = async (ripple) => {
   await Ripple.deleteOne({ _id: ripple._id });
 };
 
-// @route DELETE /api/ripples/:id — hard-delete drafts only; live ones use cancel
+// @route DELETE /api/ripples/:id — hard-delete drafts + closed Ripples
+// (cancelled/memory); a live one must be ended or cancelled first so the
+// archive can't just vanish under its participants.
 const deleteRipple = asyncHandler(async (req, res) => {
   const { ripple } = await loadForLifecycle(req);
-  if (ripple.lifecycle !== 'draft') {
+  if (!['draft', 'cancelled', 'memory'].includes(ripple.lifecycle)) {
     const e = new BadRequestError(
-      'Only a draft can be deleted. Cancel an active or scheduled Ripple instead.',
+      'End or cancel this Ripple first — only drafts and closed Ripples can be deleted.',
     );
-    e.code = 'ONLY_DRAFT_DELETABLE';
+    e.code = 'NOT_DELETABLE';
     e.statusCode = 409;
     throw e;
   }

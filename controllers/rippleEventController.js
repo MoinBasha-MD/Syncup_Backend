@@ -213,14 +213,30 @@ const listEvents = asyncHandler(async (req, res) => {
     q._id = { $lt: req.query.cursor };
   }
 
-  // Pinned entries are surfaced first on the initial page only.
   const events = await RippleEvent.find(q).sort({ _id: -1 }).limit(limit + 1).lean();
   const hasMore = events.length > limit;
   const page = hasMore ? events.slice(0, limit) : events;
 
+  // The first page also carries the pinned set separately — pinned replies
+  // must surface above the fold regardless of age, which the _id cursor
+  // can't express inside the main list. Dedupe client-side (a pinned reply
+  // that's also recent still appears chronologically in `events`).
+  let pinnedEvents = [];
+  if (!req.query.cursor) {
+    pinnedEvents = await RippleEvent.find({
+      rippleId: ripple._id,
+      status: 'active',
+      pinned: true,
+    })
+      .sort({ _id: -1 })
+      .limit(5)
+      .lean();
+  }
+
   res.status(200).json({
     success: true,
     events: page.map(toEventDto),
+    pinnedEvents: pinnedEvents.map(toEventDto),
     nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
   });
 });
