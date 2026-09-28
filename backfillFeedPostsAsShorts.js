@@ -32,6 +32,20 @@ const coordinatePair = (latValue, lngValue) => {
 
 const getCoordinates = (location) => coordinatePair(location?.coordinates?.lat, location?.coordinates?.lng);
 
+const HYDERABAD_LOCATION = {
+  coordinates: { lng: 78.4750826, lat: 17.383912 },
+  place: {
+    label: 'Hyderabad, Telangana, India (default pin)',
+    neighborhood: '',
+    city: 'Hyderabad',
+    state: 'Telangana',
+    country: 'India',
+    countryCode: 'IN',
+    cityKey: 'in:hyderabad',
+  },
+  timezone: 'Asia/Kolkata',
+};
+
 const getCoordinatesFromName = (name) => {
   const parts = String(name || '').trim().split(',');
   if (parts.length !== 2) return null;
@@ -44,11 +58,14 @@ const getCoordinatesFromName = (name) => {
 
 const resolveCoordinates = async (location, mapboxService, cache) => {
   const stored = getCoordinates(location);
-  if (stored) return { coordinates: stored, geocoded: false, attempted: false };
+  if (stored) return { coordinates: stored, geocoded: false, defaulted: false, attempted: false };
   const name = location?._nameEncrypted ? '' : String(location?.name || '').trim();
   const parsed = getCoordinatesFromName(name);
-  if (parsed) return { coordinates: parsed, geocoded: false, attempted: false };
-  if (!mapboxService || !name) return { coordinates: null, geocoded: false, attempted: false };
+  if (parsed) return { coordinates: parsed, geocoded: false, defaulted: false, attempted: false };
+  if (!name) {
+    return { coordinates: HYDERABAD_LOCATION.coordinates, geocoded: false, defaulted: true, attempted: false };
+  }
+  if (!mapboxService) return { coordinates: null, geocoded: false, defaulted: false, attempted: false };
 
   const key = name.toLowerCase();
   if (!cache.has(key)) {
@@ -57,7 +74,7 @@ const resolveCoordinates = async (location, mapboxService, cache) => {
     cache.set(key, first ? coordinatePair(first.latitude, first.longitude) : null);
   }
   const coordinates = cache.get(key);
-  return { coordinates, geocoded: !!coordinates, attempted: true };
+  return { coordinates, geocoded: !!coordinates, defaulted: false, attempted: true };
 };
 
 const finiteNumberOrNull = (value) => {
@@ -83,6 +100,7 @@ const run = async () => {
     console.log('Dry run: node backfillFeedPostsAsShorts.js --geocode');
     console.log('Apply:    node backfillFeedPostsAsShorts.js --apply --limit 100 --geocode');
     console.log('--geocode resolves saved addresses with Mapbox; the first match is used.');
+    console.log('Posts with no usable location default to Hyderabad city center and are labeled as default pins.');
     console.log('A positive --limit is required with --apply. Re-running is safe and continues past converted posts.');
     return;
   }
@@ -101,6 +119,7 @@ const run = async () => {
     created: 0,
     alreadyConverted: 0,
     geocoded: 0,
+    defaultedHyderabad: 0,
     skipped: {
       noCoordinates: 0,
       geocodeFailed: 0,
@@ -159,6 +178,7 @@ const run = async () => {
       continue;
     }
     if (resolved.geocoded) stats.geocoded += 1;
+    if (resolved.defaulted) stats.defaultedHyderabad += 1;
 
     if (apply && stats.created >= limit) break;
     stats.eligible += 1;
@@ -180,8 +200,9 @@ const run = async () => {
       discoverability: 'listed',
       joinPolicy: 'open',
       lifecycle: 'active',
+      timezone: resolved.defaulted ? HYDERABAD_LOCATION.timezone : null,
       location: { type: 'Point', coordinates: [coordinates.lng, coordinates.lat] },
-      place: {
+      place: resolved.defaulted ? { ...HYDERABAD_LOCATION.place } : {
         label: post.location?._nameEncrypted ? '' : String(post.location?.name || '').trim(),
         neighborhood: '',
         city: '',
