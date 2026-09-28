@@ -52,7 +52,13 @@ const canViewShort = (ripple, ctx, userId) =>
   (ripple.hostUserId === userId ||
     (ripple.moderation?.reviewStatus !== 'under_review' &&
       (ripple.visibility === 'public' ||
-        (ripple.visibility === 'friends' && ctx.friendIds.has(ripple.hostUserId)))));
+        (ripple.visibility === 'friends' && ctx.friendIds.has(ripple.hostUserId)) ||
+        (ripple.visibility === 'page_followers' && ctx.pageIds?.has(String(ripple.hostPageId))))));
+
+const canViewPageRipple = (ripple, ctx, userId) =>
+  ripple.hostUserId === userId ||
+  ripple.visibility !== 'page_followers' ||
+  ctx.pageIds?.has(String(ripple.hostPageId));
 
 const toEventDto = (e) => ({
   id: String(e._id),
@@ -99,8 +105,8 @@ const createEvent = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
 
-  const ctx = await getViewerContext(userId);
-  if (ctx.blockedIds.has(ripple.hostUserId)) {
+  const ctx = await getViewerContext(userId, req.user._id);
+  if (ctx.blockedIds.has(ripple.hostUserId) || !canViewPageRipple(ripple, ctx, userId)) {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }
 
@@ -198,8 +204,8 @@ const listEvents = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
 
-  const ctx = await getViewerContext(userId);
-  if (ctx.blockedIds.has(ripple.hostUserId)) {
+  const ctx = await getViewerContext(userId, req.user._id);
+  if (ctx.blockedIds.has(ripple.hostUserId) || !canViewPageRipple(ripple, ctx, userId)) {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();

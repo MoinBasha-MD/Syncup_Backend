@@ -1,7 +1,11 @@
 const PagePost = require('../models/PagePost');
 const Page = require('../models/Page');
 const FeedPost = require('../models/FeedPost');
+const Ripple = require('../models/Ripple');
+const RippleSupport = require('../models/RippleSupport');
 const PageFollower = require('../models/PageFollower');
+const { toRippleSummary } = require('../utils/rippleDto');
+const { getViewerContext, buildVisibilityFilter } = require('../services/openNetworkVisibility');
 const Comment = require('../models/Comment');
 const User = require('../models/userModel');
 const enhancedNotificationService = require('../services/enhancedNotificationService');
@@ -380,6 +384,59 @@ const getPagePosts = async (req, res) => {
       message: 'Failed to get posts',
       error: error.message
     });
+  }
+};
+
+const getPageRipples = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return res.status(404).json({ success: false, message: 'Page not found' });
+    }
+
+    const isAuthorized =
+      page.isOwner(req.user._id) ||
+      page.isTeamMember(req.user._id) ||
+      await PageFollower.isFollowing(page._id, req.user._id);
+    if (!page.isPublic && !isAuthorized) {
+      return res.status(403).json({ success: false, message: 'This page is private' });
+    }
+
+    const userId = req.user.userId;
+    const ctx = await getViewerContext(userId, req.user._id);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+    const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
+    const lifecycleFilter = page.isOwner(req.user._id)
+      ? { $or: [{ lifecycle: { $in: ['scheduled', 'active', 'wrapping', 'memory'] } }, { lifecycle: 'draft', hostUserId: userId }] }
+      : { lifecycle: { $in: ['scheduled', 'active', 'wrapping', 'memory'] } };
+    const query = {
+      $and: [
+        buildVisibilityFilter(userId, ctx),
+        { hostPageId: page._id, hostIsPage: true, ...lifecycleFilter },
+      ],
+    };
+    const [ripples, total] = await Promise.all([
+      Ripple.find(query).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
+      Ripple.countDocuments(query),
+    ]);
+    const supportRows = ripples.length
+      ? await RippleSupport.find({ userId, rippleId: { $in: ripples.map((r) => r._id) } }).select('rippleId').lean()
+      : [];
+    const supportedIds = new Set(supportRows.map((r) => String(r.rippleId)));
+
+    res.json({
+      success: true,
+      ripples: ripples.map((ripple) => toRippleSummary(ripple, {
+        viewerUserId: userId,
+        ownerAvatar: page.profileImage || null,
+        supportedByMe: supportedIds.has(String(ripple._id)),
+      })),
+      pagination: { total, limit, skip, hasMore: total > skip + ripples.length },
+    });
+  } catch (error) {
+    console.error('❌ [PAGE RIPPLE] Error getting page Ripples:', error);
+    res.status(500).json({ success: false, message: 'Failed to get Page Ripples' });
   }
 };
 
@@ -1135,6 +1192,7 @@ module.exports = {
   createPagePost,
   distributePagePost,
   getPagePosts,
+  getPageRipples,
   getPagePost,
   updatePagePost,
   deletePagePost,

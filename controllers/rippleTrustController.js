@@ -10,6 +10,7 @@ const {
   ForbiddenError,
   NotFoundError,
 } = require('../utils/errorClasses');
+const { getViewerContext } = require('../services/openNetworkVisibility');
 
 const MANAGER_ROLES = ['host', 'cohost'];
 const RATEABLE_LIFECYCLES = ['wrapping', 'memory'];
@@ -60,6 +61,22 @@ const loadRipple = async (req) => {
   const ripple = await Ripple.findById(req.params.id);
   if (!ripple || ripple.lifecycle === 'removed') {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+  }
+  if (
+    ripple.hostUserId !== req.user.userId &&
+    (ripple.moderation?.reviewStatus === 'under_review' || ripple.visibility === 'page_followers')
+  ) {
+    const [ctx, member] = await Promise.all([
+      getViewerContext(req.user.userId, req.user._id),
+      Rippler.findOne({ rippleId: ripple._id, userId: req.user.userId }).lean(),
+    ]);
+    if (
+      ctx.blockedIds.has(ripple.hostUserId) ||
+      (ripple.visibility === 'page_followers' && !ctx.pageIds.has(String(ripple.hostPageId))) ||
+      (ripple.moderation?.reviewStatus === 'under_review' && !member)
+    ) {
+      throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+    }
   }
   return ripple;
 };

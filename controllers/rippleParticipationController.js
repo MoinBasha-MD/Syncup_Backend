@@ -43,10 +43,21 @@ const loadRipple = async (req) => {
  * Blocks are deliberately invisible: if host blocked viewer or vice-versa we
  * 404 so existence is never leaked, matching the privacy rule in canView().
  */
-const assertNotBlocked = async (userId, ripple) => {
-  if (userId === ripple.hostUserId) return;
-  const ctx = await getViewerContext(userId);
+const getMember = (rippleId, userId) =>
+  Rippler.findOne({ rippleId, userId }).lean();
+
+const assertCanViewRipple = async (userId, userObjectId, ripple, member) => {
+  if (userId === ripple.hostUserId) return null;
+  const ctx = await getViewerContext(userId, userObjectId);
   if (ctx.blockedIds.has(ripple.hostUserId)) {
+    throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+  }
+  const canView = ripple.visibility === 'page_followers'
+    ? ctx.pageIds.has(String(ripple.hostPageId))
+    : !!member ||
+      ripple.visibility === 'public' ||
+      (ripple.visibility === 'friends' && ctx.friendIds.has(ripple.hostUserId));
+  if (!canView || (ripple.moderation?.reviewStatus === 'under_review' && !member)) {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }
   return ctx;
@@ -54,9 +65,6 @@ const assertNotBlocked = async (userId, ripple) => {
 
 const isManager = (ripple, member, userId) =>
   ripple.hostUserId === userId || (member && MANAGER_ROLES.includes(member.role));
-
-const getMember = (rippleId, userId) =>
-  Rippler.findOne({ rippleId, userId }).lean();
 
 const isFull = (ripple) =>
   ripple.capacity != null && (ripple.counts?.ripplers ?? 0) >= ripple.capacity;
@@ -213,7 +221,8 @@ const removeFromGroupChat = async (ripple, userId) => {
 const joinRipple = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
-  await assertNotBlocked(userId, ripple);
+  const existing = await getMember(ripple._id, userId);
+  await assertCanViewRipple(userId, req.user._id, ripple, existing);
 
   // Shorts have no membership — Support + Comments only.
   if (ripple.kind === 'short') {
@@ -224,7 +233,6 @@ const joinRipple = asyncHandler(async (req, res) => {
     throw err(BadRequestError, 'This Ripple is no longer open to join', 'RIPPLE_NOT_JOINABLE');
   }
 
-  const existing = await getMember(ripple._id, userId);
   if (existing && existing.status === 'approved') {
     await recordRippleInteractor(ripple._id, userId);
     return res.status(200).json({ success: true, idempotent: true, member: existing });
@@ -334,13 +342,13 @@ const leaveRipple = asyncHandler(async (req, res) => {
 const followRipple = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
-  await assertNotBlocked(userId, ripple);
+  const existing = await getMember(ripple._id, userId);
+  await assertCanViewRipple(userId, req.user._id, ripple, existing);
 
   if (!JOINABLE.includes(ripple.lifecycle) && ripple.lifecycle !== 'wrapping') {
     throw err(BadRequestError, 'This Ripple can no longer be followed', 'RIPPLE_NOT_JOINABLE');
   }
 
-  const existing = await getMember(ripple._id, userId);
   if (existing) {
     // Already a participant or follower — idempotent no-op.
     return res.status(200).json({ success: true, idempotent: true, member: existing });
@@ -379,6 +387,7 @@ const getMembers = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
   const member = await getMember(ripple._id, userId);
+  await assertCanViewRipple(userId, req.user._id, ripple, member);
   const viewerIsManager = isManager(ripple, member, userId);
 
   const { status, role, cursor, limit = 50 } = req.query;
@@ -646,16 +655,17 @@ const getOrCreateRippleChat = asyncHandler(async (req, res) => {
 const toggleSupport = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
-  const ctx = await assertNotBlocked(userId, ripple);
+  const member = await getMember(ripple._id, userId);
+  const ctx = await assertCanViewRipple(userId, req.user._id, ripple, member);
 
   // Supporting implies viewing — same visibility rule as canView().
-  const member = await getMember(ripple._id, userId);
   const viewable =
     ripple.hostUserId === userId ||
     !!member ||
     (ripple.moderation?.reviewStatus !== 'under_review' &&
       (ripple.visibility === 'public' ||
-        (ripple.visibility === 'friends' && !!ctx?.friendIds.has(ripple.hostUserId))));
+        (ripple.visibility === 'friends' && !!ctx?.friendIds.has(ripple.hostUserId)) ||
+        (ripple.visibility === 'page_followers' && !!ctx?.pageIds.has(String(ripple.hostPageId)))));
   if (!viewable) {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }

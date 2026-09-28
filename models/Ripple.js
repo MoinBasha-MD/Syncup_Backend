@@ -86,7 +86,7 @@ const rippleSchema = new mongoose.Schema(
     },
     visibility: {
       type: String,
-      enum: ['public', 'friends', 'invite'],
+      enum: ['public', 'friends', 'invite', 'page_followers'],
       default: 'public',
     },
     discoverability: {

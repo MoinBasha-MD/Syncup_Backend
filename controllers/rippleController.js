@@ -18,7 +18,7 @@ const { getViewerContext } = require('../services/openNetworkVisibility');
 const TYPES = ['activity', 'question', 'request', 'plan', 'event', 'interest', 'alert', 'project'];
 const KINDS = ['ripple', 'short'];
 const REACHES = ['neighborhood', 'city', 'region', 'global', 'online'];
-const VISIBILITIES = ['public', 'friends', 'invite'];
+const VISIBILITIES = ['public', 'friends', 'invite', 'page_followers'];
 const JOIN_POLICIES = ['open', 'approval', 'invite'];
 const DISCOVERABILITIES = ['listed', 'unlisted'];
 const LIVE_LIFECYCLES = ['active', 'scheduled', 'wrapping'];
@@ -80,6 +80,14 @@ const sanitizeMusic = (input) => {
 
 const lifecycleForPublish = (startAt) =>
   startAt && new Date(startAt).getTime() > Date.now() ? 'scheduled' : 'active';
+
+const syncPageRippleVisibility = async (ripple) => {
+  if (!ripple.hostPageId) return;
+  const page = await Page.findById(ripple.hostPageId).select('isPublic').lean();
+  if (!page) return;
+  ripple.visibility = page.isPublic === false ? 'page_followers' : 'public';
+  ripple.discoverability = page.isPublic === false ? 'unlisted' : 'listed';
+};
 
 /** Full detail = summary DTO + the fields only a detail view needs + viewer block. */
 const toRippleDetail = (ripple, viewer, extras = {}) => ({
@@ -156,6 +164,7 @@ const canView = (ripple, member, ctx, userId) => {
   if (ripple.moderation?.reviewStatus === 'under_review') return false;
   if (ripple.visibility === 'public') return true; // listed + unlisted: direct-link access
   if (ripple.visibility === 'friends') return ctx.friendIds.has(ripple.hostUserId);
+  if (ripple.visibility === 'page_followers') return !!ctx.pageIds?.has(String(ripple.hostPageId));
   return false; // 'invite' — members only
 };
 
@@ -200,7 +209,14 @@ const createRipple = asyncHandler(async (req, res) => {
   enumCheck(body.visibility, VISIBILITIES, 'visibility');
   enumCheck(body.joinPolicy, JOIN_POLICIES, 'joinPolicy');
   enumCheck(body.discoverability, DISCOVERABILITIES, 'discoverability');
+  if (body.visibility === 'page_followers' && !body.hostPageId) {
+    const err = new BadRequestError('page_followers visibility requires a Page host');
+    err.code = 'VALIDATION';
+    throw err;
+  }
 
+  let visibility = body.visibility || 'public';
+  let discoverability = body.discoverability || 'listed';
   const reach = body.reach || 'city';
   const isOnline = reach === 'online';
   const lng = body.lng != null ? Number(body.lng) : null;
@@ -244,6 +260,13 @@ const createRipple = asyncHandler(async (req, res) => {
     hostPageId = page._id;
     hostName = page.name || hostName;
     hostIsPage = true;
+    visibility = page.isPublic === false ? 'page_followers' : 'public';
+    discoverability = page.isPublic === false ? 'unlisted' : 'listed';
+  }
+  if (hostPageId && isOnline) {
+    const err = new BadRequestError('Page-hosted Ripples need a map location');
+    err.code = 'VALIDATION';
+    throw err;
   }
 
   // --- Abuse guards ---
@@ -302,8 +325,8 @@ const createRipple = asyncHandler(async (req, res) => {
     music: sanitizeMusic(body.music),
     reach,
     reachKm: reachToKm(reach),
-    visibility: body.visibility || 'public',
-    discoverability: body.discoverability || 'listed',
+    visibility,
+    discoverability,
     joinPolicy: body.joinPolicy || 'approval',
     lifecycle,
     location: isOnline ? undefined : { type: 'Point', coordinates: [lng, lat] },
@@ -330,6 +353,7 @@ const createRipple = asyncHandler(async (req, res) => {
     joinedAt: new Date(),
     approvedBy: userId,
   });
+  if (hostPageId) await Page.updateOne({ _id: hostPageId }, { $inc: { postCount: 1 } });
 
   // Track host-side creation rate (cap enforcement is a later milestone).
   await OpenNetworkProfile.updateOne(
@@ -360,11 +384,13 @@ const getRipple = asyncHandler(async (req, res) => {
     throw err;
   }
 
-  const [ctx, member, supportRow, hostUser] = await Promise.all([
-    getViewerContext(userId),
+  const [ctx, member, supportRow, host] = await Promise.all([
+    getViewerContext(userId, req.user._id),
     Rippler.findOne({ rippleId: ripple._id, userId }).lean(),
     RippleSupport.findOne({ rippleId: ripple._id, userId }).select('_id').lean(),
-    User.findOne({ userId: ripple.hostUserId }).select('profileImage').lean(),
+    ripple.hostIsPage
+      ? Page.findById(ripple.hostPageId).select('profileImage').lean()
+      : User.findOne({ userId: ripple.hostUserId }).select('profileImage').lean(),
   ]);
 
   if (!canView(ripple, member, ctx, userId)) {
@@ -379,7 +405,7 @@ const getRipple = asyncHandler(async (req, res) => {
     ripple: toRippleDetail(
       ripple,
       buildViewerBlock(ripple, member, userId, { supported: !!supportRow }),
-      { ownerAvatar: hostUser?.profileImage || null, supported: !!supportRow },
+      { ownerAvatar: host?.profileImage || null, supported: !!supportRow },
     ),
   });
 });
@@ -439,6 +465,11 @@ const updateRipple = asyncHandler(async (req, res) => {
   enumCheck(body.joinPolicy, JOIN_POLICIES, 'joinPolicy');
   enumCheck(body.visibility, VISIBILITIES, 'visibility');
   enumCheck(body.discoverability, DISCOVERABILITIES, 'discoverability');
+  if (body.visibility === 'page_followers' && !ripple.hostPageId) {
+    const err = new BadRequestError('page_followers visibility requires a Page host');
+    err.code = 'VALIDATION';
+    throw err;
+  }
 
   for (const field of EDITABLE_FIELDS) {
     if (!(field in body)) continue;
@@ -468,6 +499,7 @@ const updateRipple = asyncHandler(async (req, res) => {
     }
   }
 
+  await syncPageRippleVisibility(ripple);
   await ripple.save();
   res.status(200).json({
     success: true,
@@ -503,6 +535,7 @@ const publishRipple = asyncHandler(async (req, res) => {
     throw err;
   }
   ripple.lifecycle = lifecycleForPublish(ripple.startAt);
+  await syncPageRippleVisibility(ripple);
   await ripple.save();
   res.status(200).json({
     success: true,
@@ -636,6 +669,12 @@ const purgeRippleChildren = async (ripple) => {
   }
 
   await Ripple.deleteOne({ _id: ripple._id });
+  if (ripple.hostPageId) {
+    await Page.updateOne(
+      { _id: ripple.hostPageId, postCount: { $gt: 0 } },
+      { $inc: { postCount: -1 } },
+    );
+  }
 };
 
 // @route DELETE /api/ripples/:id — hard-delete drafts + closed Ripples
@@ -674,7 +713,7 @@ const getRippleArcs = asyncHandler(async (req, res) => {
   }
 
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
-  const ctx = await getViewerContext(userId);
+  const ctx = await getViewerContext(userId, req.user._id);
   if (ctx.blockedIds.has(ripple.hostUserId)) {
     const e = new NotFoundError('Ripple not found');
     e.code = 'NOT_FOUND';

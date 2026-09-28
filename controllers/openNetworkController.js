@@ -3,6 +3,7 @@ const OpenNetworkProfile = require('../models/OpenNetworkProfile');
 const Ripple = require('../models/Ripple');
 const Rippler = require('../models/Rippler');
 const RippleSupport = require('../models/RippleSupport');
+const Page = require('../models/Page');
 const User = require('../models/userModel');
 const { BadRequestError } = require('../utils/errorClasses');
 const { toRippleSummary } = require('../utils/rippleDto');
@@ -114,22 +115,26 @@ const num = (v) => {
  * Returns a mapper producing the `opts` object for toRippleSummary.
  */
 const hydrateSummaryExtras = async (ripples, userId) => {
-  const hostIds = [...new Set(ripples.map((r) => r.hostUserId).filter(Boolean))];
+  const hostIds = [...new Set(ripples.filter((r) => !r.hostIsPage).map((r) => r.hostUserId).filter(Boolean))];
+  const pageIds = [...new Set(ripples.filter((r) => r.hostIsPage && r.hostPageId).map((r) => String(r.hostPageId)))];
   const ids = ripples.map((r) => r._id);
-  const [hosts, supportRows] = await Promise.all([
+  const [hosts, pages, supportRows] = await Promise.all([
     hostIds.length
       ? User.find({ userId: { $in: hostIds } }).select('userId profileImage').lean()
       : [],
+    pageIds.length ? Page.find({ _id: { $in: pageIds } }).select('profileImage').lean() : [],
     ids.length
       ? RippleSupport.find({ userId, rippleId: { $in: ids } }).select('rippleId').lean()
       : [],
   ]);
   const avatarByUser = {};
+  const avatarByPage = {};
   hosts.forEach((u) => { avatarByUser[u.userId] = u.profileImage || null; });
+  pages.forEach((p) => { avatarByPage[String(p._id)] = p.profileImage || null; });
   const supportedIds = new Set(supportRows.map((r) => String(r.rippleId)));
   return (r) => ({
     viewerUserId: userId,
-    ownerAvatar: avatarByUser[r.hostUserId] || null,
+    ownerAvatar: r.hostIsPage ? avatarByPage[String(r.hostPageId)] || null : avatarByUser[r.hostUserId] || null,
     supportedByMe: supportedIds.has(String(r._id)),
   });
 };
@@ -164,13 +169,23 @@ const sectionClauses = async (section, userId, ctx) => {
     case 'forYou':
       return [
         { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
-        { hostUserId: { $in: [...(ctx?.friendIds ?? []), userId] } },
+        {
+          $or: [
+            { hostUserId: { $in: [...(ctx?.friendIds ?? []), userId] } },
+            { visibility: 'page_followers', hostPageId: { $in: [...(ctx?.pageIds ?? [])] } },
+          ],
+        },
       ];
-    // Explicitly public, regardless of who is hosting — the "everyone" feed.
+    // Explicitly public, plus Pages followed by this viewer.
     case 'ripples':
       return [
         { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
-        { visibility: 'public', discoverability: 'listed' },
+        {
+          $or: [
+            { visibility: 'public', discoverability: 'listed' },
+            { visibility: 'page_followers', hostPageId: { $in: [...(ctx?.pageIds ?? [])] } },
+          ],
+        },
       ];
     // trending / anything else: the default discoverable set.
     default:
@@ -201,7 +216,7 @@ const getViewport = asyncHandler(async (req, res) => {
     lat: { $gte: b.swLat, $lte: b.neLat },
   }));
 
-  const ctx = await getViewerContext(userId);
+  const ctx = await getViewerContext(userId, req.user._id);
   const baseMatch = {
     $and: [buildVisibilityFilter(userId, ctx), { $or: bboxOr }],
   };
@@ -250,6 +265,7 @@ const getViewport = asyncHandler(async (req, res) => {
     $or: [
       { hostUserId: userId },
       { hostUserId: { $in: [...ctx.friendIds] } },
+      { hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
       { _id: { $in: joinedIds } },
     ],
   };
@@ -326,7 +342,7 @@ const getNearby = asyncHandler(async (req, res) => {
   const radiusKm = Math.min(Math.max(num(req.query.radiusKm) || 50, 1), 500);
   const typeList = parseRippleTypes(req.query.type);
 
-  const ctx = await getViewerContext(userId);
+  const ctx = await getViewerContext(userId, req.user._id);
   const visibility = buildVisibilityFilter(userId, ctx);
 
   const rows = await Ripple.aggregate([
@@ -380,7 +396,7 @@ const getFeed = asyncHandler(async (req, res) => {
   }
   const typeList = parseRippleTypes(req.query.type);
 
-  const ctx = await getViewerContext(userId);
+  const ctx = await getViewerContext(userId, req.user._id);
   const visibility = buildVisibilityFilter(userId, ctx);
 
   const clauses = [];
@@ -447,16 +463,24 @@ const getFeed = asyncHandler(async (req, res) => {
     case 'forYou':
       clauses.push(visibility, {
         lifecycle: { $in: ['active', 'scheduled'] },
-        hostUserId: { $in: [...ctx.friendIds, userId] },
+        $or: [
+          { hostUserId: { $in: [...ctx.friendIds, userId] } },
+          { visibility: 'page_followers', hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
+        ],
       });
       sortField = 'startAt';
       sortDir = 1;
       break;
-    // Explicitly public — "what's happening" for everyone, not just friends.
+    // Public Ripples plus Page-follower Ripples visible to this viewer.
     case 'ripples':
     default:
       clauses.push(
-        { visibility: 'public', discoverability: 'listed' },
+        {
+          $or: [
+            { visibility: 'public', discoverability: 'listed' },
+            { visibility: 'page_followers', hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
+          ],
+        },
         { lifecycle: { $in: ['active', 'scheduled'] } },
       );
       sortField = 'startAt';

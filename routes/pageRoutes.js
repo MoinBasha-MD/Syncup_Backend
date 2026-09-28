@@ -3,6 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const Page = require('../models/Page');
 const PageFollower = require('../models/PageFollower');
+const Ripple = require('../models/Ripple');
 const { protect, optionalProtect } = require('../middleware/authMiddleware');
 
 // ✅ WEEK 2 FIX: Import rate limiting middleware
@@ -517,6 +518,8 @@ router.put('/:id', protect, async (req, res) => {
       });
     }
 
+    const wasPublic = page.isPublic !== false;
+
     // Update allowed fields
     const allowedUpdates = [
       'name', 'bio', 'description', 'profileImage', 'coverImage',
@@ -632,7 +635,20 @@ router.put('/:id', protect, async (req, res) => {
       page.team = req.body.team;
     }
 
+    const isPublic = page.isPublic !== false;
+    if (wasPublic && !isPublic) {
+      await Ripple.updateMany(
+        { hostPageId: page._id, hostIsPage: true },
+        { $set: { visibility: 'page_followers', discoverability: 'unlisted' } },
+      );
+    }
     await page.save();
+    if (!wasPublic && isPublic) {
+      await Ripple.updateMany(
+        { hostPageId: page._id, hostIsPage: true },
+        { $set: { visibility: 'public', discoverability: 'listed' } },
+      );
+    }
 
     console.log(`✅ [PAGES] Page updated: ${page.name} (@${page.username})`);
 

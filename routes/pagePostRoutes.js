@@ -4,6 +4,7 @@ const { protect } = require('../middleware/authMiddleware');
 const {
   createPagePost,
   getPagePosts,
+  getPageRipples,
   getPagePost,
   updatePagePost,
   deletePagePost,
@@ -36,6 +37,7 @@ const {
 // ✅ Post management routes (with validation + rate limiting)
 router.post('/:pageId/posts', protect, postCreationLimiter, validatePageId, validatePagePost, createPagePost);
 router.get('/:pageId/posts', protect, validatePageId, getPagePosts);
+router.get('/:pageId/ripples', protect, validatePageId, getPageRipples);
 router.get('/:pageId/posts/:postId', protect, validatePageId, validatePostId, getPagePost);
 router.put('/:pageId/posts/:postId', protect, validatePageId, validatePostId, validatePagePost, updatePagePost);
 router.delete('/:pageId/posts/:postId', protect, validatePageId, validatePostId, deletePagePost);
