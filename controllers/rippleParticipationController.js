@@ -232,6 +232,9 @@ const joinRipple = asyncHandler(async (req, res) => {
   if (existing && existing.status === 'requested') {
     return res.status(200).json({ success: true, idempotent: true, member: existing });
   }
+  if (ripple.moderation?.reviewStatus === 'under_review') {
+    throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+  }
 
   // invite-only: only an invited (pre-created requested) row may proceed.
   if (ripple.joinPolicy === 'invite' && !existing) {
@@ -650,8 +653,9 @@ const toggleSupport = asyncHandler(async (req, res) => {
   const viewable =
     ripple.hostUserId === userId ||
     !!member ||
-    ripple.visibility === 'public' ||
-    (ripple.visibility === 'friends' && !!ctx?.friendIds.has(ripple.hostUserId));
+    (ripple.moderation?.reviewStatus !== 'under_review' &&
+      (ripple.visibility === 'public' ||
+        (ripple.visibility === 'friends' && !!ctx?.friendIds.has(ripple.hostUserId))));
   if (!viewable) {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }

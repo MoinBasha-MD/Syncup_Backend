@@ -41,6 +41,10 @@ const upsertCursor = async (cursor, getUserId) => {
 };
 
 const run = async () => {
+  if (!process.argv.includes('--apply')) {
+    console.log('No changes made. Pass --apply to backfill Ripple interactor counts.');
+    return;
+  }
   if (!process.env.MONGO_URI) throw new Error('MONGO_URI is required');
   await mongoose.connect(process.env.MONGO_URI);
   await RippleInteractor.createIndexes();

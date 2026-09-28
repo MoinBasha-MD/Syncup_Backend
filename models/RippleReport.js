@@ -30,6 +30,7 @@ const rippleReportSchema = new mongoose.Schema(
         'harassment',
         'safety',
         'misleading',
+        'impersonation',
         'inappropriate',
         'no_show',
         'other',

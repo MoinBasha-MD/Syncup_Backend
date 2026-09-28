@@ -189,6 +189,10 @@ const rippleSchema = new mongoose.Schema(
     },
     moderation: {
       reportCount: { type: Number, default: 0 },
+      reviewStatus: { type: String, enum: ['clear', 'under_review', 'actioned', 'dismissed'], default: 'clear', index: true },
+      reviewFlaggedAt: { type: Date, default: null },
+      reviewedAt: { type: Date, default: null },
+      reviewedBy: { type: String, default: null },
       removedAt: { type: Date, default: null },
       removedReason: { type: String, default: null },
     },

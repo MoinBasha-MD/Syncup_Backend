@@ -14,6 +14,8 @@ const {
 const MANAGER_ROLES = ['host', 'cohost'];
 const RATEABLE_LIFECYCLES = ['wrapping', 'memory'];
 const RATING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const REPORT_REVIEW_THRESHOLD = 3;
+const REPORT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const RATING_TAGS = [
   'as_described',
   'well_organised',
@@ -287,7 +289,7 @@ const reportRipple = asyncHandler(async (req, res) => {
   const ripple = await loadRipple(req);
 
   const reason = String(req.body.reason || '');
-  const allowed = ['spam', 'harassment', 'safety', 'misleading', 'inappropriate', 'no_show', 'other'];
+  const allowed = ['spam', 'harassment', 'safety', 'misleading', 'impersonation', 'inappropriate', 'no_show', 'other'];
   if (!allowed.includes(reason)) {
     throw err(BadRequestError, `reason must be one of: ${allowed.join(', ')}`, 'VALIDATION');
   }
@@ -305,18 +307,53 @@ const reportRipple = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, idempotent: true });
   }
 
-  await RippleReport.create({
-    rippleId: ripple._id,
-    eventId,
-    reporterId: userId,
-    reportedUserId: ripple.hostUserId,
-    reason,
-    details: String(req.body.details || '').slice(0, 1000),
-  });
+  try {
+    await RippleReport.create({
+      rippleId: ripple._id,
+      eventId,
+      reporterId: userId,
+      reportedUserId: ripple.hostUserId,
+      reason,
+      details: String(req.body.details || '').slice(0, 1000),
+    });
+  } catch (error) {
+    if (error?.code === 11000) return res.status(200).json({ success: true, idempotent: true });
+    throw error;
+  }
+
   await Ripple.updateOne({ _id: ripple._id }, { $inc: { 'moderation.reportCount': 1 } });
+  const windowStart = new Date(Date.now() - REPORT_WINDOW_MS);
+  const recentHostReports = await RippleReport.find({
+    reportedUserId: ripple.hostUserId,
+    status: { $in: ['open', 'reviewing'] },
+    createdAt: { $gte: windowStart },
+  }).select('rippleId reporterId').lean();
+  const reporterIds = new Set(recentHostReports.map((report) => report.reporterId));
+
+  if (reporterIds.size >= REPORT_REVIEW_THRESHOLD) {
+    const rippleIds = [...new Set(recentHostReports.map((report) => String(report.rippleId)))]
+      .map((id) => new mongoose.Types.ObjectId(id));
+    await Ripple.updateMany(
+      {
+        _id: { $in: rippleIds },
+        lifecycle: { $ne: 'removed' },
+        'moderation.reviewStatus': { $ne: 'under_review' },
+      },
+      {
+        $set: {
+          'moderation.reviewStatus': 'under_review',
+          'moderation.reviewFlaggedAt': new Date(),
+        },
+      },
+    );
+    await RippleReport.updateMany(
+      { reportedUserId: ripple.hostUserId, status: 'open', createdAt: { $gte: windowStart } },
+      { $set: { status: 'reviewing' } },
+    );
+  }
 
   // Reporting is deliberately quiet — the reported party learns nothing.
-  res.status(201).json({ success: true });
+  res.status(201).json({ success: true, underReview: reporterIds.size >= REPORT_REVIEW_THRESHOLD });
 });
 
 module.exports = {

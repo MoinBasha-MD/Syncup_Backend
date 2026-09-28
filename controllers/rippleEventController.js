@@ -50,8 +50,9 @@ const isParticipant = (ripple, member, userId) =>
 const canViewShort = (ripple, ctx, userId) =>
   ripple.kind === 'short' &&
   (ripple.hostUserId === userId ||
-    ripple.visibility === 'public' ||
-    (ripple.visibility === 'friends' && ctx.friendIds.has(ripple.hostUserId)));
+    (ripple.moderation?.reviewStatus !== 'under_review' &&
+      (ripple.visibility === 'public' ||
+        (ripple.visibility === 'friends' && ctx.friendIds.has(ripple.hostUserId)))));
 
 const toEventDto = (e) => ({
   id: String(e._id),

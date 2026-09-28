@@ -153,6 +153,7 @@ const canView = (ripple, member, ctx, userId) => {
   if (ctx.blockedIds.has(ripple.hostUserId)) return false;
   if (ripple.lifecycle === 'removed') return ripple.hostUserId === userId;
   if (ripple.hostUserId === userId || member) return true;
+  if (ripple.moderation?.reviewStatus === 'under_review') return false;
   if (ripple.visibility === 'public') return true; // listed + unlisted: direct-link access
   if (ripple.visibility === 'friends') return ctx.friendIds.has(ripple.hostUserId);
   return false; // 'invite' — members only

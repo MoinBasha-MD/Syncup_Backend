@@ -13,6 +13,7 @@ const { showNotifications, getUnreadCount, markAsRead } = require('../controller
 const { showRolePermissions, updateRolePermissions } = require('../controllers/rolePermissionsController');
 const { showActivityTimeline, getActivityFeed } = require('../controllers/activityTimelineController');
 const { exportAnalyticsPDF, exportUsersPDF } = require('../controllers/pdfExportController');
+const { listRippleReports, resolveRippleReports } = require('../controllers/adminRippleReportsController');
 
 // All routes require authentication
 router.use(isAdminAuthenticated);
@@ -58,6 +59,10 @@ router.post('/api/notifications/:id/read', markAsRead);
 // Role Permissions
 router.get('/permissions', showRolePermissions);
 router.post('/permissions/update', updateRolePermissions);
+
+// Ripple reports — authenticated moderator review queue.
+router.get('/api/open-network/ripple-reports', listRippleReports);
+router.patch('/api/open-network/ripple-reports/:rippleId', resolveRippleReports);
 
 // Activity Timeline
 router.get('/activity', showActivityTimeline);

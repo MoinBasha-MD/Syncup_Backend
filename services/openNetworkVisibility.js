@@ -59,6 +59,12 @@ const buildVisibilityFilter = (viewerUserId, ctx) => ({
       ],
     },
     { hostUserId: { $nin: [...ctx.blockedIds] } },
+    {
+      $or: [
+        { 'moderation.reviewStatus': { $ne: 'under_review' } },
+        { hostUserId: viewerUserId },
+      ],
+    },
   ],
 });
 
