@@ -20,26 +20,41 @@ const logger = winston.createLogger({
   ],
 });
 
+const SENSITIVE_FIELD = /password|passwd|pass|token|secret|authorization|cookie|api[_-]?key|credential/i;
+const SENSITIVE_QUERY_PARAM = /([?&](?:password|passwd|pass|access[_-]?token|token|secret|api[_-]?key|authorization|cookie)=)[^&#\s]*/gi;
+
+const redactSensitiveText = (value) =>
+  typeof value === 'string' ? value.replace(SENSITIVE_QUERY_PARAM, '$1[REDACTED]') : value;
+
+const redactSensitiveFields = (value) => {
+  if (Array.isArray(value)) return value.map(redactSensitiveFields);
+  if (!value || typeof value !== 'object') return redactSensitiveText(value);
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    SENSITIVE_FIELD.test(key) ? '[REDACTED]' : redactSensitiveFields(item),
+  ]));
+};
+
 // Error handling middleware
 const errorHandler = (err, req, res, next) => {
   // Log the error
   logger.error({
-    message: err.message,
-    stack: err.stack,
+    message: redactSensitiveText(err.message),
+    stack: redactSensitiveText(err.stack),
     method: req.method,
     path: req.path,
     ip: req.ip,
-    body: req.body,
-    params: req.params,
-    query: req.query,
+    body: redactSensitiveFields(req.body),
+    params: redactSensitiveFields(req.params),
+    query: redactSensitiveFields(req.query),
   });
 
   // Check if it's our custom API error
   if (err instanceof ApiError) {
     return res.status(err.statusCode).json({
       success: false,
-      message: err.message,
-      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack,
+      message: redactSensitiveText(err.message),
+      stack: process.env.NODE_ENV === 'production' ? undefined : redactSensitiveText(err.stack),
       error: err.name,
       // Passthrough: handlers may stamp a stable machine code (err.code) for
       // client-side branching. Undefined on older errors -> omitted from JSON.
@@ -105,7 +120,7 @@ const errorHandler = (err, req, res, next) => {
 
   // Check if response has already been sent
   if (res.headersSent) {
-    console.error('❌ Headers already sent, cannot send error response:', err.message);
+    console.error('❌ Headers already sent, cannot send error response:', redactSensitiveText(err.message));
     return next(err);
   }
 
@@ -113,8 +128,8 @@ const errorHandler = (err, req, res, next) => {
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
   res.status(statusCode).json({
     success: false,
-    message: err.message || 'Internal Server Error',
-    stack: process.env.NODE_ENV === 'production' ? undefined : err.stack,
+    message: redactSensitiveText(err.message) || 'Internal Server Error',
+    stack: process.env.NODE_ENV === 'production' ? undefined : redactSensitiveText(err.stack),
     error: err.name || 'Error'
   });
 };
@@ -122,7 +137,7 @@ const errorHandler = (err, req, res, next) => {
 // Not found middleware
 const notFound = (req, res, next) => {
   // Ignore common bot/scanner requests to reduce noise in logs
-  const ignoredPaths = ['/index.htm', '/index.html', '/.env', '/wp-admin', '/phpMyAdmin', '/admin'];
+  const ignoredPaths = ['/index.htm', '/index.html', '/.env', '/wp-admin', '/phpMyAdmin', '/admin', '/webapi/auth.cgi', '/webapi/entry.cgi'];
   if (ignoredPaths.some(path => req.originalUrl.includes(path))) {
     return res.status(404).end(); // Silent 404 for bots
   }
@@ -134,7 +149,7 @@ const notFound = (req, res, next) => {
     return res.status(404).end();
   }
 
-  const error = new ApiError(`Not Found - ${req.originalUrl}`, 404);
+  const error = new ApiError(`Not Found - ${req.path}`, 404);
   next(error);
 };
 
