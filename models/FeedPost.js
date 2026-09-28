@@ -232,10 +232,8 @@ feedPostSchema.index({ hashtags: 1 });
 feedPostSchema.index({ pageId: 1, createdAt: -1 }); // For page posts
 feedPostSchema.index({ isPagePost: 1, createdAt: -1 }); // For filtering
 // ✅ PHASE 1: New indexes for targeted distribution
-feedPostSchema.index({ pageVisibility: 1 });
 feedPostSchema.index({ targetUserId: 1, createdAt: -1 });
 feedPostSchema.index({ pageId: 1, pageVisibility: 1, targetUserId: 1 });
-feedPostSchema.index({ pagePostId: 1 });
 
 // 🔐 ENCRYPTION DISABLED - Captions and locations stored as plain text for better performance
 feedPostSchema.pre('save', async function(next) {

@@ -11,6 +11,7 @@ const { reachToKm } = require('./services/openNetworkGeo');
 
 const args = process.argv.slice(2);
 const apply = args.includes('--apply');
+const geocode = args.includes('--geocode');
 const help = args.includes('--help');
 
 const getLimit = () => {
@@ -20,15 +21,43 @@ const getLimit = () => {
   return raw != null && /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : null;
 };
 
-const getCoordinates = (location) => {
-  const lngValue = location?.coordinates?.lng;
-  const latValue = location?.coordinates?.lat;
-  if (lngValue == null || latValue == null || String(lngValue).trim() === '' || String(latValue).trim() === '') return null;
-  const lng = Number(lngValue);
+const coordinatePair = (latValue, lngValue) => {
+  if (latValue == null || lngValue == null || String(latValue).trim() === '' || String(lngValue).trim() === '') return null;
   const lat = Number(latValue);
+  const lng = Number(lngValue);
   return Number.isFinite(lng) && Math.abs(lng) <= 180 && Number.isFinite(lat) && Math.abs(lat) <= 90
     ? { lng, lat }
     : null;
+};
+
+const getCoordinates = (location) => coordinatePair(location?.coordinates?.lat, location?.coordinates?.lng);
+
+const getCoordinatesFromName = (name) => {
+  const parts = String(name || '').trim().split(',');
+  if (parts.length !== 2) return null;
+  const values = parts.map((part) => {
+    const colon = part.indexOf(':');
+    return (colon >= 0 ? part.slice(colon + 1) : part).trim();
+  });
+  return coordinatePair(values[0], values[1]);
+};
+
+const resolveCoordinates = async (location, mapboxService, cache) => {
+  const stored = getCoordinates(location);
+  if (stored) return { coordinates: stored, geocoded: false, attempted: false };
+  const name = location?._nameEncrypted ? '' : String(location?.name || '').trim();
+  const parsed = getCoordinatesFromName(name);
+  if (parsed) return { coordinates: parsed, geocoded: false, attempted: false };
+  if (!mapboxService || !name) return { coordinates: null, geocoded: false, attempted: false };
+
+  const key = name.toLowerCase();
+  if (!cache.has(key)) {
+    const places = await mapboxService.forwardGeocode(name, 1);
+    const first = places[0]?.coordinates;
+    cache.set(key, first ? coordinatePair(first.latitude, first.longitude) : null);
+  }
+  const coordinates = cache.get(key);
+  return { coordinates, geocoded: !!coordinates, attempted: true };
 };
 
 const finiteNumberOrNull = (value) => {
@@ -51,15 +80,18 @@ const mediaForRipple = (items) => (Array.isArray(items) ? items : [])
 
 const run = async () => {
   if (help) {
-    console.log('Dry run: node backfillFeedPostsAsShorts.js');
-    console.log('Apply:    node backfillFeedPostsAsShorts.js --apply --limit 100');
+    console.log('Dry run: node backfillFeedPostsAsShorts.js --geocode');
+    console.log('Apply:    node backfillFeedPostsAsShorts.js --apply --limit 100 --geocode');
+    console.log('--geocode resolves saved addresses with Mapbox; the first match is used.');
     console.log('A positive --limit is required with --apply. Re-running is safe and continues past converted posts.');
     return;
   }
 
   const limit = getLimit();
   if (apply && !limit) throw new Error('--apply requires a positive --limit to cap database writes');
+  if (geocode && !process.env.MAPBOX_PUBLIC_TOKEN) throw new Error('MAPBOX_PUBLIC_TOKEN is required with --geocode');
   if (!process.env.MONGO_URI) throw new Error('MONGO_URI is required');
+  const mapboxService = geocode ? require('./services/mapboxService') : null;
 
   await mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 10000 });
 
@@ -68,14 +100,17 @@ const run = async () => {
     eligible: 0,
     created: 0,
     alreadyConverted: 0,
+    geocoded: 0,
     skipped: {
       noCoordinates: 0,
+      geocodeFailed: 0,
       noMedia: 0,
       encryptedContent: 0,
       invalidMedia: 0,
       missingOwner: 0,
     },
   };
+  const geocodeCache = new Map();
   const query = {
     isActive: true,
     privacy: { $in: ['public', null] },
@@ -105,11 +140,6 @@ const run = async () => {
       stats.skipped.encryptedContent += 1;
       continue;
     }
-    const coordinates = getCoordinates(post.location);
-    if (!coordinates) {
-      stats.skipped.noCoordinates += 1;
-      continue;
-    }
     if (!Array.isArray(post.media) || post.media.length === 0) {
       stats.skipped.noMedia += 1;
       continue;
@@ -123,6 +153,13 @@ const run = async () => {
       stats.skipped.missingOwner += 1;
       continue;
     }
+    const resolved = await resolveCoordinates(post.location, mapboxService, geocodeCache);
+    const coordinates = resolved.coordinates;
+    if (!coordinates) {
+      stats.skipped[resolved.attempted ? 'geocodeFailed' : 'noCoordinates'] += 1;
+      continue;
+    }
+    if (resolved.geocoded) stats.geocoded += 1;
 
     if (apply && stats.created >= limit) break;
     stats.eligible += 1;
