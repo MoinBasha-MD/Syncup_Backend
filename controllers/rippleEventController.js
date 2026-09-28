@@ -9,6 +9,7 @@ const {
   NotFoundError,
 } = require('../utils/errorClasses');
 const { getViewerContext } = require('../services/openNetworkVisibility');
+const { recordRippleInteractor } = require('../services/rippleInteractionService');
 const getSocketManager = () => require('../socketManager');
 
 const MANAGER_ROLES = ['host', 'cohost'];
@@ -126,6 +127,7 @@ const createEvent = asyncHandler(async (req, res) => {
   if (idempotencyKey) {
     const existing = await RippleEvent.findOne({ authorId: userId, idempotencyKey });
     if (existing) {
+      await recordRippleInteractor(existing.rippleId, existing.authorId);
       return res.status(200).json({ success: true, idempotent: true, event: toEventDto(existing) });
     }
   }
@@ -166,6 +168,7 @@ const createEvent = asyncHandler(async (req, res) => {
     idempotencyKey,
   });
 
+  await recordRippleInteractor(ripple._id, userId);
   await syncEventCount(ripple._id);
   await Ripple.updateOne({ _id: ripple._id }, { $set: { lastActivityAt: new Date() } }).catch(() => {});
 

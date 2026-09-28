@@ -13,6 +13,7 @@ const {
   NotFoundError,
 } = require('../utils/errorClasses');
 const { getViewerContext } = require('../services/openNetworkVisibility');
+const { recordRippleInteractor } = require('../services/rippleInteractionService');
 // Lazy require to break any circular dependency with socketManager.
 const getSocketManager = () => require('../socketManager');
 const fcmNotificationService = require('../services/fcmNotificationService');
@@ -225,6 +226,7 @@ const joinRipple = asyncHandler(async (req, res) => {
 
   const existing = await getMember(ripple._id, userId);
   if (existing && existing.status === 'approved') {
+    await recordRippleInteractor(ripple._id, userId);
     return res.status(200).json({ success: true, idempotent: true, member: existing });
   }
   if (existing && existing.status === 'requested') {
@@ -274,6 +276,7 @@ const joinRipple = asyncHandler(async (req, res) => {
 
   if (approveNow) {
     await Ripple.updateOne({ _id: ripple._id }, { $inc: { 'counts.ripplers': 1 } });
+    await recordRippleInteractor(ripple._id, userId);
     await addToGroupChat(ripple, userId);
   } else {
     await Ripple.updateOne({ _id: ripple._id }, { $inc: { 'counts.pendingRequests': 1 } });
@@ -479,6 +482,7 @@ const approveRequest = asyncHandler(async (req, res) => {
     { _id: ripple._id },
     { $inc: { 'counts.ripplers': 1, 'counts.pendingRequests': -1 } },
   );
+  await recordRippleInteractor(ripple._id, targetUserId);
   await addToGroupChat(ripple, targetUserId);
   await notifyRipple({
     toUserId: targetUserId,
@@ -666,6 +670,7 @@ const toggleSupport = asyncHandler(async (req, res) => {
   } else {
     await RippleSupport.create({ rippleId: ripple._id, userId });
   }
+  await recordRippleInteractor(ripple._id, userId);
   const updated = await Ripple.findOneAndUpdate(
     { _id: ripple._id },
     { $inc: { 'counts.supports': delta } },

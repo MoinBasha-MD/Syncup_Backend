@@ -615,6 +615,7 @@ const purgeRippleChildren = async (ripple) => {
   const RippleEvent = require('../models/RippleEvent');
   const RippleRating = require('../models/RippleRating');
   const RippleReport = require('../models/RippleReport');
+  const RippleInteractor = require('../models/RippleInteractor');
   const GroupChat = require('../models/groupChatModel');
   const GroupMember = require('../models/groupMemberModel');
   const GroupMessage = require('../models/groupMessageModel');
@@ -623,6 +624,7 @@ const purgeRippleChildren = async (ripple) => {
   await RippleRating.deleteMany({ rippleId: ripple._id });
   await RippleReport.deleteMany({ rippleId: ripple._id });
   await RippleSupport.deleteMany({ rippleId: ripple._id });
+  await RippleInteractor.deleteMany({ rippleId: ripple._id });
   await Rippler.deleteMany({ rippleId: ripple._id });
 
   if (ripple.groupChatId) {

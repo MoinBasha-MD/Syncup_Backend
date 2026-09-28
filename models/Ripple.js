@@ -163,6 +163,7 @@ const rippleSchema = new mongoose.Schema(
       pendingRequests: { type: Number, default: 0 },
       /** Support tally — the Short's like counter (see RippleSupport). */
       supports: { type: Number, default: 0 },
+      interactors: { type: Number, default: 0 },
     },
     settings: {
       ripplersCanPostEvents: { type: Boolean, default: true },
@@ -220,6 +221,7 @@ rippleSchema.index({ lifecycle: 1, discoverability: 1, visibility: 1 });
 rippleSchema.index({ hostUserId: 1, createdAt: -1 });
 rippleSchema.index({ 'place.countryCode': 1, lifecycle: 1 });
 rippleSchema.index({ 'place.cityKey': 1, lifecycle: 1 });
+rippleSchema.index({ 'counts.interactors': -1, _id: -1 });
 // Partial (not sparse) so uniqueness is enforced only for real string keys —
 // see the note on the field above.
 rippleSchema.index(

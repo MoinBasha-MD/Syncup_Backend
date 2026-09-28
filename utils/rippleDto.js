@@ -57,6 +57,7 @@ const toRippleSummary = (ripple, opts = {}) => {
     contributionCount: ripple.counts?.events ?? 0,
     /** The Short's like counter (0 on regular Ripples). */
     supportCount: ripple.counts?.supports ?? 0,
+    interactorCount: ripple.counts?.interactors ?? ripple.counts?.ripplers ?? 0,
     supportedByMe,
     capacity: ripple.capacity ?? null,
     isFull,

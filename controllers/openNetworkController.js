@@ -17,6 +17,17 @@ const {
 } = require('../services/openNetworkVisibility');
 
 const DISCOVERABLE_LIFECYCLES = ['active', 'wrapping', 'scheduled'];
+const RIPPLE_TYPES = ['activity', 'question', 'request', 'plan', 'event', 'interest', 'alert', 'project'];
+const parseRippleTypes = (value) => {
+  const types = String(value || '').split(',').map((type) => type.trim()).filter(Boolean);
+  const invalid = types.find((type) => !RIPPLE_TYPES.includes(type));
+  if (invalid) {
+    const err = new BadRequestError(`type must be one of: ${RIPPLE_TYPES.join(', ')}`);
+    err.code = 'BAD_RIPPLE_TYPE';
+    throw err;
+  }
+  return [...new Set(types)];
+};
 // Privacy floor from the client contract: below this many ripples in a cell
 // the count is withheld so a single Ripple can't be pinpointed by its count.
 const MIN_CLUSTER_EXACT_COUNT = 3;
@@ -195,10 +206,7 @@ const getViewport = asyncHandler(async (req, res) => {
     $and: [buildVisibilityFilter(userId, ctx), { $or: bboxOr }],
   };
 
-  const typeList = (req.query.types || '')
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const typeList = parseRippleTypes(req.query.types);
 
   const clauses = await sectionClauses(req.query.section, userId, ctx);
   const match = { $and: [...baseMatch.$and, ...clauses] };
@@ -316,6 +324,7 @@ const getNearby = asyncHandler(async (req, res) => {
     throw err;
   }
   const radiusKm = Math.min(Math.max(num(req.query.radiusKm) || 50, 1), 500);
+  const typeList = parseRippleTypes(req.query.type);
 
   const ctx = await getViewerContext(userId);
   const visibility = buildVisibilityFilter(userId, ctx);
@@ -328,7 +337,11 @@ const getNearby = asyncHandler(async (req, res) => {
         maxDistance: radiusKm * 1000,
         spherical: true,
         query: {
-          $and: [visibility, { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } }],
+          $and: [
+            visibility,
+            { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
+            ...(typeList.length ? [{ type: { $in: typeList } }] : []),
+          ],
         },
       },
     },
@@ -347,7 +360,7 @@ const getNearby = asyncHandler(async (req, res) => {
 
 const FEED_SECTIONS = ['forYou', 'ripples', 'live', 'trending', 'invited', 'yours', 'memories'];
 
-// @route GET /api/open-network/feed?section&cursor&limit
+// @route GET /api/open-network/feed?section&cursor&limit&type&days
 const getFeed = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const section = req.query.section || 'forYou';
@@ -359,6 +372,13 @@ const getFeed = asyncHandler(async (req, res) => {
     throw err;
   }
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+  const trendingDays = req.query.days == null ? 7 : Number(req.query.days);
+  if (section === 'trending' && ![1, 7, 30].includes(trendingDays)) {
+    const err = new BadRequestError('days must be 1, 7, or 30 for trending');
+    err.code = 'BAD_TRENDING_WINDOW';
+    throw err;
+  }
+  const typeList = parseRippleTypes(req.query.type);
 
   const ctx = await getViewerContext(userId);
   const visibility = buildVisibilityFilter(userId, ctx);
@@ -383,8 +403,9 @@ const getFeed = asyncHandler(async (req, res) => {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     clauses.push({ $or: [{ title: rx }, { 'place.label': rx }, { hostName: rx }] });
   }
+  if (typeList.length) clauses.push({ type: { $in: typeList } });
   // sortField doubles as the cursor field. Either an ISO-date field
-  // (createdAt/startAt) or a numeric field (counts.ripplers for trending) —
+  // (createdAt/startAt) or a numeric field (counts.interactors for trending) —
   // `numericSort` picks how the cursor value is parsed/encoded below.
   let sortField = 'createdAt';
   let sortDir = -1;
@@ -395,15 +416,14 @@ const getFeed = asyncHandler(async (req, res) => {
       clauses.push(visibility, { lifecycle: { $in: ['active', 'wrapping'] } });
       break;
     case 'trending':
-      // Ranked by current popularity (joins), not just recency — a
-      // 3-day-old Ripple with 40 ripplers should outrank one from an hour
-      // ago with none. Still capped to a rolling window so a long-dead
-      // Ripple that once went viral doesn't camp the section forever.
+      // Ranked by unique people who have interacted, not just recency. A
+      // Ripple stays relevant as new people join, reply, or support it, while
+      // the rolling window prevents old Ripples from camping Trending forever.
       clauses.push(visibility, {
         lifecycle: { $in: DISCOVERABLE_LIFECYCLES },
-        createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        createdAt: { $gte: new Date(Date.now() - trendingDays * 24 * 60 * 60 * 1000) },
       });
-      sortField = 'counts.ripplers';
+      sortField = 'counts.interactors';
       sortDir = -1;
       numericSort = true;
       break;
