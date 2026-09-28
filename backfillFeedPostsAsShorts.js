@@ -135,7 +135,6 @@ const run = async () => {
       continue;
     }
 
-    if (post._captionEncrypted && typeof post.decrypt === 'function') post.decrypt();
     if (post._captionEncrypted || post.media?.some((item) => item?.encrypted)) {
       stats.skipped.encryptedContent += 1;
       continue;
