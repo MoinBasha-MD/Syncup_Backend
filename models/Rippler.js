@@ -51,4 +51,13 @@ ripplerSchema.index({ userId: 1, status: 1 });
 
 const Rippler = mongoose.model('Rippler', ripplerSchema);
 
+/**
+ * Membership statuses that grant VIEW access to a non-public Ripple.
+ * 'approved' members and 'requested' (pending) joiners can see the Ripple
+ * they belong to or asked to join; 'rejected'/'left'/'removed'/'banned'
+ * rows must NOT reopen visibility. Single source of truth — every "is this
+ * membership a viewer?" check reads this list.
+ */
+Rippler.VIEWING_STATUSES = ['approved', 'requested'];
+
 module.exports = Rippler;

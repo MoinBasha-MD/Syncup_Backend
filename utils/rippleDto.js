@@ -32,7 +32,8 @@ const toRippleSummary = (ripple, opts = {}) => {
     ripple.capacity != null && (ripple.counts?.ripplers ?? 0) >= ripple.capacity;
 
   const badges = [];
-  if (state === 'live') badges.push('Live');
+  // Shorts are posts, not happenings — they never read as "Live".
+  if (state === 'live' && ripple.kind !== 'short') badges.push('Live');
   if (distanceKm != null && distanceKm <= 50) badges.push('Nearby');
   if (viewerUserId && ripple.hostUserId === viewerUserId) badges.push('Yours');
 

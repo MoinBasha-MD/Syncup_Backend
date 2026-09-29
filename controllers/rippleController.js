@@ -14,6 +14,8 @@ const {
 const { toRippleSummary } = require('../utils/rippleDto');
 const { reachToKm, resolvePlace } = require('../services/openNetworkGeo');
 const { getViewerContext } = require('../services/openNetworkVisibility');
+const { canView } = require('../utils/rippleAccess');
+const { sanitizeMedia } = require('../utils/rippleMedia');
 
 const TYPES = ['activity', 'question', 'request', 'plan', 'event', 'interest', 'alert', 'project'];
 const KINDS = ['ripple', 'short'];
@@ -21,7 +23,10 @@ const REACHES = ['neighborhood', 'city', 'region', 'global', 'online'];
 const VISIBILITIES = ['public', 'friends', 'invite', 'page_followers'];
 const JOIN_POLICIES = ['open', 'approval', 'invite'];
 const DISCOVERABILITIES = ['listed', 'unlisted'];
-const LIVE_LIFECYCLES = ['active', 'scheduled', 'wrapping'];
+// Lifecycles in which a Ripple accepts new members — matches JOINABLE in
+// rippleParticipationController. 'wrapping' is deliberately excluded: the
+// viewer block must never advertise a join the endpoint would reject.
+const JOINABLE_LIFECYCLES = ['active', 'scheduled'];
 
 // Spam guard: a brand-new account shouldn't be able to carpet the globe.
 const DAILY_RIPPLE_LIMIT = 10;
@@ -36,30 +41,7 @@ const enumCheck = (value, allowed, field) => {
 };
 
 const MAX_RIPPLE_MEDIA = 10;
-const MEDIA_TYPES = ['image', 'video'];
 const MIX_MODES = ['mix', 'replace', 'mute_original'];
-
-/**
- * Sanitize media attached to a Ripple.
- *
- * Only absolute http(s) URLs are accepted: the client uploads through
- * /upload/post-media first and posts the resulting URLs, so anything else is a
- * malformed client and would otherwise be stored as a broken image.
- */
-const sanitizeMedia = (input) => {
-  if (!Array.isArray(input)) return [];
-  return input
-    .slice(0, MAX_RIPPLE_MEDIA)
-    .map((m) => ({
-      type: MEDIA_TYPES.includes(m?.type) ? m.type : 'image',
-      url: typeof m?.url === 'string' ? m.url.trim() : '',
-      thumbnailUrl: typeof m?.thumbnailUrl === 'string' ? m.thumbnailUrl : null,
-      width: Number.isFinite(Number(m?.width)) ? Number(m.width) : null,
-      height: Number.isFinite(Number(m?.height)) ? Number(m.height) : null,
-      duration: Number.isFinite(Number(m?.duration)) ? Number(m.duration) : null,
-    }))
-    .filter((m) => /^https?:\/\//i.test(m.url));
-};
 
 /** Normalize the optional background track. undefined when none was picked. */
 const sanitizeMusic = (input) => {
@@ -130,7 +112,7 @@ const buildViewerBlock = (ripple, member, userId, extras = {}) => {
 
   const isFull =
     ripple.capacity != null && (ripple.counts?.ripplers ?? 0) >= ripple.capacity;
-  const joinable = LIVE_LIFECYCLES.includes(ripple.lifecycle);
+  const joinable = JOINABLE_LIFECYCLES.includes(ripple.lifecycle);
   const isParticipant = relationship === 'host' || relationship === 'cohost' || relationship === 'rippler';
   const isManager = relationship === 'host' || relationship === 'cohost';
 
@@ -150,23 +132,18 @@ const buildViewerBlock = (ripple, member, userId, extras = {}) => {
     canPostEvent: isShort
       ? ripple.lifecycle === 'active'
       : isParticipant &&
-        ripple.lifecycle === 'active' &&
-        (isManager || !!ripple.settings?.ripplersCanPostEvents),
+        (isManager
+          ? // Managers may keep posting through the wrapping window (wrap-up
+            // photos) — same lifecycle rule as createEvent.
+            ['active', 'wrapping'].includes(ripple.lifecycle)
+          : ripple.lifecycle === 'active' &&
+            !!ripple.settings?.ripplersCanPostEvents),
     canManage: isManager,
     supported: !!extras.supported,
   };
 };
 
-const canView = (ripple, member, ctx, userId) => {
-  if (ctx.blockedIds.has(ripple.hostUserId)) return false;
-  if (ripple.lifecycle === 'removed') return ripple.hostUserId === userId;
-  if (ripple.hostUserId === userId || member) return true;
-  if (ripple.moderation?.reviewStatus === 'under_review') return false;
-  if (ripple.visibility === 'public') return true; // listed + unlisted: direct-link access
-  if (ripple.visibility === 'friends') return ctx.friendIds.has(ripple.hostUserId);
-  if (ripple.visibility === 'page_followers') return !!ctx.pageIds?.has(String(ripple.hostPageId));
-  return false; // 'invite' — members only
-};
+
 
 // @route POST /api/ripples
 const createRipple = asyncHandler(async (req, res) => {
@@ -305,7 +282,7 @@ const createRipple = asyncHandler(async (req, res) => {
   const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
   const lifecycle = body.publish === true ? lifecycleForPublish(startAt) : 'draft';
 
-  const media = sanitizeMedia(body.media);
+  const media = sanitizeMedia(body.media, MAX_RIPPLE_MEDIA);
   if (kind === 'short' && media.length === 0) {
     const err = new BadRequestError('A Short needs at least one photo or video');
     err.code = 'VALIDATION';
@@ -483,7 +460,7 @@ const updateRipple = asyncHandler(async (req, res) => {
       }
       ripple.capacity = body.capacity == null ? null : Number(body.capacity);
     } else if (field === 'media') {
-      ripple.media = sanitizeMedia(body.media);
+      ripple.media = sanitizeMedia(body.media, MAX_RIPPLE_MEDIA);
     } else if (field === 'music') {
       ripple.music = sanitizeMusic(body.music);
     } else {
@@ -787,4 +764,6 @@ module.exports = {
   getRippleArcs,
   // Exported so the cascade can be exercised directly in a test.
   purgeRippleChildren,
+  // Pure helpers exported for unit tests — not routes.
+  _internal: { buildViewerBlock, canView },
 };

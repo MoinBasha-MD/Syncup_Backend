@@ -157,7 +157,7 @@ class MapboxService {
     } catch (error) {
       console.error('❌ Forward geocoding error:', error.message);
       return [];
-    }
+    }t
   }
 
   /**

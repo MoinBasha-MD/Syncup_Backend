@@ -52,12 +52,16 @@ const assertCanViewRipple = async (userId, userObjectId, ripple, member) => {
   if (ctx.blockedIds.has(ripple.hostUserId)) {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }
+  // Only approved/requested membership counts for viewing — a 'left',
+  // 'removed', 'rejected' or 'banned' row must not reopen visibility.
+  const viewingMember =
+    !!member && Rippler.VIEWING_STATUSES.includes(member.status);
   const canView = ripple.visibility === 'page_followers'
     ? ctx.pageIds.has(String(ripple.hostPageId))
-    : !!member ||
+    : viewingMember ||
       ripple.visibility === 'public' ||
       (ripple.visibility === 'friends' && ctx.friendIds.has(ripple.hostUserId));
-  if (!canView || (ripple.moderation?.reviewStatus === 'under_review' && !member)) {
+  if (!canView || (ripple.moderation?.reviewStatus === 'under_review' && !viewingMember)) {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }
   return ctx;
@@ -222,6 +226,12 @@ const joinRipple = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
   const existing = await getMember(ripple._id, userId);
+
+  // A member the host kicked (or banned) must not rejoin — check before the
+  // view gate so they get a clear error instead of a 404.
+  if (existing && (existing.status === 'removed' || existing.status === 'banned')) {
+    throw err(ForbiddenError, "You can't rejoin this Ripple", 'RIPPLE_REMOVED');
+  }
   await assertCanViewRipple(userId, req.user._id, ripple, existing);
 
   // Shorts have no membership — Support + Comments only.
@@ -661,7 +671,7 @@ const toggleSupport = asyncHandler(async (req, res) => {
   // Supporting implies viewing — same visibility rule as canView().
   const viewable =
     ripple.hostUserId === userId ||
-    !!member ||
+    (!!member && Rippler.VIEWING_STATUSES.includes(member.status)) ||
     (ripple.moderation?.reviewStatus !== 'under_review' &&
       (ripple.visibility === 'public' ||
         (ripple.visibility === 'friends' && !!ctx?.friendIds.has(ripple.hostUserId)) ||

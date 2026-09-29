@@ -3,12 +3,15 @@ const mongoose = require('mongoose');
 const Ripple = require('../models/Ripple');
 const Rippler = require('../models/Rippler');
 const RippleEvent = require('../models/RippleEvent');
+const RippleSupport = require('../models/RippleSupport');
 const {
   BadRequestError,
   ForbiddenError,
   NotFoundError,
 } = require('../utils/errorClasses');
 const { getViewerContext } = require('../services/openNetworkVisibility');
+const { canView } = require('../utils/rippleAccess');
+const { sanitizeMedia } = require('../utils/rippleMedia');
 const { recordRippleInteractor } = require('../services/rippleInteractionService');
 const getSocketManager = () => require('../socketManager');
 
@@ -77,9 +80,10 @@ const toEventDto = (e) => ({
   createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null,
 });
 
-/** Recompute the denormalized ripple event counter. */
+/** Recompute the denormalized ripple event counter — user posts only;
+ *  'system' lifecycle lines ("This Ripple has ended…") aren't replies. */
 const syncEventCount = async (rippleId) => {
-  const n = await RippleEvent.countDocuments({ rippleId, status: 'active' });
+  const n = await RippleEvent.countDocuments({ rippleId, status: 'active', origin: 'user' });
   await Ripple.updateOne({ _id: rippleId }, { $set: { 'counts.events': n } });
 };
 
@@ -144,7 +148,9 @@ const createEvent = asyncHandler(async (req, res) => {
   if (!EVENT_TYPES.includes(type)) {
     throw err(BadRequestError, `type must be one of: ${EVENT_TYPES.join(', ')}`, 'VALIDATION');
   }
-  const media = Array.isArray(req.body.media) ? req.body.media.slice(0, MAX_MEDIA) : [];
+  // Same http(s)-only sanitizer as createRipple — raw media objects used to
+  // be stored verbatim, so malformed URLs rendered as broken media.
+  const media = sanitizeMedia(req.body.media, MAX_MEDIA);
 
   if (type === 'text' && !body) {
     throw err(BadRequestError, 'A text post needs a body', 'VALIDATION');
@@ -179,19 +185,44 @@ const createEvent = asyncHandler(async (req, res) => {
   await syncEventCount(ripple._id);
   await Ripple.updateOne({ _id: ripple._id }, { $set: { lastActivityAt: new Date() } }).catch(() => {});
 
-  // Live update to everyone else in the Ripple.
+  // Live update to everyone else in the Ripple. Membership is the base
+  // fan-out; Shorts have no members at all and public Ripples reach
+  // non-member viewers, so for those we also notify supporters, prior
+  // posters and the host — de-duped, excluding the author and anyone in a
+  // blocked relationship with them, capped so a popular Ripple can't
+  // fan out unboundedly.
   try {
-    const others = await Rippler.find({
-      rippleId: ripple._id,
-      status: 'approved',
-      userId: { $ne: userId },
-    }).select('userId').lean();
-    others.forEach((r) => {
-      getSocketManager().broadcastToUser(r.userId, 'ripple:event:new', {
-        rippleId: String(ripple._id),
-        event: toEventDto(event),
+    const recipients = new Set();
+    (
+      await Rippler.find({
+        rippleId: ripple._id,
+        status: 'approved',
+        userId: { $ne: userId },
+      })
+        .select('userId')
+        .lean()
+    ).forEach((r) => recipients.add(r.userId));
+
+    if (ripple.kind === 'short' || ripple.visibility === 'public') {
+      const [supportRows, authorIds] = await Promise.all([
+        RippleSupport.find({ rippleId: ripple._id }).select('userId').lean(),
+        RippleEvent.distinct('authorId', { rippleId: ripple._id, origin: 'user' }),
+      ]);
+      supportRows.forEach((r) => recipients.add(r.userId));
+      authorIds.forEach((a) => recipients.add(a));
+      recipients.add(ripple.hostUserId);
+    }
+    recipients.delete(userId);
+
+    [...recipients]
+      .filter((id) => !ctx.blockedIds.has(id))
+      .slice(0, 500)
+      .forEach((recipientId) => {
+        getSocketManager().broadcastToUser(recipientId, 'ripple:event:new', {
+          rippleId: String(ripple._id),
+          event: toEventDto(event),
+        });
       });
-    });
   } catch (e) {
     console.error('❌ [RIPPLE EVENT] broadcast failed:', e.message);
   }
@@ -209,11 +240,10 @@ const listEvents = asyncHandler(async (req, res) => {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
-  const canSee =
-    isParticipant(ripple, member, userId) ||
-    ripple.visibility === 'public' ||
-    canViewShort(ripple, ctx, userId);
-  if (!canSee) {
+  // Same ladder as getRipple: anyone who may view the Ripple may read its
+  // replies — previously friends/page-followers/invitees could open the
+  // Ripple but the thread 403'd and rendered as an empty "No replies yet".
+  if (!canView(ripple, member, ctx, userId)) {
     throw err(ForbiddenError, 'You cannot view this Ripple', 'FORBIDDEN');
   }
 
@@ -265,6 +295,13 @@ const deleteEvent = asyncHandler(async (req, res) => {
   }
 
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
+  const ctx = await getViewerContext(userId, req.user._id);
+  if (ctx.blockedIds.has(ripple.hostUserId)) {
+    throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+  }
+  if (!canView(ripple, member, ctx, userId)) {
+    throw err(ForbiddenError, 'You cannot view this Ripple', 'FORBIDDEN');
+  }
   const canDelete = event.authorId === userId || isManager(ripple, member, userId);
   if (!canDelete) {
     throw err(ForbiddenError, 'You cannot delete this post', 'FORBIDDEN');
@@ -289,8 +326,12 @@ const reactToEvent = asyncHandler(async (req, res) => {
 
   const ripple = await loadRipple(req);
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
-  if (!isParticipant(ripple, member, userId) && ripple.visibility !== 'public') {
-    throw err(ForbiddenError, 'Only Ripplers can react', 'NOT_A_RIPPLER');
+  const ctx = await getViewerContext(userId, req.user._id);
+  if (ctx.blockedIds.has(ripple.hostUserId)) {
+    throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+  }
+  if (!canView(ripple, member, ctx, userId)) {
+    throw err(ForbiddenError, 'You cannot view this Ripple', 'FORBIDDEN');
   }
 
   if (!mongoose.Types.ObjectId.isValid(req.params.eventId)) {
@@ -322,6 +363,13 @@ const pinEvent = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
+  const ctx = await getViewerContext(userId, req.user._id);
+  if (ctx.blockedIds.has(ripple.hostUserId)) {
+    throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+  }
+  if (!canView(ripple, member, ctx, userId)) {
+    throw err(ForbiddenError, 'You cannot view this Ripple', 'FORBIDDEN');
+  }
   if (!isManager(ripple, member, userId)) {
     throw err(ForbiddenError, 'Only the host or a cohost can pin', 'FORBIDDEN');
   }

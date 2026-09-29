@@ -153,7 +153,8 @@ const midLng = (swLng, neLng) => {
 const sectionClauses = async (section, userId, ctx) => {
   switch (section) {
     case 'live':
-      return [{ lifecycle: { $in: ['active', 'wrapping'] } }];
+      // Shorts are posts, not happenings — they never read as "live".
+      return [{ lifecycle: { $in: ['active', 'wrapping'] } }, { kind: { $ne: 'short' } }];
     case 'memories':
       return [{ lifecycle: 'memory' }];
     case 'yours':
@@ -231,7 +232,10 @@ const getViewport = asyncHandler(async (req, res) => {
   // filter — they power the "viewing X — N ripples here" toast.
   const [activeCount, memoriesCount, place] = await Promise.all([
     Ripple.countDocuments({
-      $and: [...baseMatch.$and, { lifecycle: { $in: ['active', 'wrapping'] } }],
+      $and: [
+        ...baseMatch.$and,
+        { lifecycle: { $in: ['active', 'wrapping'] }, kind: { $ne: 'short' } },
+      ],
     }),
     Ripple.countDocuments({
       $and: [...baseMatch.$and, { lifecycle: 'memory' }],
@@ -304,7 +308,18 @@ const getViewport = asyncHandler(async (req, res) => {
           centroidLat: { $avg: '$lat' },
           count: { $sum: 1 },
           hasLive: {
-            $max: { $cond: [{ $in: ['$lifecycle', ['active', 'wrapping']] }, 1, 0] },
+            $max: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ['$lifecycle', ['active', 'wrapping']] },
+                    { $ne: ['$kind', 'short'] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
           },
         },
       },
@@ -429,7 +444,10 @@ const getFeed = asyncHandler(async (req, res) => {
 
   switch (section) {
     case 'live':
-      clauses.push(visibility, { lifecycle: { $in: ['active', 'wrapping'] } });
+      clauses.push(visibility, {
+        lifecycle: { $in: ['active', 'wrapping'] },
+        kind: { $ne: 'short' },
+      });
       break;
     case 'trending':
       // Ranked by unique people who have interacted, not just recency. A
@@ -462,29 +480,28 @@ const getFeed = asyncHandler(async (req, res) => {
     // hostUserId clause, so a 'friends'/'invite' Ripple of yours still shows.
     case 'forYou':
       clauses.push(visibility, {
-        lifecycle: { $in: ['active', 'scheduled'] },
+        lifecycle: { $in: DISCOVERABLE_LIFECYCLES },
         $or: [
           { hostUserId: { $in: [...ctx.friendIds, userId] } },
           { visibility: 'page_followers', hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
         ],
       });
-      sortField = 'startAt';
-      sortDir = 1;
       break;
     // Public Ripples plus Page-follower Ripples visible to this viewer.
+    // `visibility` is ANDed on too — block + moderation filtering must not
+    // be bypassed just because a Ripple is public.
     case 'ripples':
     default:
       clauses.push(
+        visibility,
         {
           $or: [
             { visibility: 'public', discoverability: 'listed' },
             { visibility: 'page_followers', hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
           ],
         },
-        { lifecycle: { $in: ['active', 'scheduled'] } },
+        { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
       );
-      sortField = 'startAt';
-      sortDir = 1;
       break;
   }
 
@@ -542,8 +559,8 @@ const getFeed = asyncHandler(async (req, res) => {
   const last = page[page.length - 1];
   const lastSortValue = sortField.split('.').reduce((v, k) => v?.[k], last);
   const nextCursor =
-    hasMore && last && lastSortValue != null
-      ? `${numericSort ? lastSortValue : new Date(lastSortValue).toISOString()}_${last._id.toString()}`
+    hasMore && last && (lastSortValue != null || numericSort)
+      ? `${numericSort ? lastSortValue ?? 0 : new Date(lastSortValue).toISOString()}_${last._id.toString()}`
       : null;
 
   const feedExtras = await hydrateSummaryExtras(page, userId);
