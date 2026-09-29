@@ -39,7 +39,10 @@ const notificationSchema = new mongoose.Schema({
       'ripple_join_request',
       'ripple_approved',
       'ripple_removed',
-      'ripple_invited'
+      'ripple_invited',
+      'ripple_reply',
+      'ripple_support',
+      'on_message'
     ]
   },
   fromUserId: {

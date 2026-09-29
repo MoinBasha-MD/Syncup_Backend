@@ -983,10 +983,36 @@ const toggleSupport = asyncHandler(async (req, res) => {
     { new: true, projection: { counts: 1 } },
   ).lean();
 
+  const supportCount = Math.max(0, updated?.counts?.supports ?? 0);
+  if (!existing && ripple.hostUserId !== userId) {
+    let actorName = req.user.name || 'Someone';
+    if (actorName === 'Someone') {
+      try {
+        actorName = (await User.findOne({ userId }).select('name').lean())?.name || actorName;
+      } catch (e) {
+        actorName = 'Someone';
+      }
+    }
+    await notifyUser({
+      toUserId: ripple.hostUserId,
+      fromUserId: userId,
+      type: 'ripple_support',
+      socketEvent: 'notification:ripple:support',
+      title: 'New support',
+      message: `${actorName} supported your Ripple: ${ripple.title}`,
+      data: {
+        actorName,
+        rippleId: String(ripple._id),
+        rippleTitle: ripple.title,
+        supportCount,
+      },
+    });
+  }
+
   res.status(200).json({
     success: true,
     supported: !existing,
-    supportCount: Math.max(0, updated?.counts?.supports ?? 0),
+    supportCount,
   });
 });
 

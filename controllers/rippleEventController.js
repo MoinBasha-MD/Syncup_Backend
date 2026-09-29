@@ -13,6 +13,7 @@ const { getViewerContext } = require('../services/openNetworkVisibility');
 const { canView } = require('../utils/rippleAccess');
 const { sanitizeMedia } = require('../utils/rippleMedia');
 const { recordRippleInteractor } = require('../services/rippleInteractionService');
+const { notifyUser } = require('../services/openNetworkNotify');
 const getSocketManager = () => require('../socketManager');
 
 const MANAGER_ROLES = ['host', 'cohost'];
@@ -214,15 +215,33 @@ const createEvent = asyncHandler(async (req, res) => {
     }
     recipients.delete(userId);
 
-    [...recipients]
-      .filter((id) => !ctx.blockedIds.has(id))
-      .slice(0, 500)
-      .forEach((recipientId) => {
-        getSocketManager().broadcastToUser(recipientId, 'ripple:event:new', {
-          rippleId: String(ripple._id),
-          event: toEventDto(event),
-        });
-      });
+    const actorName = event.authorName || 'Someone';
+    await Promise.allSettled(
+      [...recipients]
+        .filter((id) => !ctx.blockedIds.has(id))
+        .slice(0, 500)
+        .map(async (recipientId) => {
+          await notifyUser({
+            toUserId: recipientId,
+            fromUserId: userId,
+            type: 'ripple_reply',
+            socketEvent: 'notification:ripple:reply',
+            title: 'New Ripple reply',
+            message: `New reply on ${ripple.title}`,
+            data: {
+              actorName,
+              rippleId: String(ripple._id),
+              rippleTitle: ripple.title,
+              eventId: String(event._id),
+              eventType: event.type,
+            },
+          });
+          getSocketManager().broadcastToUser(recipientId, 'ripple:event:new', {
+            rippleId: String(ripple._id),
+            event: toEventDto(event),
+          });
+        }),
+    );
   } catch (e) {
     console.error('❌ [RIPPLE EVENT] broadcast failed:', e.message);
   }

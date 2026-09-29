@@ -494,6 +494,7 @@ const acceptConnection = async (conn) => {
     message: `${accepterUser?.name || 'Someone'} accepted your connection`,
     data: {
       kind: 'accepted',
+      actorName: accepterUser?.name || 'Someone',
       connectionId: String(conn._id),
       connection: toConnectionDto(
         conn,
@@ -624,7 +625,7 @@ const createConnection = asyncHandler(async (req, res) => {
     socketEvent: 'open-network:connection',
     title: 'New connection request',
     message: `${me?.name || 'Someone'} wants to connect on Open Network`,
-    data: { kind: 'request', connection: dto },
+    data: { kind: 'request', actorName: me?.name || 'Someone', connection: dto },
   });
 
   res.status(201).json({ success: true, connection: dto });
@@ -986,8 +987,6 @@ const sendMessage = asyncHandler(async (req, res) => {
     console.error('❌ [ON CHAT] broadcast failed:', e.message);
   }
 
-  // Push only — a Notification row per message would flood the feed, and the
-  // socket event already went out above (socketEvent: null keeps it single).
   if (!chat.mutedBy?.includes(otherId)) {
     try {
       await notifyUser({
@@ -997,8 +996,7 @@ const sendMessage = asyncHandler(async (req, res) => {
         socketEvent: null,
         title: me?.name || 'New message',
         message: 'New message',
-        data: { chatId: String(chat._id) },
-        persist: false,
+        data: { chatId: String(chat._id), actorName: me?.name || 'Someone' },
       });
     } catch (e) {
       /* best-effort */
