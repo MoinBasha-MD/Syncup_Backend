@@ -28,9 +28,12 @@ const ripplerSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['requested', 'approved', 'rejected', 'left', 'removed', 'banned'],
+      enum: ['requested', 'invited', 'approved', 'rejected', 'left', 'removed', 'banned'],
       default: 'requested',
     },
+    // Set when status === 'invited' — who pulled them in and when.
+    invitedBy: { type: String, default: null },
+    invitedAt: { type: Date, default: null },
     originCityKey: { type: String, default: null },
     originCentroid: {
       type: [Number], // [lng, lat] city centroid — coarse on purpose
@@ -53,11 +56,12 @@ const Rippler = mongoose.model('Rippler', ripplerSchema);
 
 /**
  * Membership statuses that grant VIEW access to a non-public Ripple.
- * 'approved' members and 'requested' (pending) joiners can see the Ripple
- * they belong to or asked to join; 'rejected'/'left'/'removed'/'banned'
- * rows must NOT reopen visibility. Single source of truth — every "is this
- * membership a viewer?" check reads this list.
+ * 'approved' members, 'requested' (pending) joiners and 'invited' people can
+ * see the Ripple they belong to, asked to join, or were invited to;
+ * 'rejected'/'left'/'removed'/'banned' rows must NOT reopen visibility.
+ * Single source of truth — every "is this membership a viewer?" check reads
+ * this list.
  */
-Rippler.VIEWING_STATUSES = ['approved', 'requested'];
+Rippler.VIEWING_STATUSES = ['approved', 'requested', 'invited'];
 
 module.exports = Rippler;

@@ -16,6 +16,7 @@ const { reachToKm, resolvePlace } = require('../services/openNetworkGeo');
 const { getViewerContext } = require('../services/openNetworkVisibility');
 const { canView } = require('../utils/rippleAccess');
 const { sanitizeMedia } = require('../utils/rippleMedia');
+const { notifyRippleNearby } = require('../services/openNetworkNotify');
 
 const TYPES = ['activity', 'question', 'request', 'plan', 'event', 'interest', 'alert', 'project'];
 const KINDS = ['ripple', 'short'];
@@ -106,6 +107,7 @@ const buildViewerBlock = (ripple, member, userId, extras = {}) => {
   if (isHost || member?.role === 'host') relationship = 'host';
   else if (member?.role === 'cohost') relationship = 'cohost';
   else if (member?.status === 'requested') relationship = 'requested';
+  else if (member?.status === 'invited') relationship = 'invited';
   else if (member && ['approved'].includes(member.status)) {
     relationship = member.role === 'follower' ? 'follower' : 'rippler';
   }
@@ -120,13 +122,23 @@ const buildViewerBlock = (ripple, member, userId, extras = {}) => {
     userId,
     relationship,
     // Shorts have no membership — viewers Support + Comment, never join.
+    // An invitee's join accepts the invite regardless of joinPolicy.
     canJoin:
       !isShort &&
-      relationship === 'none' &&
       joinable &&
       !isFull &&
-      (ripple.joinPolicy === 'open' || ripple.joinPolicy === 'approval'),
+      ((relationship === 'none' &&
+        (ripple.joinPolicy === 'open' || ripple.joinPolicy === 'approval')) ||
+        relationship === 'invited'),
+    // Invited viewers are expected to accept-or-decline, not follow.
     canFollow: !isShort && joinable && relationship === 'none',
+    // Managers can always pull people in; on a public Ripple any approved
+    // (non-follower) participant can too. Mirrors canInviteTo in
+    // rippleParticipationController.
+    canInvite:
+      !isShort &&
+      joinable &&
+      (isManager || (ripple.visibility === 'public' && relationship === 'rippler')),
     // Comments on a Short are open to anyone who can see it while it's live;
     // regular Ripples keep the ripplers-only gate.
     canPostEvent: isShort
@@ -339,6 +351,11 @@ const createRipple = asyncHandler(async (req, res) => {
     { upsert: true },
   );
 
+  // Live straight away → alert opted-in nearby members (fire-and-forget).
+  if (lifecycle === 'active' || lifecycle === 'scheduled') {
+    notifyRippleNearby(ripple);
+  }
+
   const member = await Rippler.findOne({ rippleId: ripple._id, userId }).lean();
   res.status(201).json({
     success: true,
@@ -514,6 +531,8 @@ const publishRipple = asyncHandler(async (req, res) => {
   ripple.lifecycle = lifecycleForPublish(ripple.startAt);
   await syncPageRippleVisibility(ripple);
   await ripple.save();
+  // A draft has no audience until now — alert opted-in nearby members.
+  notifyRippleNearby(ripple);
   res.status(200).json({
     success: true,
     ripple: toRippleDetail(ripple, buildViewerBlock(ripple, member, userId)),

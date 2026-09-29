@@ -24,7 +24,7 @@ const friendSchema = new mongoose.Schema(
     // How this friendship was established
     source: {
       type: String,
-      enum: ['device_contact', 'app_search', 'qr_code', 'invite_link', 'mutual_friend', 'suggested'],
+      enum: ['device_contact', 'app_search', 'qr_code', 'invite_link', 'mutual_friend', 'suggested', 'open_network'],
       required: true,
       default: 'device_contact'
     },

@@ -115,6 +115,32 @@ const projectState = (ripple) => {
   }
 };
 
+/**
+ * Snap a coordinate to a ~0.05° grid (~5 km). Stored home/presence points are
+ * always coarse — a user's exact location must never persist or return.
+ */
+const coarsenPoint = (lng, lat) => {
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v)));
+  // x/0.05 === x*20 — divide by 20 avoids float noise like 73.85000000000001.
+  return [
+    Math.round(clamp(lng, -180, 180) / 0.05) / 20,
+    Math.round(clamp(lat, -90, 90) / 0.05) / 20,
+  ];
+};
+
+/**
+ * Buckets a distance into a coarse human label — the people layer never
+ * leaks a precise distance either.
+ *   <5km -> '< 5 km' · <50 -> '~5 km' steps · <300 -> '~10 km' steps · else round km
+ */
+const distanceLabel = (km) => {
+  if (!Number.isFinite(km) || km < 0) return null;
+  if (km < 5) return '< 5 km';
+  if (km < 50) return `~${Math.round(km / 5) * 5} km`;
+  if (km < 300) return `~${Math.round(km / 10) * 10} km`;
+  return `${Math.round(km)} km`;
+};
+
 module.exports = {
   REACH_KM,
   reachToKm,
@@ -123,4 +149,6 @@ module.exports = {
   normalizeBbox,
   resolvePlace,
   projectState,
+  coarsenPoint,
+  distanceLabel,
 };

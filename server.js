@@ -640,6 +640,9 @@ app.use('/api/open-network', apiLimiter, require('./routes/openNetworkRoutes'));
 
 app.use('/api/ripples', apiLimiter, require('./routes/rippleRoutes')); // Open Network: Ripple CRUD
 
+// Public Ripple share landing — unfurlable /r/:id pages, no auth.
+app.use('/r', apiLimiter, require('./routes/rippleShareRoutes'));
+
 app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashboard
 
 

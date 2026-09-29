@@ -23,6 +23,28 @@ const {
   postLiveMessage,
   addLiveReactions,
 } = require('../controllers/liveSessionController');
+const {
+  updatePersona,
+  updatePresence,
+  listPeople,
+  peopleHeat,
+  getPerson,
+  createConnection,
+  listConnections,
+  acceptConnectionEndpoint,
+  declineConnection,
+  withdrawConnection,
+  removeConnection,
+  listChats,
+  chatWith,
+  listMessages,
+  sendMessage,
+  markChatRead,
+  muteChat,
+  archiveChat,
+  deleteMessage,
+  getBadges,
+} = require('../controllers/openNetworkSocialController');
 
 // Feature flag: unset/anything except the literal string 'false' = enabled.
 const openNetworkEnabled = (req, res, next) => {
@@ -83,5 +105,31 @@ router.post('/live/:id/react', addLiveReactions);
 // Trust — public host score (suppressed below the minimum sample) and a
 // reliability band that is only returned to the subject or to a host.
 router.get('/users/:userId/reputation', getReputation);
+
+// People layer — persona, presence, discovery.
+router.patch('/profile', updatePersona);
+router.post('/presence', updatePresence);
+router.get('/people', listPeople);
+router.get('/people/heat', peopleHeat);
+router.get('/people/:userId', getPerson);
+router.get('/badges', getBadges);
+
+// Connect requests — request first, accepted opens an ON chat.
+router.post('/connections', createConnection);
+router.get('/connections', listConnections);
+router.post('/connections/:id/accept', acceptConnectionEndpoint);
+router.post('/connections/:id/decline', declineConnection);
+router.post('/connections/:id/withdraw', withdrawConnection);
+router.delete('/connections/:id', removeConnection);
+
+// ON chat — plain-text 1:1 conversations, separate from E2EE Syncup chat.
+router.get('/chats', listChats);
+router.get('/chats/with/:userId', chatWith);
+router.get('/chats/:id/messages', listMessages);
+router.post('/chats/:id/messages', sendMessage);
+router.post('/chats/:id/read', markChatRead);
+router.post('/chats/:id/mute', muteChat);
+router.post('/chats/:id/archive', archiveChat);
+router.delete('/chats/:id/messages/:messageId', deleteMessage);
 
 module.exports = router;

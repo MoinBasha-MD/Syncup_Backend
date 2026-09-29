@@ -29,7 +29,17 @@ const notificationSchema = new mongoose.Schema({
       'message',
       'blink_like',
       'blink_screenshot',
-      'blink_screen_recording'
+      'blink_screen_recording',
+      // Open Network — connection lifecycle + nearby-Ripple alerts, plus the
+      // ripple_* types notifyRipple has always written (they were missing
+      // from this enum, so those creates silently failed validation).
+      'on_connect_request',
+      'on_connect_accepted',
+      'ripple_nearby',
+      'ripple_join_request',
+      'ripple_approved',
+      'ripple_removed',
+      'ripple_invited'
     ]
   },
   fromUserId: {

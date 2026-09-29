@@ -5,7 +5,6 @@ const Rippler = require('../models/Rippler');
 const RippleSupport = require('../models/RippleSupport');
 const GroupChat = require('../models/groupChatModel');
 const GroupMember = require('../models/groupMemberModel');
-const Notification = require('../models/Notification');
 const User = require('../models/userModel');
 const {
   BadRequestError,
@@ -14,9 +13,13 @@ const {
 } = require('../utils/errorClasses');
 const { getViewerContext } = require('../services/openNetworkVisibility');
 const { recordRippleInteractor } = require('../services/rippleInteractionService');
+const { notifyUser } = require('../services/openNetworkNotify');
+const OpenNetworkProfile = require('../models/OpenNetworkProfile');
+const OpenConnection = require('../models/OpenConnection');
+const Block = require('../models/blockModel');
+const { pairKey } = require('../utils/openNetworkPeopleDto');
 // Lazy require to break any circular dependency with socketManager.
 const getSocketManager = () => require('../socketManager');
-const fcmNotificationService = require('../services/fcmNotificationService');
 
 const JOINABLE = ['active', 'scheduled'];
 const MANAGER_ROLES = ['host', 'cohost'];
@@ -79,50 +82,20 @@ const isFull = (ripple) =>
  *  title — never a description or a member's name.                    *
  * ------------------------------------------------------------------ */
 
-const notifyRipple = async ({ toUserId, fromUserId, ripple, kind, title, message }) => {
-  const data = {
-    type: `ripple_${kind}`,
-    rippleId: String(ripple._id),
-    rippleTitle: ripple.title,
+// Delegates to the shared notify fan-out — socket + Notification record + FCM.
+const notifyRipple = ({ toUserId, fromUserId, ripple, kind, title, message }) =>
+  notifyUser({
+    toUserId,
     fromUserId,
-    timestamp: new Date().toISOString(),
-  };
-  try {
-    getSocketManager().broadcastToUser(toUserId, `notification:ripple:${kind}`, {
-      type: `ripple_${kind}`,
-      title,
-      body: message,
-      data,
-    });
-  } catch (e) {
-    console.error(`❌ [RIPPLE NOTIFY] socket ${kind} → ${toUserId}:`, e.message);
-  }
-  try {
-    await Notification.create({
-      userId: toUserId,
-      type: `ripple_${kind}`,
-      fromUserId,
-      message,
-      data,
-    });
-  } catch (e) {
-    console.error(`❌ [RIPPLE NOTIFY] persist ${kind} → ${toUserId}:`, e.message);
-  }
-  try {
-    if (fcmNotificationService.isEnabled && fcmNotificationService.isEnabled()) {
-      // NOTE: the service exposes sendVisibleNotification(userId, notification)
-      // — there is no sendToUserDevices. A wrong method name here would be
-      // swallowed by optional chaining and silently send no push at all.
-      await fcmNotificationService.sendVisibleNotification(toUserId, {
-        title,
-        body: message,
-        data,
-      });
-    }
-  } catch (e) {
-    console.error(`❌ [RIPPLE NOTIFY] fcm ${kind} → ${toUserId}:`, e.message);
-  }
-};
+    type: `ripple_${kind}`,
+    socketEvent: `notification:ripple:${kind}`,
+    title,
+    message,
+    data: {
+      rippleId: String(ripple._id),
+      rippleTitle: ripple.title,
+    },
+  });
 
 /* ------------------------------------------------------------------ *
  *  Group chat linking — replicates groupChatController.createGroupChat *
@@ -254,7 +227,12 @@ const joinRipple = asyncHandler(async (req, res) => {
     throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
   }
 
-  // invite-only: only an invited (pre-created requested) row may proceed.
+  // An invited viewer is pre-approved — joining IS accepting the invite, so
+  // joinPolicy (incl. 'invite' and 'approval') doesn't apply. Capacity still
+  // does, via the shared 409 below.
+  const acceptingInvite = !!existing && existing.status === 'invited';
+
+  // invite-only: only an invited row may proceed.
   if (ripple.joinPolicy === 'invite' && !existing) {
     throw err(ForbiddenError, 'This Ripple is invite-only', 'RIPPLE_INVITE_ONLY');
   }
@@ -270,14 +248,24 @@ const joinRipple = asyncHandler(async (req, res) => {
     });
   }
 
-  const approveNow = ripple.joinPolicy === 'open';
+  const approveNow = ripple.joinPolicy === 'open' || acceptingInvite;
   const requestMessage = String(req.body.requestMessage || '').slice(0, 200);
 
   // Coarse origin only — city key + city centroid, never the user's real point.
-  const originCityKey = typeof req.body.cityKey === 'string' ? req.body.cityKey : null;
+  let originCityKey = typeof req.body.cityKey === 'string' ? req.body.cityKey : null;
   const cc = req.body.cityCentroid;
-  const originCentroid =
+  let originCentroid =
     Array.isArray(cc) && cc.length === 2 && cc.every(Number.isFinite) ? cc : undefined;
+
+  // The client doesn't send these — fall back to the joiner's coarse home
+  // anchor (already a snapped ~5km point, so this never leaks precision).
+  const home = req.openNetworkProfile?.home;
+  if (home) {
+    if (!originCityKey && home.cityKey) originCityKey = home.cityKey;
+    if (!originCentroid && home.point?.coordinates?.length === 2) {
+      originCentroid = home.point.coordinates;
+    }
+  }
 
   const member = await Rippler.findOneAndUpdate(
     { rippleId: ripple._id, userId },
@@ -644,6 +632,300 @@ const demoteMember = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true });
 });
 
+/**
+ * Invite permission: managers always; on a public Ripple any approved,
+ * non-follower participant may also pull people in. Shared by /invite,
+ * /invite-candidates, and the client's canInvite flag (keep in sync with
+ * buildViewerBlock in rippleController).
+ */
+const canInviteTo = (ripple, member, userId) =>
+  isManager(ripple, member, userId) ||
+  (member?.status === 'approved' &&
+    member.role !== 'follower' &&
+    ripple.visibility === 'public');
+
+const assertInvitable = (ripple) => {
+  // Shorts have no membership at all; joinable lifecycles only.
+  if (ripple.kind === 'short' || !JOINABLE.includes(ripple.lifecycle)) {
+    throw err(BadRequestError, 'This Ripple cannot be joined', 'RIPPLE_NOT_JOINABLE');
+  }
+};
+
+/** Users the invitee has blocked or been blocked by — caller ∪ host. */
+const blockedPairsFor = async (anchorIds, candidateIds) => {
+  const out = new Set();
+  if (!anchorIds.length || !candidateIds.length) return out;
+  const rows = await Block.find({
+    $or: [
+      { blockerId: { $in: anchorIds }, blockedUserId: { $in: candidateIds } },
+      { blockedUserId: { $in: anchorIds }, blockerId: { $in: candidateIds } },
+    ],
+  })
+    .select('blockerId blockedUserId')
+    .lean();
+  rows.forEach((b) =>
+    out.add(anchorIds.includes(b.blockerId) ? b.blockedUserId : b.blockerId),
+  );
+  return out;
+};
+
+// @route POST /api/ripples/:id/invite {userIds: string[] 1..20}
+const inviteToRipple = asyncHandler(async (req, res) => {
+  const callerId = req.user.userId;
+  const ripple = await loadRipple(req);
+  assertInvitable(ripple);
+
+  const member = await getMember(ripple._id, callerId);
+  if (!canInviteTo(ripple, member, callerId)) {
+    throw err(
+      ForbiddenError,
+      'Only the host, a cohost, or a member of a public Ripple can invite',
+      'FORBIDDEN',
+    );
+  }
+  const callerIsManager = isManager(ripple, member, callerId);
+
+  const rawIds = Array.isArray(req.body?.userIds) ? req.body.userIds.map((u) => String(u)) : [];
+  if (!rawIds.length || rawIds.length > 20) {
+    throw err(BadRequestError, 'Choose between 1 and 20 people to invite', 'VALIDATION');
+  }
+  const candidateIds = [...new Set(rawIds)];
+
+  // Bulk-load every check — never a query per invitee.
+  const anchors = [...new Set([callerId, ripple.hostUserId])];
+  const [ctx, hostBlocks, profiles, connections, existingRows, callerUser] =
+    await Promise.all([
+      getViewerContext(callerId, req.user._id),
+      blockedPairsFor(anchors, candidateIds),
+      OpenNetworkProfile.find({ userId: { $in: candidateIds }, joined: true })
+        .select('userId')
+        .lean(),
+      OpenConnection.find({
+        pairKey: { $in: candidateIds.map((u) => pairKey(callerId, u)) },
+        status: 'accepted',
+      })
+        .select('pairKey')
+        .lean(),
+      Rippler.find({ rippleId: ripple._id, userId: { $in: candidateIds } }).lean(),
+      User.findOne({ userId: callerId }).select('name').lean(),
+    ]);
+
+  const joined = new Set(profiles.map((p) => p.userId));
+  const connectedPairs = new Set(connections.map((c) => c.pairKey));
+  const existingByUser = new Map(existingRows.map((m) => [m.userId, m]));
+  const callerName = callerUser?.name || 'Someone';
+
+  // counts.ripplers read once — manager auto-approvals inside the loop bump
+  // this local counter so capacity stays honest within the batch.
+  let ripplersCount = ripple.counts?.ripplers ?? 0;
+  const capacityFullNow = () =>
+    ripple.capacity != null && ripplersCount >= ripple.capacity;
+
+  const invited = [];
+  const approved = [];
+  const skipped = [];
+
+  for (const inviteeId of candidateIds) {
+    if (inviteeId === callerId || inviteeId === ripple.hostUserId) {
+      skipped.push({ userId: inviteeId, reason: 'not_invitable' });
+      continue;
+    }
+    if (!joined.has(inviteeId)) {
+      skipped.push({ userId: inviteeId, reason: 'not_joined' });
+      continue;
+    }
+    if (ctx.blockedIds.has(inviteeId) || hostBlocks.has(inviteeId)) {
+      skipped.push({ userId: inviteeId, reason: 'blocked' });
+      continue;
+    }
+    if (!ctx.friendIds.has(inviteeId) && !connectedPairs.has(pairKey(callerId, inviteeId))) {
+      skipped.push({ userId: inviteeId, reason: 'not_connected' });
+      continue;
+    }
+
+    const prior = existingByUser.get(inviteeId);
+    if (prior && (prior.status === 'approved' || prior.role === 'host')) {
+      skipped.push({ userId: inviteeId, reason: 'already_member' });
+      continue;
+    }
+    if (prior?.status === 'requested') {
+      // A manager's invite short-circuits the pending request — same
+      // side-effects as approveRequest: counts, group chat, interactor,
+      // notification.
+      if (!callerIsManager) {
+        skipped.push({ userId: inviteeId, reason: 'already_requested' });
+        continue;
+      }
+      if (capacityFullNow()) {
+        skipped.push({ userId: inviteeId, reason: 'capacity_full' });
+        continue;
+      }
+      await Rippler.updateOne(
+        { _id: prior._id },
+        { $set: { status: 'approved', joinedAt: new Date(), approvedBy: callerId } },
+      );
+      await Ripple.updateOne(
+        { _id: ripple._id },
+        { $inc: { 'counts.ripplers': 1, 'counts.pendingRequests': -1 } },
+      );
+      ripplersCount += 1;
+      await recordRippleInteractor(ripple._id, inviteeId);
+      await addToGroupChat(ripple, inviteeId);
+      await notifyRipple({
+        toUserId: inviteeId,
+        fromUserId: callerId,
+        ripple,
+        kind: 'approved',
+        title: "You're in",
+        message: `Your request to join "${ripple.title}" was approved`,
+      });
+      approved.push(inviteeId);
+      continue;
+    }
+    if (
+      prior &&
+      (prior.status === 'removed' || prior.status === 'banned') &&
+      !callerIsManager
+    ) {
+      // Kicked/banned rows stay kicked for non-managers; a manager's invite
+      // is allowed to re-open the door below.
+      skipped.push({ userId: inviteeId, reason: 'removed' });
+      continue;
+    }
+    if (prior?.status === 'invited') {
+      skipped.push({ userId: inviteeId, reason: 'already_invited' });
+      continue;
+    }
+
+    // No row, or a manager re-inviting removed/banned, or left/rejected —
+    // upsert the invite. A 'left'/'rejected' prior is a fresh slate.
+    await Rippler.findOneAndUpdate(
+      { rippleId: ripple._id, userId: inviteeId },
+      {
+        $set: {
+          role: 'rippler',
+          status: 'invited',
+          invitedBy: callerId,
+          invitedAt: new Date(),
+        },
+        $setOnInsert: { rippleId: ripple._id, userId: inviteeId },
+      },
+      { upsert: true },
+    );
+    await notifyRipple({
+      toUserId: inviteeId,
+      fromUserId: callerId,
+      ripple,
+      kind: 'invited',
+      title: "You're invited",
+      message: `${callerName} invited you to "${ripple.title}"`,
+    });
+    invited.push(inviteeId);
+  }
+
+  res.status(200).json({ success: true, invited, approved, skipped });
+});
+
+// @route GET /api/ripples/:id/invite-candidates?q= — who may I pull in?
+const getInviteCandidates = asyncHandler(async (req, res) => {
+  const callerId = req.user.userId;
+  const ripple = await loadRipple(req);
+  assertInvitable(ripple);
+
+  const member = await getMember(ripple._id, callerId);
+  if (!canInviteTo(ripple, member, callerId)) {
+    throw err(
+      ForbiddenError,
+      'Only the host, a cohost, or a member of a public Ripple can invite',
+      'FORBIDDEN',
+    );
+  }
+
+  const ctx = await getViewerContext(callerId, req.user._id);
+  const conns = await OpenConnection.find({
+    status: 'accepted',
+    $or: [{ requesterId: callerId }, { recipientId: callerId }],
+  })
+    .select('requesterId recipientId')
+    .lean();
+  const connIds = new Set(
+    conns.map((c) => (c.requesterId === callerId ? c.recipientId : c.requesterId)),
+  );
+
+  // Friends ∪ ON connections, minus everyone the caller or host is blocked
+  // with — the same gate the POST enforces, so the picker can't offer an
+  // invite that will 400.
+  const anchors = [...new Set([callerId, ripple.hostUserId])];
+  const eligible = new Set([...ctx.friendIds, ...connIds]);
+  eligible.delete(callerId);
+  eligible.delete(ripple.hostUserId);
+  ctx.blockedIds.forEach((b) => eligible.delete(b));
+  const anchorBlocked = await blockedPairsFor(anchors, [...eligible]);
+  anchorBlocked.forEach((b) => eligible.delete(b));
+
+  if (!eligible.size) {
+    return res.status(200).json({ success: true, candidates: [] });
+  }
+
+  const ids = [...eligible];
+  const [profiles, users, memberRows] = await Promise.all([
+    OpenNetworkProfile.find({ userId: { $in: ids }, joined: true })
+      .select('userId')
+      .lean(),
+    User.find({ userId: { $in: ids } }).select('userId name profileImage').lean(),
+    Rippler.find({ rippleId: ripple._id, userId: { $in: ids } }).lean(),
+  ]);
+  const joinedSet = new Set(profiles.map((p) => p.userId));
+  const memberByUser = new Map(memberRows.map((m) => [m.userId, m]));
+  const nameQ = String(req.query.q || '').trim().toLowerCase();
+
+  const statusOf = (m) => {
+    if (!m) return 'available';
+    if (m.status === 'approved' || m.role === 'host') return 'member';
+    if (m.status === 'invited') return 'invited';
+    if (m.status === 'requested') return 'requested';
+    return 'available';
+  };
+
+  const candidates = [];
+  for (const uid of ids) {
+    if (!joinedSet.has(uid)) continue;
+    const u = users.find((x) => x.userId === uid);
+    const name = u?.name || 'User';
+    if (nameQ && !name.toLowerCase().includes(nameQ)) continue;
+    const isFriend = ctx.friendIds.has(uid);
+    const isConn = connIds.has(uid);
+    candidates.push({
+      userId: uid,
+      name,
+      avatar: u?.profileImage || null,
+      source: isFriend && isConn ? 'both' : isFriend ? 'friend' : 'connection',
+      status: statusOf(memberByUser.get(uid)),
+    });
+  }
+
+  // Available first, then alphabetical.
+  candidates.sort(
+    (a, b) =>
+      (a.status === 'available' ? 0 : 1) - (b.status === 'available' ? 0 : 1) ||
+      a.name.localeCompare(b.name),
+  );
+
+  res.status(200).json({ success: true, candidates: candidates.slice(0, 100) });
+});
+
+// @route POST /api/ripples/:id/invite/decline — the invitee says no
+const declineInvite = asyncHandler(async (req, res) => {
+  const userId = req.user.userId;
+  const ripple = await loadRipple(req);
+  const member = await getMember(ripple._id, userId);
+  if (!member || member.status !== 'invited') {
+    return res.status(200).json({ success: true, idempotent: true });
+  }
+  await Rippler.updateOne({ _id: member._id }, { $set: { status: 'rejected' } });
+  res.status(200).json({ success: true });
+});
+
 // @route POST /api/ripples/:id/chat — create-or-return the linked group chat
 const getOrCreateRippleChat = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
@@ -722,4 +1004,7 @@ module.exports = {
   demoteMember,
   getOrCreateRippleChat,
   toggleSupport,
+  inviteToRipple,
+  getInviteCandidates,
+  declineInvite,
 };

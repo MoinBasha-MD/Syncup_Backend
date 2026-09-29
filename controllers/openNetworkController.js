@@ -33,6 +33,8 @@ const parseRippleTypes = (value) => {
 // the count is withheld so a single Ripple can't be pinpointed by its count.
 const MIN_CLUSTER_EXACT_COUNT = 3;
 
+// home returns only the city-level label — the stored point is coarse but
+// still never leaves the server (the people layer renders distance labels).
 const profileView = (p) => ({
   userId: p.userId,
   joined: p.joined,
@@ -40,6 +42,15 @@ const profileView = (p) => ({
   leftAt: p.leftAt,
   settings: p.settings,
   reputation: p.reputation,
+  persona: p.persona || null,
+  home: p.home
+    ? {
+        city: p.home.city || '',
+        country: p.home.country || '',
+        countryCode: p.home.countryCode || '',
+        label: p.home.label || '',
+      }
+    : null,
 });
 
 // @route GET /api/open-network/me — no join requirement (drives the gate UI)
@@ -160,10 +171,13 @@ const sectionClauses = async (section, userId, ctx) => {
     case 'yours':
       return [{ hostUserId: userId }];
     case 'invited': {
-      const rows = await Rippler.find({ userId, status: 'requested' })
+      // Real invites — the 'requested' rows here pre-Phase-3 were pending
+      // JOIN requests, not invites; that's why this rail used to mirror the
+      // host's queue. Now 'invited' rows only, still joinable ones.
+      const rows = await Rippler.find({ userId, status: 'invited' })
         .select('rippleId')
         .lean();
-      return [{ _id: { $in: rows.map((r) => r.rippleId) } }];
+      return [{ _id: { $in: rows.map((r) => r.rippleId) }, lifecycle: { $in: ['active', 'scheduled'] } }];
     }
     // Friends' Ripples plus your own — "Ripples" (below) is the
     // public/everyone feed.
@@ -468,10 +482,10 @@ const getFeed = asyncHandler(async (req, res) => {
       clauses.push({ hostUserId: userId });
       break;
     case 'invited': {
-      const rows = await Rippler.find({ userId, status: 'requested' })
+      const rows = await Rippler.find({ userId, status: 'invited' })
         .select('rippleId')
         .lean();
-      clauses.push({ _id: { $in: rows.map((r) => r.rippleId) } });
+      clauses.push({ _id: { $in: rows.map((r) => r.rippleId) }, lifecycle: { $in: ['active', 'scheduled'] } });
       break;
     }
     // Friends' Ripples plus your own — this used to be the same broad
@@ -606,4 +620,8 @@ module.exports = {
   getNearby,
   getFeed,
   resolvePlaceQuery,
+  // Shared with openNetworkSocialController — one profile shape and one
+  // batched summary-extras lookup across both controllers.
+  profileView,
+  hydrateSummaryExtras,
 };

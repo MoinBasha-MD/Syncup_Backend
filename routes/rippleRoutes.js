@@ -40,6 +40,9 @@ const {
   demoteMember,
   getOrCreateRippleChat,
   toggleSupport,
+  inviteToRipple,
+  getInviteCandidates,
+  declineInvite,
 } = require('../controllers/rippleParticipationController');
 
 // Feature flag: unset/anything except the literal string 'false' = enabled.
@@ -104,6 +107,14 @@ router.post('/:id/requests/:userId/reject', rejectRequest);
 router.post('/:id/members/:userId/remove', removeMember);
 router.post('/:id/members/:userId/promote', promoteMember);
 router.post('/:id/members/:userId/demote', demoteMember);
+
+// Invites — pull a friend/connection in without them having to find the
+// Ripple themselves. 'invited' counts as a viewing status; joining accepts.
+// /invite/decline before /invite-candidates is irrelevant (different verbs),
+// but keep literal paths grouped for readability.
+router.post('/:id/invite', inviteToRipple);
+router.get('/:id/invite-candidates', getInviteCandidates);
+router.post('/:id/invite/decline', declineInvite);
 
 // Coordination — lazily creates the linked group chat on first open
 router.post('/:id/chat', getOrCreateRippleChat);
