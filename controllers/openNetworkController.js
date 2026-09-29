@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const OpenNetworkProfile = require('../models/OpenNetworkProfile');
+const LiveSession = require('../models/LiveSession');
 const Ripple = require('../models/Ripple');
 const Rippler = require('../models/Rippler');
 const RippleSupport = require('../models/RippleSupport');
@@ -11,6 +12,7 @@ const {
   cellSizeForZoom,
   normalizeBbox,
   resolvePlace,
+  timeWindowClause,
 } = require('../services/openNetworkGeo');
 const {
   getViewerContext,
@@ -225,6 +227,17 @@ const getViewport = asyncHandler(async (req, res) => {
     throw err;
   }
 
+  // Globe time filter — validated up front so a bad value 400s before any
+  // DB work. 'all' (the default) adds no clause.
+  const windowParam = String(req.query.window || 'all').toLowerCase();
+  if (!['now', 'today', 'week', 'all'].includes(windowParam)) {
+    const err = new BadRequestError(
+      "window must be 'now', 'today', 'week' or 'all'",
+    );
+    err.code = 'BAD_WINDOW';
+    throw err;
+  }
+
   const boxes = normalizeBbox({ swLng, swLat, neLng, neLat });
   const bboxOr = boxes.map((b) => ({
     lng: { $gte: b.swLng, $lte: b.neLng },
@@ -241,6 +254,12 @@ const getViewport = asyncHandler(async (req, res) => {
   const clauses = await sectionClauses(req.query.section, userId, ctx);
   const match = { $and: [...baseMatch.$and, ...clauses] };
   if (typeList.length) match.$and.push({ type: { $in: typeList } });
+
+  // The window clause narrows the cluster aggregation and the circle
+  // markers alike, but not the region counts above (those describe the
+  // viewport itself, not the filtered set).
+  const windowClause = timeWindowClause(windowParam, new Date());
+  if (windowClause) match.$and.push(windowClause);
 
   // Region + counts describe the viewport itself, not the applied section
   // filter — they power the "viewing X — N ripples here" toast.
@@ -356,6 +375,137 @@ const getViewport = asyncHandler(async (req, res) => {
     region,
     counts,
   });
+});
+
+/**
+ * World Pulse — viewer-independent aggregate stats over the public+listed,
+ * non-removed, unflagged set, so the payload is identical for every viewer
+ * and safe to cache for 60 s keyed by country.
+ */
+const PULSE_CACHE_TTL_MS = 60 * 1000;
+const pulseCache = new Map(); // country|'world' -> { at, data }
+
+// @route GET /api/open-network/pulse?country=XX
+const getPulse = asyncHandler(async (req, res) => {
+  const country = String(req.query.country || '').trim().toUpperCase();
+  if (country && !/^[A-Z]{2}$/.test(country)) {
+    const err = new BadRequestError('country must be an ISO alpha-2 code');
+    err.code = 'BAD_COUNTRY';
+    throw err;
+  }
+
+  const cacheKey = country || 'world';
+  const hit = pulseCache.get(cacheKey);
+  const nowMs = Date.now();
+  if (hit && nowMs - hit.at < PULSE_CACHE_TTL_MS) {
+    return res.status(200).json(hit.data);
+  }
+
+  const now = new Date(nowMs);
+  const dayAgo = new Date(nowMs - 24 * 60 * 60 * 1000);
+  const dayAhead = new Date(nowMs + 24 * 60 * 60 * 1000);
+
+  const base = {
+    visibility: 'public',
+    discoverability: 'listed',
+    lifecycle: { $ne: 'removed' },
+    'moderation.reviewStatus': { $ne: 'under_review' },
+    ...(country ? { 'place.countryCode': country } : {}),
+  };
+  // Active/scheduled is the set "activity" claims are made over.
+  const activeOrScheduled = { ...base, lifecycle: { $in: ['active', 'scheduled'] } };
+  const liveLifecycle = { ...base, lifecycle: { $in: ['active', 'wrapping'] } };
+
+  const [
+    activeRipples,
+    upcoming24h,
+    newShorts24h,
+    openPeopleToday,
+    cities,
+    topCitiesGroups,
+    topTypesGroups,
+    liveHostCountryIds,
+  ] = await Promise.all([
+    Ripple.countDocuments({ ...liveLifecycle, kind: { $ne: 'short' } }),
+    Ripple.countDocuments({
+      ...base,
+      lifecycle: 'scheduled',
+      startAt: { $gt: now, $lte: dayAhead },
+    }),
+    Ripple.countDocuments({
+      ...base,
+      kind: 'short',
+      lifecycle: 'active',
+      createdAt: { $gte: dayAgo },
+    }),
+    OpenNetworkProfile.countDocuments({
+      joined: true,
+      'settings.discoverable': true,
+      lastActiveAt: { $gte: dayAgo },
+      ...(country ? { 'home.countryCode': country } : {}),
+    }),
+    Ripple.distinct('place.cityKey', activeOrScheduled),
+    Ripple.aggregate([
+      { $match: { ...activeOrScheduled, 'place.cityKey': { $ne: '' } } },
+      {
+        $group: {
+          _id: '$place.cityKey',
+          count: { $sum: 1 },
+          lng: { $avg: '$lng' },
+          lat: { $avg: '$lat' },
+          city: { $first: '$place.city' },
+          country: { $first: '$place.country' },
+        },
+      },
+      // Privacy floor — a city you can count to 1 names a single Ripple.
+      { $match: { count: { $gte: MIN_CLUSTER_EXACT_COUNT } } },
+      { $sort: { count: -1 } },
+      { $limit: 5 },
+    ]),
+    Ripple.aggregate([
+      { $match: { ...activeOrScheduled, kind: { $ne: 'short' } } },
+      { $group: { _id: '$type', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 4 },
+    ]),
+    // LiveSession carries no geo — a country-scoped pulse counts broadcasts
+    // whose host's home country matches instead of leaking a world total.
+    country
+      ? OpenNetworkProfile.distinct('userId', {
+          joined: true,
+          'home.countryCode': country,
+        })
+      : Promise.resolve(null),
+  ]);
+
+  const liveBroadcasts = await LiveSession.countDocuments({
+    status: 'live',
+    visibility: 'public',
+    ...(liveHostCountryIds ? { hostUserId: { $in: liveHostCountryIds } } : {}),
+  });
+
+  const data = {
+    success: true,
+    activeRipples,
+    upcoming24h,
+    newShorts24h,
+    liveBroadcasts,
+    openPeopleToday,
+    cities: cities.filter((k) => k && k !== '').length,
+    topCities: topCitiesGroups.map((g) => ({
+      cityKey: g._id,
+      label: [g.city, g.country].filter(Boolean).join(', '),
+      coordinates: {
+        lng: Math.round((g.lng ?? 0) * 1000) / 1000,
+        lat: Math.round((g.lat ?? 0) * 1000) / 1000,
+      },
+      count: g.count,
+    })),
+    topTypes: topTypesGroups.map((g) => ({ type: g._id, count: g.count })),
+    generatedAt: now.toISOString(),
+  };
+  pulseCache.set(cacheKey, { at: nowMs, data });
+  return res.status(200).json(data);
 });
 
 // @route GET /api/open-network/nearby?lng&lat&radiusKm
@@ -618,6 +768,7 @@ module.exports = {
   updateSettings,
   getViewport,
   getNearby,
+  getPulse,
   getFeed,
   resolvePlaceQuery,
   // Shared with openNetworkSocialController — one profile shape and one

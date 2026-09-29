@@ -141,6 +141,51 @@ const distanceLabel = (km) => {
   return `${Math.round(km)} km`;
 };
 
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * Globe time-window clause — 'now' is whatever is happening this moment
+ * (non-short live lifecycles; a Short posted in the last 24 h still counts),
+ * 'today' covers ±day around now, 'week' the upcoming week plus recent
+ * posts. 'all' (and anything unexpected) returns null — callers append the
+ * clause only when non-null so the default viewport is unfiltered.
+ */
+const timeWindowClause = (window, now) => {
+  const t = now instanceof Date ? now : new Date(now);
+  const nowMs = t.getTime();
+  switch (window) {
+    case 'now':
+      return {
+        $or: [
+          { kind: { $ne: 'short' }, lifecycle: { $in: ['active', 'wrapping'] } },
+          { kind: 'short', createdAt: { $gte: new Date(nowMs - DAY_MS) } },
+        ],
+      };
+    case 'today':
+      return {
+        $or: [
+          {
+            startAt: {
+              $gte: new Date(nowMs - 12 * HOUR_MS),
+              $lte: new Date(nowMs + DAY_MS),
+            },
+          },
+          { createdAt: { $gte: new Date(nowMs - DAY_MS) } },
+        ],
+      };
+    case 'week':
+      return {
+        $or: [
+          { startAt: { $gte: t, $lte: new Date(nowMs + 7 * DAY_MS) } },
+          { createdAt: { $gte: new Date(nowMs - 7 * DAY_MS) } },
+        ],
+      };
+    default:
+      return null;
+  }
+};
+
 module.exports = {
   REACH_KM,
   reachToKm,
@@ -151,4 +196,5 @@ module.exports = {
   projectState,
   coarsenPoint,
   distanceLabel,
+  timeWindowClause,
 };

@@ -11,6 +11,7 @@ const {
   getViewport,
   getNearby,
   getFeed,
+  getPulse,
   resolvePlaceQuery,
 } = require('../controllers/openNetworkController');
 const {
@@ -89,6 +90,7 @@ router.post('/leave', leaveOpenNetwork);
 router.patch('/settings', updateSettings);
 router.get('/viewport', getViewport);
 router.get('/nearby', getNearby);
+router.get('/pulse', getPulse);
 router.get('/feed', getFeed);
 router.get('/resolve-place', resolvePlaceQuery);
 
