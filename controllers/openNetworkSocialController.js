@@ -45,7 +45,7 @@ const ACTIVE_WINDOW_MS = 30 * DAY_MS;
 const PRESENCE_REFRESH_MS = 15 * 60 * 1000;
 const CONNECT_RATE_LIMIT = 25;
 const CONNECT_COOLDOWN_MS = 7 * DAY_MS;
-const CHAT_RATE_LIMIT = 30;
+const CHAT_RATE_LIMIT = 60;
 const CHAT_RATE_WINDOW_MS = 60 * 1000;
 const MESSAGE_DELETE_WINDOW_MS = 15 * 60 * 1000;
 const HEAT_MIN_COUNT = 3;
@@ -207,8 +207,10 @@ const hydratePeople = async (rows, viewerId, viewerProfile, ctx) => {
 
   return rows.map((p) => {
     const conn = connByPair[pairKey(viewerId, p.userId)];
+    // Syncup friends count as connected even without an OpenConnection row.
+    const isFriend = ctx.friendIds.has(p.userId);
     const connection =
-      conn?.status === 'accepted'
+      conn?.status === 'accepted' || isFriend
         ? 'connected'
         : conn?.status === 'pending'
           ? conn.requesterId === viewerId
@@ -221,7 +223,7 @@ const hydratePeople = async (rows, viewerId, viewerProfile, ctx) => {
         Number.isFinite(p.distMeters) ? p.distMeters / 1000 : null,
       connection,
       connectionId: conn ? String(conn._id) : null,
-      isFriend: ctx.friendIds.has(p.userId),
+      isFriend,
       activeRippleCount: rippleCountById[p.userId] || 0,
     });
   });
@@ -381,12 +383,14 @@ const getPerson = asyncHandler(async (req, res) => {
   ]);
 
   const connected = connection?.status === 'accepted';
+  // Syncup friends bypass discoverability and read as connected.
+  const isFriend = !isSelf && ctx.friendIds.has(targetId);
   if (
     !profile ||
     !profile.joined ||
     (!isSelf &&
       (ctx.blockedIds.has(targetId) ||
-        (!profile.settings?.discoverable && !connected)))
+        (!profile.settings?.discoverable && !connected && !isFriend)))
   ) {
     throw err(NotFoundError, 'Person not found', 'PERSON_NOT_FOUND');
   }
@@ -418,7 +422,7 @@ const getPerson = asyncHandler(async (req, res) => {
 
   const person = toPersonSummary(profile, user, {
     viewerInterests: req.openNetworkProfile?.persona?.interests,
-    connection: connected
+    connection: connected || isFriend
       ? 'connected'
       : connection?.status === 'pending'
         ? connection.requesterId === userId
@@ -426,7 +430,7 @@ const getPerson = asyncHandler(async (req, res) => {
           : 'incoming'
         : 'none',
     connectionId: connection ? String(connection._id) : null,
-    isFriend: ctx.friendIds.has(targetId),
+    isFriend,
   });
 
   res.status(200).json({
@@ -467,6 +471,46 @@ const sharesRipple = async (aId, bId) => {
   return [...aIds].some((id) => bIds.has(id));
 };
 
+/**
+ * Syncup friends get an implicit accepted ON connection — no request, no
+ * notification. Finds the pair row or creates it accepted; upgrades a
+ * non-accepted row in place. Returns the (saved) OpenConnection doc.
+ */
+const ensureFriendConnection = async (aId, bId) => {
+  const pk = pairKey(aId, bId);
+  let conn = await OpenConnection.findOne({ pairKey: pk });
+  if (!conn) {
+    try {
+      const now = new Date();
+      conn = await OpenConnection.create({
+        requesterId: aId,
+        recipientId: bId,
+        pairKey: pk,
+        status: 'accepted',
+        note: '',
+        requestedAt: now,
+        respondedAt: now,
+        acceptedAt: now,
+      });
+    } catch (e) {
+      // A concurrent implicit accept raced the unique pairKey — the other
+      // write already created the row.
+      if (e?.code === 11000) {
+        conn = await OpenConnection.findOne({ pairKey: pk });
+      } else {
+        throw e;
+      }
+    }
+  }
+  if (conn.status !== 'accepted') {
+    conn.status = 'accepted';
+    conn.respondedAt = new Date();
+    conn.acceptedAt = new Date();
+    await conn.save();
+  }
+  return conn;
+};
+
 /** Accept a pending connection + open the chat + notify the requester. */
 const acceptConnection = async (conn) => {
   conn.status = 'accepted';
@@ -492,6 +536,7 @@ const acceptConnection = async (conn) => {
     socketEvent: 'open-network:connection',
     title: 'Connection accepted',
     message: `${accepterUser?.name || 'Someone'} accepted your connection`,
+    avatar: accepterUser?.profileImage || undefined,
     data: {
       kind: 'accepted',
       actorName: accepterUser?.name || 'Someone',
@@ -521,13 +566,30 @@ const createConnection = asyncHandler(async (req, res) => {
     throw err(BadRequestError, 'You cannot connect with yourself', 'VALIDATION');
   }
 
-  const [targetProfile, ctx] = await Promise.all([
+  const [targetProfile, ctx, targetUser] = await Promise.all([
     OpenNetworkProfile.findOne({ userId: toUserId }).lean(),
     getViewerContext(userId, req.user._id),
+    User.findOne({ userId: toUserId }).select('userId name profileImage').lean(),
   ]);
   if (!targetProfile?.joined || ctx.blockedIds.has(toUserId)) {
     throw err(NotFoundError, 'Person not found', 'PERSON_NOT_FOUND');
   }
+  const targetMini = () => toPersonMini(targetProfile, targetUser);
+
+  // Syncup friends skip the request flow entirely — implicit accept + chat,
+  // and they bypass the discoverable/sharesRipple gate. No notification: the
+  // pair are already friends, so there is nothing to announce.
+  if (ctx.friendIds.has(toUserId)) {
+    const friendConn = await ensureFriendConnection(userId, toUserId);
+    const friendChat = await OpenChat.findOrCreate(userId, toUserId, friendConn._id);
+    return res.status(200).json({
+      success: true,
+      accepted: true,
+      connection: toConnectionDto(friendConn, targetMini()),
+      chatId: String(friendChat._id),
+    });
+  }
+
   // Non-discoverable members are only reachable through a shared Ripple.
   if (!targetProfile.settings?.discoverable && !(await sharesRipple(userId, toUserId))) {
     throw err(NotFoundError, 'Person not found', 'PERSON_NOT_FOUND');
@@ -537,10 +599,10 @@ const createConnection = asyncHandler(async (req, res) => {
   let conn = await OpenConnection.findOne({ pairKey: pk });
 
   if (conn?.status === 'accepted') {
-    return res.status(200).json({ success: true, idempotent: true, connection: conn });
+    return res.status(200).json({ success: true, idempotent: true, connection: toConnectionDto(conn, targetMini()) });
   }
   if (conn?.status === 'pending' && conn.requesterId === userId) {
-    return res.status(200).json({ success: true, idempotent: true, connection: conn });
+    return res.status(200).json({ success: true, idempotent: true, connection: toConnectionDto(conn, targetMini()) });
   }
   if (conn?.status === 'pending' && conn.requesterId === toUserId) {
     // They already asked — my "request" is really an acceptance.
@@ -548,7 +610,7 @@ const createConnection = asyncHandler(async (req, res) => {
     return res.status(200).json({
       success: true,
       accepted: true,
-      connection: accepted.conn,
+      connection: toConnectionDto(accepted.conn, targetMini()),
       chatId: String(accepted.chat._id),
     });
   }
@@ -606,7 +668,11 @@ const createConnection = asyncHandler(async (req, res) => {
       // already created the row, so this request is satisfied idempotently.
       if (e?.code === 11000) {
         const existing = await OpenConnection.findOne({ pairKey: pk }).lean();
-        return res.status(200).json({ success: true, idempotent: true, connection: existing });
+        return res.status(200).json({
+          success: true,
+          idempotent: true,
+          connection: existing ? toConnectionDto(existing, targetMini()) : null,
+        });
       }
       throw e;
     }
@@ -625,10 +691,13 @@ const createConnection = asyncHandler(async (req, res) => {
     socketEvent: 'open-network:connection',
     title: 'New connection request',
     message: `${me?.name || 'Someone'} wants to connect on Open Network`,
+    avatar: me?.profileImage || undefined,
     data: { kind: 'request', actorName: me?.name || 'Someone', connection: dto },
   });
 
-  res.status(201).json({ success: true, connection: dto });
+  // The response DTO describes the person the requester just asked — the
+  // notify DTO above describes the requester (as seen by the recipient).
+  res.status(201).json({ success: true, connection: toConnectionDto(conn, targetMini()) });
 });
 
 // @route GET /api/open-network/connections?status=incoming|outgoing|accepted
@@ -827,10 +896,17 @@ const listChats = asyncHandler(async (req, res) => {
 const chatWith = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const otherId = String(req.params.userId);
-  const conn = await OpenConnection.findOne({
+  let conn = await OpenConnection.findOne({
     pairKey: pairKey(userId, otherId),
     status: 'accepted',
   }).lean();
+  if (!conn) {
+    // Syncup friends are implicitly connected — materialize the row on demand.
+    const ctx = await getViewerContext(userId, req.user._id);
+    if (ctx.friendIds.has(otherId) && !ctx.blockedIds.has(otherId)) {
+      conn = await ensureFriendConnection(userId, otherId);
+    }
+  }
   if (!conn) {
     throw err(ForbiddenError, 'You are not connected with this person', 'NOT_CONNECTED');
   }
@@ -872,13 +948,17 @@ const sendMessage = asyncHandler(async (req, res) => {
   const otherId = otherParticipant(chat, userId);
 
   const ctx = await getViewerContext(userId, req.user._id);
-  const [conn, joinedProfiles, me] = await Promise.all([
+  let [conn, joinedProfiles, me] = await Promise.all([
     OpenConnection.findOne({ pairKey: chat.pairKey, status: 'accepted' }).lean(),
     OpenNetworkProfile.find({ userId: { $in: chat.participants }, joined: true })
       .select('userId')
       .lean(),
-    User.findOne({ userId }).select('userId name').lean(),
+    User.findOne({ userId }).select('userId name profileImage').lean(),
   ]);
+  if (!conn && ctx.friendIds.has(otherId) && !ctx.blockedIds.has(otherId)) {
+    // Syncup friends are implicitly connected — materialize the row on demand.
+    conn = await ensureFriendConnection(userId, otherId);
+  }
   if (!conn || ctx.blockedIds.has(otherId)) {
     throw err(ForbiddenError, 'You are not connected with this person', 'NOT_CONNECTED');
   }
@@ -996,6 +1076,7 @@ const sendMessage = asyncHandler(async (req, res) => {
         socketEvent: null,
         title: me?.name || 'New message',
         message: 'New message',
+        avatar: me?.profileImage || undefined,
         data: { chatId: String(chat._id), actorName: me?.name || 'Someone' },
       });
     } catch (e) {

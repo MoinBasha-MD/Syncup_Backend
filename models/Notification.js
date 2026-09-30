@@ -14,36 +14,9 @@ const notificationSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: [
-      'comment_mention',
-      'story_tag',
-      'vibe_tag',
-      'like',
-      'comment',
-      'comment_reply',
-      'comment_like',
-      'reply_like',
-      'follow',
-      'friend_request',
-      'call_missed',
-      'message',
-      'blink_like',
-      'blink_screenshot',
-      'blink_screen_recording',
-      // Open Network — connection lifecycle + nearby-Ripple alerts, plus the
-      // ripple_* types notifyRipple has always written (they were missing
-      // from this enum, so those creates silently failed validation).
-      'on_connect_request',
-      'on_connect_accepted',
-      'ripple_nearby',
-      'ripple_join_request',
-      'ripple_approved',
-      'ripple_removed',
-      'ripple_invited',
-      'ripple_reply',
-      'ripple_support',
-      'on_message'
-    ]
+    // Server-driven envelope types persist without schema edits — any
+    // snake_case identifier is accepted.
+    match: /^[a-z][a-z0-9_]{1,63}$/
   },
   fromUserId: {
     type: String,

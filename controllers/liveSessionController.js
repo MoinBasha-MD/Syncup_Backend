@@ -5,6 +5,7 @@ const LiveSession = require('../models/LiveSession');
 const LiveChatMessage = require('../models/LiveChatMessage');
 const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/errorClasses');
 const { getViewerContext } = require('../services/openNetworkVisibility');
+const { notifyLiveStarted } = require('../services/openNetworkNotify');
 const liveKitService = require('../services/liveKitService');
 
 const toIso = (d) => (d ? new Date(d).toISOString() : null);
@@ -60,6 +61,10 @@ const startLive = asyncHandler(async (req, res) => {
     roomName,
     visibility,
   });
+
+  // Tell the host's Syncup friends — fire-and-forget, throttled 10 min per
+  // host inside the notifier so a restart doesn't re-ping.
+  notifyLiveStarted(session);
 
   const token = await liveKitService.createToken({
     identity: userId,

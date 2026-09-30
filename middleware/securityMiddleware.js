@@ -1,4 +1,5 @@
 const rateLimit = require('express-rate-limit');
+const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
@@ -21,12 +22,43 @@ const createRateLimiter = (windowMs, max, message) => {
   });
 };
 
-// General API rate limiter - 500 requests per 15 minutes
-const apiLimiter = createRateLimiter(
-  15 * 60 * 1000, // 15 minutes
-  500, // Increased to 500 for general endpoints
-  'Too many requests, please try again after 15 minutes'
-);
+// General API rate limiter - 1500 requests per 15 minutes per key.
+// server.js mounts this on dozens of prefixes AND on bare '/api' routers, so a
+// single request can cross several mounts — `skip` makes sure it only counts
+// once. Keyed by the Bearer token's userId when it verifies (two phones on the
+// same Wi-Fi/NAT share one IP and must not share a bucket); unauthenticated
+// traffic falls back to req.ip (this install of express-rate-limit has no
+// ipKeyGenerator export).
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1500,
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  skip: (req) => {
+    if (req._apiLimiterCounted) return true;
+    req._apiLimiterCounted = true;
+    return false;
+  },
+  keyGenerator: (req) => {
+    try {
+      const auth = req.headers?.authorization || '';
+      const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+      if (token) {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const uid = decoded?.userId || decoded?.id;
+        if (uid) return `u:${uid}`;
+      }
+    } catch (_) {
+      // Bad/expired token → IP bucket; never throw from a keyGenerator.
+    }
+    return req.ip;
+  },
+  message: {
+    success: false,
+    message: 'Too many requests, please try again after 15 minutes',
+    error: 'RateLimitError'
+  },
+});
 
 // Upload rate limiter - keyed by authenticated user, not IP, to avoid shared-network 429s
 const uploadLimiter = rateLimit({

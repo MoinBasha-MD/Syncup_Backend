@@ -672,6 +672,7 @@ app.use('/api/admin/users', adminUserStatusRoutes); // User status management AP
 // Admin dashboard routes (protected)
 
 app.use('/api/admin', adminAuthMiddleware, adminDashboardRoutes); // Admin panel API endpoints
+app.use('/api/admin', adminAuthMiddleware, require('./routes/adminNotificationRoutes')); // Admin push notifications (v2 envelope)
 
 
 

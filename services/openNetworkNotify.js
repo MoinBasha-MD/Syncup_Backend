@@ -4,10 +4,24 @@
  * for offline devices. Every channel is best-effort: a failed push must
  * never fail the request that produced it.
  */
-const Notification = require('../models/Notification');
-const fcmNotificationService = require('./fcmNotificationService');
+const { dispatchNotification, openNetworkEnvelopeSpec } = require('./notificationDispatcher');
 // Lazy require to break any circular dependency with socketManager.
 const getSocketManager = () => require('../socketManager');
+
+/**
+ * FCM data payloads are string-only — the service String()s each value, so a
+ * nested object would arrive on the device as "[object Object]". Flatten it
+ * here instead: drop null/undefined, JSON-stringify objects/arrays, and
+ * String() everything else.
+ */
+const toPushData = (payload) => {
+  const out = {};
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (value === null || value === undefined) continue;
+    out[key] = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  }
+  return out;
+};
 
 /**
  * @param {object} args
@@ -22,6 +36,8 @@ const getSocketManager = () => require('../socketManager');
  * @param {object} [args.data]       extra payload (socket data + Notification.data)
  * @param {boolean} [args.persist]   default true — chat messages skip the record
  * @param {boolean} [args.push]      default true — quiet paths (e.g. removal) skip FCM
+ * @param {string}  [args.avatar]    actor avatar URL for the v2 envelope/banner
+ * @param {string}  [args.image]     big-picture thumbnail for the v2 envelope
  */
 const notifyUser = async ({
   toUserId,
@@ -33,6 +49,8 @@ const notifyUser = async ({
   data = {},
   persist = true,
   push = true,
+  avatar,
+  image,
 }) => {
   const payload = {
     type,
@@ -40,6 +58,7 @@ const notifyUser = async ({
     ...data,
     timestamp: new Date().toISOString(),
   };
+  // Legacy per-feature socket event — screens subscribe to these directly.
   if (socketEvent) {
     try {
       getSocketManager().broadcastToUser(toUserId, socketEvent, {
@@ -52,35 +71,24 @@ const notifyUser = async ({
       console.error(`❌ [ON NOTIFY] socket ${type} → ${toUserId}:`, e.message);
     }
   }
-  if (persist) {
-    try {
-      await Notification.create({
-        userId: toUserId,
-        type,
-        fromUserId,
-        message,
-        data: payload,
-      });
-    } catch (e) {
-      console.error(`❌ [ON NOTIFY] persist ${type} → ${toUserId}:`, e.message);
-    }
-  }
-  if (push) {
-    try {
-      if (fcmNotificationService.isEnabled && fcmNotificationService.isEnabled()) {
-        // NOTE: the service exposes sendVisibleNotification(userId, notification)
-        // — there is no sendToUserDevices. A wrong method name here would be
-        // swallowed by optional chaining and silently send no push at all.
-        await fcmNotificationService.sendVisibleNotification(toUserId, {
-          title,
-          body: message,
-          data: payload,
-        });
-      }
-    } catch (e) {
-      console.error(`❌ [ON NOTIFY] fcm ${type} → ${toUserId}:`, e.message);
-    }
-  }
+  // v2 envelope: notification:push socket + Notification row + FCM.
+  const spec = openNetworkEnvelopeSpec({ type, fromUserId, data });
+  await dispatchNotification({
+    toUserId,
+    fromUserId,
+    type,
+    category: spec.category,
+    title,
+    body: message,
+    avatar,
+    image,
+    groupKey: spec.groupKey,
+    action: spec.action,
+    cta: spec.cta,
+    persist,
+    push,
+    data: payload,
+  });
 };
 
 /**
@@ -172,4 +180,61 @@ const notifyRippleNearby = (ripple) => {
   });
 };
 
-module.exports = { notifyUser, notifyRippleNearby };
+const LIVE_STARTED_THROTTLE_MS = 10 * 60 * 1000;
+const LIVE_STARTED_LIMIT = 500;
+
+/**
+ * "<host> is live" — fire-and-forget fan-out to the host's Syncup friends
+ * (minus blocks) when a broadcast starts. Throttled to one fan-out per host
+ * per 10 minutes so a quick restart doesn't re-ping everyone. Never throws —
+ * a lookup failure must not fail the startLive request that triggered it.
+ */
+const notifyLiveStarted = (session) => {
+  setImmediate(async () => {
+    try {
+      if (!session?._id || !session.hostUserId) return;
+      // Lazy requires — same circular-dep pattern as getSocketManager.
+      const { getViewerContext } = require('./openNetworkVisibility');
+      const LiveSession = require('../models/LiveSession');
+
+      const startedAt = session.startedAt ? new Date(session.startedAt) : new Date();
+      const recent = await LiveSession.countDocuments({
+        hostUserId: session.hostUserId,
+        _id: { $ne: session._id },
+        startedAt: { $gte: new Date(startedAt.getTime() - LIVE_STARTED_THROTTLE_MS) },
+      });
+      if (recent > 0) return;
+
+      const ctx = await getViewerContext(session.hostUserId);
+      const targets = [...ctx.friendIds]
+        .filter((id) => !ctx.blockedIds.has(id))
+        .slice(0, LIVE_STARTED_LIMIT);
+      if (!targets.length) return;
+
+      const hostName = session.hostName || 'Someone';
+      await Promise.allSettled(
+        targets.map((toUserId) =>
+          notifyUser({
+            toUserId,
+            fromUserId: session.hostUserId,
+            type: 'live_started',
+            socketEvent: 'open-network:live',
+            title: `${hostName} is live`,
+            message: session.title || 'Tap to watch now',
+            avatar: session.hostAvatar || undefined,
+            data: {
+              sessionId: String(session._id),
+              hostName,
+              hostUserId: session.hostUserId,
+              actorName: hostName,
+            },
+          }),
+        ),
+      );
+    } catch (e) {
+      console.error('❌ [ON LIVE] fan-out failed:', e.message);
+    }
+  });
+};
+
+module.exports = { notifyUser, notifyRippleNearby, notifyLiveStarted, toPushData };

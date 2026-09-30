@@ -315,6 +315,79 @@ class FCMNotificationService {
   }
 
   /**
+   * Server-driven v2 envelope notification — the tray rendering is driven
+   * entirely by the envelope (category accent, group tag, big image); the app
+   * routes taps off `data.action` generically.
+   * @param {object} envelope built by notificationDispatcher.buildEnvelope
+   * @param {string} accentColor hex colour for the tray icon tint
+   */
+  async sendEnvelopeNotification(userId, envelope, accentColor) {
+    if (!this.fcmEnabled) {
+      console.log('⚠️ [FCM] FCM is disabled - skipping notification');
+      return { success: false, reason: 'FCM disabled' };
+    }
+
+    try {
+      const user = await User.findOne({ userId }).select('fcmTokens');
+
+      if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
+        console.log(`⚠️ [FCM] No FCM tokens found for user: ${userId}`);
+        return { success: false, reason: 'No FCM tokens' };
+      }
+
+      const tokens = user.fcmTokens.map(t => t.token);
+
+      // Lazy require — openNetworkNotify ↔ notificationDispatcher ↔ this
+      // service form a cycle; resolved at call time like the other services.
+      const { toPushData } = require('./openNetworkNotify');
+
+      const message = {
+        notification: {
+          title: envelope.title,
+          body: envelope.body,
+          ...(envelope.image ? { imageUrl: envelope.image } : {}),
+        },
+        data: toPushData(envelope),
+        tokens: tokens,
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'syncup-general-channel',
+            color: accentColor || '#8B5CF6',
+            ...(envelope.groupKey ? { tag: envelope.groupKey } : {}),
+            icon: 'ic_notification',
+            sound: 'default',
+            priority: 'high',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              ...(envelope.groupKey ? { 'thread-id': envelope.groupKey } : {}),
+              ...(envelope.image ? { 'mutable-content': 1 } : {}),
+            },
+          },
+        },
+      };
+
+      const response = await this._sendWithRetry(message, 'Envelope');
+
+      console.log(`✅ [FCM] Envelope notification sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+      return {
+        success: response.successCount > 0,
+        successCount: response.successCount,
+        failureCount: response.failureCount
+      };
+
+    } catch (error) {
+      console.error('❌ [FCM] Error sending envelope notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Send test notification (for testing FCM functionality)
    */
   async sendTestNotification(userId, notification) {
