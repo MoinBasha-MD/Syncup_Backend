@@ -2096,6 +2096,95 @@ const initializeSocketIO = (server) => {
           console.log(`📡 [LOCATION] No active sharing sessions - location not broadcasted`);
         }
         
+        // 📍 MEETUP TRACKING: fan out to accepted participants of each meetup
+        // the sender included in `meetupIds`. Server re-verifies membership —
+        // clients can't widen their audience by forging the list.
+        const { meetupIds } = locationData;
+        if (meetupIds && Array.isArray(meetupIds) && meetupIds.length > 0) {
+          try {
+            const Meetup = require('./models/Meetup');
+            const ARRIVAL_RADIUS_M = Meetup.ARRIVAL_RADIUS_METERS || 100;
+
+            const distanceToDestinationM = (dest) => {
+              const R = 6371e3;
+              const φ1 = dest.latitude * Math.PI / 180;
+              const φ2 = latitude * Math.PI / 180;
+              const Δφ = (latitude - dest.latitude) * Math.PI / 180;
+              const Δλ = (longitude - dest.longitude) * Math.PI / 180;
+              const a = Math.sin(Δφ / 2) ** 2
+                + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+              return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            };
+
+            for (const meetupId of meetupIds) {
+              try {
+                const meetup = await Meetup.findOne({ _id: meetupId, status: 'active' });
+                if (!meetup) continue;
+
+                const participant = meetup.findParticipant(userId);
+                if (!participant || (participant.status !== 'accepted' && participant.status !== 'arrived')) {
+                  console.log(`⚠️ [MEETUP] ${userName} is not a tracked participant of ${meetupId} — update dropped`);
+                  continue;
+                }
+
+                participant.lastLocation = {
+                  latitude,
+                  longitude,
+                  timestamp: timestamp || Date.now(),
+                  speed: speed || 0,
+                  updatedAt: new Date()
+                };
+
+                // Arrival detection: inside ~100m of the destination
+                let justArrived = false;
+                const distanceM = distanceToDestinationM(meetup.destination);
+                if (participant.status === 'accepted' && distanceM <= ARRIVAL_RADIUS_M) {
+                  participant.status = 'arrived';
+                  participant.arrivedAt = new Date();
+                  justArrived = true;
+                }
+
+                await meetup.save();
+
+                const meetupLocationData = {
+                  meetupId: meetup._id.toString(),
+                  userId,
+                  userName,
+                  profileImage: user.profileImage,
+                  latitude,
+                  longitude,
+                  timestamp: timestamp || Date.now(),
+                  speed: speed || 0,
+                  distanceToDestinationM: Math.round(distanceM),
+                  participantStatus: participant.status
+                };
+
+                // Fan out to everyone tracking (accepted + arrived), sender included —
+                // the client ignores its own userId.
+                meetup.trackedUserIds().forEach(memberId => {
+                  const memberSocket = userSockets.get(memberId);
+                  if (memberSocket) {
+                    memberSocket.emit('meetup:location', meetupLocationData);
+                    if (justArrived) {
+                      memberSocket.emit('meetup:arrived', {
+                        meetupId: meetup._id.toString(),
+                        userId,
+                        userName
+                      });
+                    }
+                  }
+                });
+
+                console.log(`📡 [MEETUP] ${userName}'s location fanned out to ${meetup.trackedUserIds().length} participant(s) of ${meetupId}${justArrived ? ' (arrived)' : ''}`);
+              } catch (meetupError) {
+                console.error(`❌ [MEETUP] Fan-out failed for meetup ${meetupId}:`, meetupError);
+              }
+            }
+          } catch (outerMeetupError) {
+            console.error('❌ [MEETUP] Meetup fan-out error:', outerMeetupError);
+          }
+        }
+        
       } catch (error) {
         console.error(`❌ [LOCATION] Error processing location update from ${userName}:`, error);
       }

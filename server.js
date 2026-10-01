@@ -118,6 +118,8 @@ const callRoutes = require('./routes/callRoutes');
 
 const locationRoutes = require('./routes/locationRoutes');
 
+const meetupRoutes = require('./routes/meetupRoutes');
+
 const agentRoutes = require('./routes/agentRoutes');
 
 const agentDashboardRoutes = require('./routes/agentDashboardRoutes');
@@ -534,6 +536,8 @@ app.use('/api/primary-time', apiLimiter, require('./routes/primaryTimeRoutes'));
 app.use('/api/location', apiLimiter, locationRoutes); // Location and geocoding services
 
 app.use('/api/location-sharing', apiLimiter, require('./routes/locationSharingRoutes')); // Location sharing controls
+
+app.use('/api/meetups', apiLimiter, meetupRoutes); // Meetup: shared destination + group live tracking
 
 app.use('/api/bulk', apiLimiter, bulkOperationsRoutes); // Bulk operations
 
