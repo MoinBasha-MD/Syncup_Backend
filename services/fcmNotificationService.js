@@ -583,6 +583,81 @@ class FCMNotificationService {
   }
 
   /**
+   * Send a data-only high-priority FCM message.
+   * Data-only messages run the app's setBackgroundMessageHandler even when the
+   * app is killed — used for device actions (e.g. Primary Time device mode)
+   * that must execute without any tray notification.
+   */
+  async sendDataNotification(userId, dataFields = {}, options = {}) {
+    if (!this.fcmEnabled) {
+      console.log('⚠️ [FCM DATA] FCM is disabled - skipping data message');
+      return { success: false, reason: 'FCM disabled' };
+    }
+
+    try {
+      const user = await User.findOne({ userId }).select('fcmTokens');
+
+      if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
+        console.log(`⚠️ [FCM DATA] No FCM tokens found for user: ${userId}`);
+        return { success: false, reason: 'No FCM tokens' };
+      }
+
+      const tokens = user.fcmTokens.map(t => t.token);
+
+      // All data fields MUST be strings (Firebase requirement)
+      const stringifiedData = {};
+      for (const [key, value] of Object.entries(dataFields)) {
+        stringifiedData[key] = String(value);
+      }
+
+      const message = {
+        data: stringifiedData,
+        tokens: tokens,
+        android: {
+          priority: 'high',
+          ttl: options.ttlMs || 10 * 60 * 1000, // 10 minutes default
+        },
+        apns: {
+          headers: { 'apns-push-type': 'background', 'apns-priority': '5' },
+          payload: { aps: { contentAvailable: true } },
+        },
+      };
+
+      const response = await this._sendWithRetry(message, 'Data');
+
+      console.log(`✅ [FCM DATA] Data message sent - Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+      // Cleanup invalid tokens
+      if (response.failureCount > 0) {
+        const invalidTokens = [];
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success) {
+            invalidTokens.push(tokens[idx]);
+            console.log(`❌ [FCM DATA] Token failed: ${resp.error?.code} - ${resp.error?.message}`);
+          }
+        });
+
+        if (invalidTokens.length > 0) {
+          await User.updateOne(
+            { userId },
+            { $pull: { fcmTokens: { token: { $in: invalidTokens } } } }
+          );
+          console.log(`🧹 [FCM DATA] Cleaned up ${invalidTokens.length} invalid token(s)`);
+        }
+      }
+
+      return {
+        success: response.successCount > 0,
+        successCount: response.successCount,
+        failureCount: response.failureCount
+      };
+    } catch (error) {
+      console.error('❌ [FCM DATA] Error sending data message:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Check if FCM is enabled and ready
    */
   isEnabled() {

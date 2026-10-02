@@ -114,11 +114,6 @@ primaryTimeProfileSchema.methods.shouldBeActive = function(date = new Date()) {
   const currentDay = localDate.getDay();
   const currentTime = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
 
-  // Check if today is in the days array
-  if (!this.days.includes(currentDay)) {
-    return false;
-  }
-
   // Check date range if applicable
   if (this.recurrence.type === 'date_range') {
     if (this.recurrence.startDate && localDate < this.recurrence.startDate) {
@@ -129,8 +124,22 @@ primaryTimeProfileSchema.methods.shouldBeActive = function(date = new Date()) {
     }
   }
 
-  // Check time range
-  return currentTime >= this.startTime && currentTime < this.endTime;
+  // Check time range (overnight windows like 22:00 → 06:00 supported:
+  // the evening half needs TODAY in days, the post-midnight half needs
+  // YESTERDAY in days since the window started yesterday)
+  if (this.endTime > this.startTime) {
+    if (!this.days.includes(currentDay)) {
+      return false;
+    }
+    return currentTime >= this.startTime && currentTime < this.endTime;
+  }
+  if (currentTime >= this.startTime) {
+    return this.days.includes(currentDay);
+  }
+  if (currentTime < this.endTime) {
+    return this.days.includes((currentDay + 6) % 7);
+  }
+  return false;
 };
 
 const PrimaryTimeProfile = mongoose.model('PrimaryTimeProfile', primaryTimeProfileSchema);

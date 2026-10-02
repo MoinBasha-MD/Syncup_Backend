@@ -165,6 +165,12 @@ const updateUserStatus = async (req, res) => {
       }
     }
     
+    // A manual status update detaches any Primary Time attribution — the user
+    // overrode the schedule, so the primary-time cron must not re-apply the
+    // profile's status on top of this manual choice.
+    user.primaryTimeProfileId = null;
+    user.wasAutoApplied = false;
+
     // Set status expiration if duration provided (in minutes)
     let expirationTime = null;
     if (duration && duration > 0) {

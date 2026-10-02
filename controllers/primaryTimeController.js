@@ -1,5 +1,30 @@
 const PrimaryTimeProfile = require('../models/PrimaryTimeProfile');
 const User = require('../models/userModel');
+const primaryTimeScheduler = require('../services/primaryTimeScheduler');
+const fcmService = require('../services/fcmNotificationService');
+const socketManager = require('../socketManager');
+
+/**
+ * Push a lightweight "resync your alarms/profile cache" signal to the owner's
+ * device(s). Used whenever profiles change but no status transition happened
+ * (create/edit/enable-for-later/delete) so the device-side AlarmManager
+ * schedule stays adaptive without waiting for the app to be opened.
+ */
+async function pushProfileSyncSignal(userId) {
+  const payload = { type: 'primary_time_device_mode', action: 'sync' };
+  try {
+    socketManager.broadcastToUser(userId, 'primary_time_updated', payload);
+  } catch (e) {
+    console.error('⚠️ [PRIMARY TIME] Sync socket emit failed:', e.message);
+  }
+  try {
+    if (fcmService.isEnabled()) {
+      await fcmService.sendDataNotification(userId, payload);
+    }
+  } catch (e) {
+    console.error('⚠️ [PRIMARY TIME] Sync FCM push failed:', e.message);
+  }
+}
 
 // Create a new Primary Time profile
 exports.createProfile = async (req, res) => {
@@ -40,6 +65,9 @@ exports.createProfile = async (req, res) => {
 
     console.log(`✅ [PRIMARY TIME] Profile created: ${profile.name} for user ${userId}`);
 
+    // New schedule → owner devices should re-arm their local alarms.
+    pushProfileSyncSignal(req.user.userId).catch(() => {});
+
     res.status(201).json(profile);
   } catch (error) {
     console.error('❌ [PRIMARY TIME] Create profile error:', error);
@@ -58,12 +86,12 @@ exports.getProfiles = async (req, res) => {
 
     const profiles = await PrimaryTimeProfile.find({ userId }).sort({ startTime: 1, priority: -1 });
 
-    // Auto-patch legacy profiles created before timezone support was added.
-    // Those profiles have timezoneOffset=0 (the schema default).
+    // Auto-patch profiles whose stored timezoneOffset no longer matches the
+    // client's — covers legacy offset=0 rows, DST shifts, and timezone travel.
     // The frontend sends its real offset via query param so we can backfill.
     const clientOffset = req.query.timezoneOffset != null ? Number(req.query.timezoneOffset) : null;
     if (clientOffset != null && clientOffset !== 0) {
-      const needsPatch = profiles.filter(p => p.timezoneOffset === 0 || p.timezoneOffset == null);
+      const needsPatch = profiles.filter(p => p.timezoneOffset !== clientOffset);
       if (needsPatch.length > 0) {
         await PrimaryTimeProfile.updateMany(
           { _id: { $in: needsPatch.map(p => p._id) } },
@@ -138,6 +166,15 @@ exports.updateProfile = async (req, res) => {
 
     console.log(`✅ [PRIMARY TIME] Profile updated: ${profile.name}`);
 
+    // Edits take effect immediately instead of waiting for the next cron tick:
+    // if the profile is mid-window and its content changed, the per-user check
+    // re-applies it; if the window moved, it activates/deactivates right away.
+    primaryTimeScheduler.checkAndUpdateUserPrimaryTime(userId).catch(err => {
+      console.error('⚠️ [PRIMARY TIME] Post-update check failed:', err.message);
+    });
+    // Owner devices re-arm their local alarms for the new schedule.
+    pushProfileSyncSignal(req.user.userId).catch(() => {});
+
     res.json(profile);
   } catch (error) {
     console.error('❌ [PRIMARY TIME] Update profile error:', error);
@@ -155,7 +192,7 @@ exports.deleteProfile = async (req, res) => {
     const { id } = req.params;
     const userId = req.user._id;
 
-    const profile = await PrimaryTimeProfile.findOneAndDelete({ _id: id, userId });
+    const profile = await PrimaryTimeProfile.findOne({ _id: id, userId });
 
     if (!profile) {
       return res.status(404).json({
@@ -164,7 +201,22 @@ exports.deleteProfile = async (req, res) => {
       });
     }
 
+    // If the deleted profile was actively applying a status, run the full
+    // deactivation first (resets user status, broadcasts, pushes restore).
+    if (profile.isActive) {
+      try {
+        await primaryTimeScheduler.deactivateProfile(profile, userId);
+      } catch (deactErr) {
+        console.error('⚠️ [PRIMARY TIME] Deactivate-before-delete failed:', deactErr.message);
+      }
+    }
+
+    await PrimaryTimeProfile.deleteOne({ _id: profile._id });
+
     console.log(`✅ [PRIMARY TIME] Profile deleted: ${profile.name}`);
+
+    // Owner devices re-arm alarms without the deleted profile.
+    pushProfileSyncSignal(req.user.userId).catch(() => {});
 
     res.json({
       success: true,
@@ -287,10 +339,16 @@ exports.activateProfile = async (req, res) => {
           } catch (socketErr) {
             console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
           }
+
+          // Signal the owner's device(s) to apply the device ringer mode
+          await primaryTimeScheduler.pushDeviceSignal(user, profile, 'apply');
         }
       } catch (statusErr) {
         console.error('⚠️ [PRIMARY TIME] Status update error (profile still enabled):', statusErr.message);
       }
+    } else {
+      // Enabled for a future window — owner devices should re-arm alarms.
+      pushProfileSyncSignal(req.user.userId).catch(() => {});
     }
 
     res.json({
@@ -388,10 +446,16 @@ exports.deactivateProfile = async (req, res) => {
           } catch (socketErr) {
             console.error('⚠️ [PRIMARY TIME] Socket broadcast error:', socketErr.message);
           }
+
+          // Signal the owner's device(s) to restore the original ringer mode
+          await primaryTimeScheduler.pushDeviceSignal(user, profile, 'restore');
         }
       } catch (statusErr) {
         console.error('⚠️ [PRIMARY TIME] Status reset error (profile still disabled):', statusErr.message);
       }
+    } else {
+      // Disabled a not-currently-active schedule — owner devices re-arm alarms.
+      pushProfileSyncSignal(req.user.userId).catch(() => {});
     }
 
     res.json({

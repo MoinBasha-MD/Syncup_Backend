@@ -31,12 +31,6 @@ class PrimaryTimeSchedulerService {
 
     console.log(`   🕐 [TIME CHECK] Profile "${profile.name}": serverUTC=${now.toISOString()}, offset=${profile.timezoneOffset || 0}min, localTime=${currentTime}, window=${profile.startTime}-${profile.endTime}, day=${currentDay}, days=${profile.days}`);
 
-    // Check if today is in the days array
-    if (!profile.days.includes(currentDay)) {
-      console.log(`   ❌ [TIME CHECK] Day ${currentDay} not in profile days [${profile.days}]`);
-      return false;
-    }
-
     // Check date range if applicable
     if (profile.recurrence.type === 'date_range') {
       if (profile.recurrence.startDate && localNow < new Date(profile.recurrence.startDate)) {
@@ -47,9 +41,30 @@ class PrimaryTimeSchedulerService {
       }
     }
 
-    // Check time range
-    const isInWindow = currentTime >= profile.startTime && currentTime < profile.endTime;
-    console.log(`   ${isInWindow ? '✅' : '❌'} [TIME CHECK] ${currentTime} >= ${profile.startTime} && ${currentTime} < ${profile.endTime} → ${isInWindow}`);
+    // Check time range. Two shapes:
+    //  - Normal window (start < end): today must be an active day and
+    //    startTime <= now < endTime.
+    //  - Overnight window (end <= start, e.g. 22:00 → 06:00): the evening
+    //    half requires TODAY in days (window started today); the
+    //    post-midnight half requires YESTERDAY in days (window started
+    //    yesterday and crosses midnight).
+    let isInWindow = false;
+    if (profile.endTime > profile.startTime) {
+      if (!profile.days.includes(currentDay)) {
+        console.log(`   ❌ [TIME CHECK] Day ${currentDay} not in profile days [${profile.days}]`);
+        return false;
+      }
+      isInWindow = currentTime >= profile.startTime && currentTime < profile.endTime;
+      console.log(`   ${isInWindow ? '✅' : '❌'} [TIME CHECK] ${currentTime} >= ${profile.startTime} && ${currentTime} < ${profile.endTime} → ${isInWindow}`);
+    } else {
+      if (currentTime >= profile.startTime) {
+        isInWindow = profile.days.includes(currentDay);
+      } else if (currentTime < profile.endTime) {
+        const yesterday = (currentDay + 6) % 7;
+        isInWindow = profile.days.includes(yesterday);
+      }
+      console.log(`   ${isInWindow ? '✅' : '❌'} [TIME CHECK] Overnight window ${profile.startTime}→${profile.endTime}, now=${currentTime}, day=${currentDay}, days=[${profile.days}] → ${isInWindow}`);
+    }
     return isInWindow;
   }
 
@@ -96,7 +111,34 @@ class PrimaryTimeSchedulerService {
 
       // Check if this profile is already active
       if (targetProfile.isActive) {
-        return null; // Already running, nothing to do
+        // Profile claims to be active — verify the user's applied status still
+        // matches it. It can drift when:
+        //  - the user edited the profile mid-window (status/times changed)
+        //  - statusExpirationService cleared the status while the profile
+        //    stayed marked active
+        // A manual user status update detaches primaryTimeProfileId
+        // (statusController), so we only re-apply while the profile is still
+        // linked — manual overrides mid-window keep their status.
+        const user = await User.findById(userId);
+        if (user && user.primaryTimeProfileId &&
+            user.primaryTimeProfileId.toString() === targetProfile._id.toString()) {
+          const expired = user.statusUntil && new Date(user.statusUntil) <= now;
+          const drifted = user.status !== targetProfile.status ||
+                          user.customStatus !== targetProfile.status ||
+                          (targetProfile.location && targetProfile.location.placeName &&
+                           (!user.statusLocation || user.statusLocation.placeName !== targetProfile.location.placeName));
+          if (!expired && drifted) {
+            console.log(`   🔁 Applied status drifted from profile "${targetProfile.name}" (user status: "${user.status}") — re-applying`);
+            await this.activateProfile(targetProfile, userId);
+            return {
+              userId,
+              action: 'reapplied',
+              profile: targetProfile.name,
+              status: targetProfile.status
+            };
+          }
+        }
+        return null; // Already running (or intentionally detached), nothing to do
       }
 
       // Deactivate any other active profiles first
@@ -241,6 +283,11 @@ class PrimaryTimeSchedulerService {
         console.error(`   ⚠️ Socket broadcast error:`, socketErr.message);
       }
 
+      // Signal the OWNER's device(s) so the app can apply the device-side
+      // effect (vibrate/silent) — broadcastStatusUpdate above only reaches
+      // contacts, and tray notifications never run app code while asleep.
+      await this.pushDeviceSignal(user, profile, 'apply');
+
       // Send notification if enabled
       if (profile.notifications.onStart) {
         await this.sendNotification(userId, {
@@ -344,6 +391,9 @@ class PrimaryTimeSchedulerService {
         console.error(`   ⚠️ Socket broadcast error:`, socketErr.message);
       }
 
+      // Signal the OWNER's device(s) to restore the original ringer mode.
+      await this.pushDeviceSignal(user, profile, 'restore');
+
       // Send notification if enabled
       if (profile.notifications.onEnd) {
         await this.sendNotification(userId, {
@@ -365,6 +415,56 @@ class PrimaryTimeSchedulerService {
 
   // broadcastStatusUpdate is now handled by socketManager.broadcastStatusUpdate
   // which does proper contact-level filtering (same as Quick tab)
+
+  /**
+   * Signal the OWNER's device(s) that a Primary Time transition happened so the
+   * app can apply/restore the device ringer mode and refresh its UI.
+   *
+   * Two channels:
+   *  1. Socket event to the owner's connected socket(s) — instant when the app
+   *     is running (broadcastStatusUpdate only notifies contacts, never self).
+   *  2. Data-only high-priority FCM — runs setBackgroundMessageHandler even
+   *     when the app is killed/asleep (notification-payload messages don't).
+   *
+   * Intentionally NOT gated by profile.notifications.* — this is a device
+   * action channel, not a user-visible notification preference.
+   */
+  async pushDeviceSignal(user, profile, action) {
+    const payload = {
+      type: 'primary_time_device_mode',
+      action, // 'apply' | 'restore'
+      profileId: profile._id.toString(),
+      profileName: profile.name,
+      status: profile.status,
+      statusUntil: user.statusUntil ? new Date(user.statusUntil).toISOString() : '',
+      startTime: profile.startTime,
+      endTime: profile.endTime,
+    };
+
+    // 1) Real-time path — app running with a connected socket
+    try {
+      const socketManager = require('../socketManager');
+      socketManager.broadcastToUser(
+        user.userId,
+        action === 'apply' ? 'primary_time_applied' : 'primary_time_ended',
+        payload
+      );
+    } catch (socketErr) {
+      console.error(`   ⚠️ [DEVICE SIGNAL] Socket emit failed:`, socketErr.message);
+    }
+
+    // 2) Asleep/killed path — data-only FCM triggers headless JS on device
+    try {
+      const fcmService = require('./fcmNotificationService');
+      if (fcmService.isEnabled()) {
+        await fcmService.sendDataNotification(user.userId, payload);
+      } else {
+        console.log(`   ⚠️ [DEVICE SIGNAL] FCM disabled — skipping data push`);
+      }
+    } catch (fcmErr) {
+      console.error(`   ⚠️ [DEVICE SIGNAL] FCM data push failed:`, fcmErr.message);
+    }
+  }
 
   /**
    * Send push notification

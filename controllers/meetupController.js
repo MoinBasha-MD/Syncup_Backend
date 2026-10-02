@@ -68,6 +68,15 @@ const notifyInvite = (meetup, invitee) => {
       meetup: serializeMeetup(meetup),
       ...data
     });
+    // Also surface through the in-app banner host which listens on
+    // notification:new, so invitees see it even off the Map tab.
+    broadcastToUser(invitee.userId, 'notification:new', {
+      type: 'meetup_invite',
+      title,
+      body,
+      data,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
     console.error('❌ [MEETUP] Invite socket emit failed:', error);
   }
