@@ -1,4 +1,5 @@
 const socketIO = require('socket.io');
+const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const User = require('./models/userModel');
@@ -2035,10 +2036,9 @@ const initializeSocketIO = (server) => {
         
         const { latitude, longitude, timestamp, recipientIds, speed } = locationData;
         
-        // Validate coordinates
-        if (!latitude || !longitude || 
-            typeof latitude !== 'number' || typeof longitude !== 'number' ||
-            latitude < -90 || latitude > 90 || 
+        // Validate coordinates (Number.isFinite so 0 is a valid coordinate)
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+            latitude < -90 || latitude > 90 ||
             longitude < -180 || longitude > 180) {
           console.error(`❌ [LOCATION] Invalid coordinates from ${userName}:`, { latitude, longitude });
           return;
@@ -2118,7 +2118,14 @@ const initializeSocketIO = (server) => {
 
             for (const meetupId of meetupIds) {
               try {
-                const meetup = await Meetup.findOne({ _id: meetupId, status: 'active' });
+                // Forged/garbage ids can't reach the query — cast would throw.
+                if (!mongoose.isValidObjectId(meetupId)) continue;
+
+                const meetup = await Meetup.findOne({
+                  _id: meetupId,
+                  status: 'active',
+                  expiresAt: { $gt: new Date() }
+                });
                 if (!meetup) continue;
 
                 const participant = meetup.findParticipant(userId);
@@ -2127,7 +2134,7 @@ const initializeSocketIO = (server) => {
                   continue;
                 }
 
-                participant.lastLocation = {
+                const lastLocation = {
                   latitude,
                   longitude,
                   timestamp: timestamp || Date.now(),
@@ -2135,16 +2142,56 @@ const initializeSocketIO = (server) => {
                   updatedAt: new Date()
                 };
 
-                // Arrival detection: inside ~100m of the destination
+                // Arrival detection: inside ~100m of the destination.
+                // Atomic conditional update so arrival fires exactly once and
+                // concurrent writes (e.g. inviteMore pushing participants)
+                // can't trip Mongoose document versioning.
                 let justArrived = false;
                 const distanceM = distanceToDestinationM(meetup.destination);
                 if (participant.status === 'accepted' && distanceM <= ARRIVAL_RADIUS_M) {
-                  participant.status = 'arrived';
-                  participant.arrivedAt = new Date();
-                  justArrived = true;
+                  const arrivalRes = await Meetup.updateOne(
+                    { _id: meetup._id, participants: { $elemMatch: { userId, status: 'accepted' } } },
+                    { $set: {
+                      'participants.$.status': 'arrived',
+                      'participants.$.arrivedAt': new Date(),
+                      'participants.$.lastLocation': lastLocation
+                    } }
+                  );
+                  justArrived = arrivalRes.modifiedCount === 1;
+                  if (justArrived) {
+                    participant.status = 'arrived';
+                    participant.arrivedAt = new Date();
+                  }
                 }
+                if (!justArrived) {
+                  await Meetup.updateOne(
+                    { _id: meetup._id, 'participants.userId': userId },
+                    { $set: { 'participants.$.lastLocation': lastLocation } }
+                  );
+                }
+                participant.lastLocation = lastLocation;
 
-                await meetup.save();
+                if (justArrived && userId !== meetup.hostId) {
+                  try {
+                    const { dispatchNotification } = require('./services/notificationDispatcher');
+                    dispatchNotification({
+                      toUserId: meetup.hostId,
+                      fromUserId: userId,
+                      type: 'meetup_arrived',
+                      category: 'social',
+                      title: `${userName} arrived`,
+                      body: `at ${meetup.destination.name}`,
+                      groupKey: `meetup:${meetup._id.toString()}`,
+                      action: {
+                        screen: 'Home',
+                        params: { screen: 'Map', params: { meetupInviteId: meetup._id.toString() } }
+                      },
+                      data: { meetupId: meetup._id.toString(), destinationName: meetup.destination.name }
+                    }).catch(err => console.error('❌ [MEETUP] Arrived notification failed:', err.message));
+                  } catch (notifyErr) {
+                    console.error('❌ [MEETUP] Arrived notification failed:', notifyErr.message);
+                  }
+                }
 
                 const meetupLocationData = {
                   meetupId: meetup._id.toString(),

@@ -1,10 +1,9 @@
 const Meetup = require('../models/Meetup');
 const User = require('../models/userModel');
 const Friend = require('../models/Friend');
-const Notification = require('../models/Notification');
+const { dispatchNotification } = require('../services/notificationDispatcher');
 // Lazy require to break circular dependency with socketManager
 const getSocketManager = () => require('../socketManager');
-const fcmNotificationService = require('../services/fcmNotificationService');
 
 const DEFAULT_EXPIRY_HOURS = 4;
 const MAX_EXPIRY_HOURS = 12;
@@ -12,8 +11,11 @@ const MAX_PARTICIPANTS = 50;
 
 const buildInviteLink = (meetup) => `syncup://meetup/${meetup.inviteToken}`;
 
+// Works for both Mongoose docs and lean objects — `id` is always a string
+// because the app keys every meetup on `meetup.id` (lean `_id` alone is not
+// enough and silently becomes undefined client-side).
 const serializeMeetup = (meetup) => ({
-  id: meetup._id,
+  id: String(meetup._id),
   hostId: meetup.hostId,
   hostName: meetup.hostName,
   destination: meetup.destination,
@@ -40,53 +42,75 @@ const broadcastToMeetup = (meetup, event, data) => {
   });
 };
 
-// Persist + socket + FCM for a meetup invite (fire-and-forget FCM, same
-// convention as chat notifications — never block the HTTP response on FCM).
-const notifyInvite = (meetup, invitee) => {
-  const title = `${meetup.hostName} invited you to a meetup`;
-  const body = `Meet at ${meetup.destination.name}`;
-  const data = {
-    type: 'meetup_invite',
-    meetupId: meetup._id.toString(),
-    inviteToken: meetup.inviteToken,
-    destinationName: meetup.destination.name,
-    action: `syncup://meetup/${meetup.inviteToken}`,
-    timestamp: new Date().toISOString()
+// Socket event + v2 envelope notification for a meetup invite. Fire-and-
+// forget — never block the HTTP response on notification delivery.
+const notifyInvite = (meetup, invitee, hostProfileImage) => {
+  const meetupId = meetup._id.toString();
+  const action = {
+    screen: 'Home',
+    params: { screen: 'Map', params: { meetupInviteId: meetupId, inviteToken: meetup.inviteToken } }
   };
-
-  Notification.create({
-    userId: invitee.userId,
-    type: 'meetup_invite',
-    fromUserId: meetup.hostId,
-    message: `${meetup.hostName} wants to meet at ${meetup.destination.name}`,
-    data
-  }).catch(err => console.error('❌ [MEETUP] Failed to persist invite notification:', err.message));
 
   try {
     const { broadcastToUser } = getSocketManager();
     broadcastToUser(invitee.userId, 'meetup:invite', {
       meetup: serializeMeetup(meetup),
-      ...data
-    });
-    // Also surface through the in-app banner host which listens on
-    // notification:new, so invitees see it even off the Map tab.
-    broadcastToUser(invitee.userId, 'notification:new', {
       type: 'meetup_invite',
-      title,
-      body,
-      data,
+      meetupId,
+      inviteToken: meetup.inviteToken,
+      destinationName: meetup.destination.name,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('❌ [MEETUP] Invite socket emit failed:', error);
   }
 
-  fcmNotificationService.sendVisibleNotification(invitee.userId, {
-    title,
-    body,
-    data,
-    channelId: 'syncup-general-channel'
-  }).catch(err => console.error('❌ [MEETUP] Invite FCM failed:', err.message));
+  dispatchNotification({
+    toUserId: invitee.userId,
+    fromUserId: meetup.hostId,
+    type: 'meetup_invite',
+    category: 'social',
+    title: `${meetup.hostName} invited you to a meetup`,
+    body: `Meet at ${meetup.destination.name} — tap to accept and share your live location`,
+    avatar: hostProfileImage && hostProfileImage.startsWith('http') ? hostProfileImage : undefined,
+    groupKey: `meetup:${meetupId}`,
+    cta: 'View',
+    action,
+    data: {
+      meetupId,
+      inviteToken: meetup.inviteToken,
+      destinationName: meetup.destination.name
+    }
+  }).catch(err => console.error('❌ [MEETUP] Invite notification dispatch failed:', err.message));
+};
+
+// Tell the host when an invitee answers — accept is visible, decline is
+// quiet (persisted but no push).
+const notifyHostOfResponse = (meetup, participant, kind) => {
+  if (participant.userId === meetup.hostId) return;
+  const meetupId = meetup._id.toString();
+  const isAccept = kind === 'accepted';
+  dispatchNotification({
+    toUserId: meetup.hostId,
+    fromUserId: participant.userId,
+    type: isAccept ? 'meetup_accepted' : 'meetup_declined',
+    category: 'social',
+    title: isAccept
+      ? `${participant.name || 'Someone'} accepted your meetup`
+      : `${participant.name || 'Someone'} declined your meetup`,
+    body: isAccept
+      ? `On the way to ${meetup.destination.name}`
+      : `Can't make it to ${meetup.destination.name}`,
+    avatar: participant.profileImage && participant.profileImage.startsWith('http')
+      ? participant.profileImage : undefined,
+    groupKey: `meetup:${meetupId}`,
+    action: {
+      screen: 'Home',
+      params: { screen: 'Map', params: { meetupInviteId: meetupId } }
+    },
+    push: isAccept,
+    data: { meetupId, destinationName: meetup.destination.name }
+  }).catch(err => console.error(`❌ [MEETUP] Host ${kind} notification failed:`, err.message));
 };
 
 /**
@@ -140,7 +164,7 @@ exports.createMeetup = async (req, res) => {
       expiresAt: new Date(Date.now() + hours * 60 * 60 * 1000)
     });
 
-    meetup.participants.filter(p => p.status === 'invited').forEach(p => notifyInvite(meetup, p));
+    meetup.participants.filter(p => p.status === 'invited').forEach(p => notifyInvite(meetup, p, host.profileImage));
 
     console.log(`✅ [MEETUP] Created ${meetup._id} by ${hostId} → "${destination.name}", ${inviteeUsers.length} invitee(s)`);
 
@@ -171,7 +195,7 @@ exports.listMyMeetups = async (req, res) => {
       'participants.userId': userId
     }).sort({ createdAt: -1 }).lean();
 
-    res.json({ success: true, meetups: meetups.map(m => ({ ...m, inviteLink: `syncup://meetup/${m.inviteToken}` })) });
+    res.json({ success: true, meetups: meetups.map(serializeMeetup) });
   } catch (error) {
     console.error('❌ [MEETUP] Error listing meetups:', error);
     res.status(500).json({ success: false, message: 'Error listing meetups', error: error.message });
@@ -195,7 +219,7 @@ exports.getMeetup = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not a meetup participant' });
     }
 
-    res.json({ success: true, meetup: { ...meetup, inviteLink: `syncup://meetup/${meetup.inviteToken}` } });
+    res.json({ success: true, meetup: serializeMeetup(meetup) });
   } catch (error) {
     console.error('❌ [MEETUP] Error getting meetup:', error);
     res.status(500).json({ success: false, message: 'Error getting meetup', error: error.message });
@@ -216,7 +240,11 @@ exports.respondToMeetup = async (req, res) => {
       return res.status(400).json({ success: false, message: 'action must be accept, decline or leave' });
     }
 
-    const meetup = await Meetup.findOne({ _id: req.params.id, status: 'active' });
+    const meetup = await Meetup.findOne({
+      _id: req.params.id,
+      status: 'active',
+      expiresAt: { $gt: new Date() }
+    });
     if (!meetup) {
       return res.status(404).json({ success: false, message: 'Meetup not found or already ended' });
     }
@@ -224,6 +252,10 @@ exports.respondToMeetup = async (req, res) => {
     const participant = meetup.findParticipant(userId);
     if (!participant) {
       return res.status(403).json({ success: false, message: 'Not a meetup participant' });
+    }
+
+    if (meetup.isHost(userId) && (action === 'leave' || action === 'decline')) {
+      return res.status(400).json({ success: false, message: 'The host must end the meetup instead' });
     }
 
     if (participant.status === 'arrived' && action === 'accept') {
@@ -240,6 +272,10 @@ exports.respondToMeetup = async (req, res) => {
       participantStatus: newStatus,
       meetup: serializeMeetup(meetup)
     });
+
+    if (newStatus === 'accepted' || newStatus === 'declined') {
+      notifyHostOfResponse(meetup, participant, newStatus);
+    }
 
     console.log(`✅ [MEETUP] ${userId} ${action}ed meetup ${meetup._id}`);
     res.json({ success: true, meetup: serializeMeetup(meetup) });
@@ -310,15 +346,19 @@ exports.inviteMore = async (req, res) => {
   try {
     const userId = req.user.userId;
     const { inviteeIds } = req.body;
-    const meetup = await Meetup.findOne({ _id: req.params.id, status: 'active' });
+    const meetup = await Meetup.findOne({
+      _id: req.params.id,
+      status: 'active',
+      expiresAt: { $gt: new Date() }
+    });
     if (!meetup) {
       return res.status(404).json({ success: false, message: 'Meetup not found or already ended' });
     }
 
     const me = meetup.findParticipant(userId);
-    const canInvite = meetup.isHost(userId) || (me && me.status === 'accepted');
+    const canInvite = meetup.isHost(userId) || (me && (me.status === 'accepted' || me.status === 'arrived'));
     if (!canInvite) {
-      return res.status(403).json({ success: false, message: 'Only the host or accepted participants can invite' });
+      return res.status(403).json({ success: false, message: 'Only the host or accepted/arrived participants can invite' });
     }
 
     const candidates = [...new Set((inviteeIds || [])
@@ -334,7 +374,8 @@ exports.inviteMore = async (req, res) => {
     }));
     await meetup.save();
 
-    users.forEach(u => notifyInvite(meetup, { userId: u.userId }));
+    const hostUser = await User.findOne({ userId: meetup.hostId }).select('profileImage').lean();
+    users.forEach(u => notifyInvite(meetup, { userId: u.userId }, hostUser?.profileImage));
     broadcastToMeetup(meetup, 'meetup:status', { meetup: serializeMeetup(meetup) });
 
     res.json({ success: true, meetup: serializeMeetup(meetup) });
@@ -372,3 +413,5 @@ exports.endMeetup = async (req, res) => {
     res.status(500).json({ success: false, message: 'Error ending meetup', error: error.message });
   }
 };
+
+exports.serializeMeetup = serializeMeetup;

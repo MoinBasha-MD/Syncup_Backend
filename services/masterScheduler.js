@@ -34,7 +34,8 @@ class MasterScheduler {
           this.runPrimaryTimeScheduler(),
           this.runLocationSharingCleanup(),
           this.runStatusExpiration(),
-          this.runRippleLifecycle()
+          this.runRippleLifecycle(),
+          this.runMeetupExpiry()
         ]);
         
         const duration = Date.now() - startTime;
@@ -147,6 +148,19 @@ class MasterScheduler {
       await rippleLifecycleService.runRippleLifecycle();
     } catch (error) {
       console.error('❌ [RIPPLE LIFECYCLE] Error:', error.message);
+    }
+  }
+
+  /**
+   * Meetup: active -> ended once expiresAt passes; participants get a
+   * meetup:ended socket event so clients stop live-tracking.
+   */
+  async runMeetupExpiry() {
+    try {
+      const meetupLifecycleService = require('./meetupLifecycleService');
+      await meetupLifecycleService.expireDueMeetups();
+    } catch (error) {
+      console.error('❌ [MEETUP LIFECYCLE] Error:', error.message);
     }
   }
 
