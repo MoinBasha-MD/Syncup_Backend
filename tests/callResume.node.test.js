@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { resumeCall } = require('../services/callResumeService');
+const { resumeCall, deliverCallNotification } = require('../services/callResumeService');
 
 const ACTIVE_CALL_ID = 'call_1';
 const RECEIVER = 'u_receiver';
@@ -73,6 +73,100 @@ test('returns null when not in activeCalls, absent, ended, missing SDP, or expir
 test('still active one ms before expiry', async () => {
   const result = await resumeCall(makeDeps({ now: 1_000_000 + 59_999 }));
   assert.ok(result);
+});
+
+test('call removed from activeCalls during the awaited find resolves null', async () => {
+  const activeCalls = new Map([[ACTIVE_CALL_ID, { callerId: 'u_caller' }]]);
+  const deps = makeDeps({ activeCalls });
+  deps.Call.findOne = async () => {
+    activeCalls.delete(ACTIVE_CALL_ID); // ended mid-query
+    return makeCall();
+  };
+  assert.equal(await resumeCall(deps), null);
+});
+
+test('time is evaluated after the query when now is not injected', async () => {
+  const deps = makeDeps();
+  delete deps.now;
+  const call = makeCall({ createdAt: new Date(Date.now()) });
+  deps.Call.findOne = async () => call;
+  assert.ok(await resumeCall(deps), 'fresh call resolves data');
+  const old = makeCall({ createdAt: new Date(Date.now() - 120_000) });
+  deps.Call.findOne = async () => old;
+  assert.equal(await resumeCall(deps), null, 'stale call resolves null');
+});
+
+test('deliverCallNotification: online confirms call:ringing BEFORE awaiting FCM', async () => {
+  const order = [];
+  const callerSocket = { emit: (ev, d) => order.push(['caller', ev, d]) };
+  const receiverSocket = { id: 'rsock', emit: (ev, d) => order.push(['receiver', ev, d]), connected: true };
+
+  let resolveFcm;
+  const sendCallFcm = () => new Promise((res) => {
+    order.push(['fcm', 'called']);
+    resolveFcm = res;
+  });
+
+  const promise = deliverCallNotification({
+    socket: callerSocket,
+    receiverSocket,
+    isReceiverOnline: true,
+    callId: 'call_x',
+    receiver: { userId: 'u_recv', name: 'Asha' },
+    callType: 'voice',
+    callNotificationData: { callId: 'call_x' },
+    sendCallFcm,
+  });
+
+  // ringing must be emitted before the FCM promise resolves.
+  const events = order.map(([t, ev]) => `${t}:${ev}`);
+  assert.deepEqual(events.slice(0, 3), [
+    'receiver:call:incoming',
+    'caller:call:ringing',
+    'fcm:called',
+  ]);
+
+  resolveFcm({ success: false, reason: 'offline test' });
+  const result = await promise;
+  // Online FCM failure does NOT fail the call.
+  assert.equal(result.method, 'websocket');
+  assert.equal(result.fcm.success, false);
+  assert.ok(order.every(([t, ev]) => ev !== 'call:failed'));
+});
+
+test('deliverCallNotification: offline confirms ringing after FCM, failure fails caller', async () => {
+  const emitted = [];
+  const callerSocket = { emit: (ev, d) => emitted.push([ev, d]) };
+  const receiverSocket = { emit: () => emitted.push(['receiverEmit']) };
+
+  const ok = await deliverCallNotification({
+    socket: callerSocket,
+    receiverSocket,
+    isReceiverOnline: false,
+    callId: 'call_y',
+    receiver: { userId: 'u_recv', name: 'Asha' },
+    callType: 'voice',
+    callNotificationData: { callId: 'call_y' },
+    sendCallFcm: async () => ({ success: true }),
+  });
+  assert.equal(ok.method, 'fcm_push');
+  assert.deepEqual(emitted[0][0], 'call:ringing');
+  assert.equal(emitted[0][1].notificationMethod, 'fcm_push');
+
+  const fail = await deliverCallNotification({
+    socket: callerSocket,
+    receiverSocket,
+    isReceiverOnline: false,
+    callId: 'call_z',
+    receiver: { userId: 'u_recv', name: 'Asha' },
+    callType: 'voice',
+    callNotificationData: { callId: 'call_z' },
+    sendCallFcm: async () => ({ success: false }),
+  });
+  assert.equal(fail.fcm.success, false);
+  // Caller is NOT confirmed on offline-FCM failure (caller cleanup happens
+  // in the socket handler) — total call:ringing emits stays at 1.
+  assert.equal(emitted.filter(([ev]) => ev === 'call:ringing').length, 1);
 });
 
 // ── sendCallNotification shape ──────────────────────────────────────────────

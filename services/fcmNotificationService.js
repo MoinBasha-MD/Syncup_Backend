@@ -506,6 +506,8 @@ class FCMNotificationService {
           callerId: String(callData.callerId),
           callerName: String(callData.callerName || 'Unknown'),
           callerAvatar: String(callData.callerAvatar || ''),
+          receiverName: String(callData.receiverName || ''),
+          receiverAvatar: String(callData.receiverAvatar || ''),
           callType: String(callData.callType), // 'voice' or 'video'
           timestamp: String(callData.timestamp || new Date().toISOString()),
           expiresAt: String(callData.expiresAt || '')

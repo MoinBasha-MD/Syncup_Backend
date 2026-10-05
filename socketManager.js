@@ -10,7 +10,7 @@ const AIMessageService = require('./services/aiMessageService');
 const AISocketService = require('./services/aiSocketService');
 const { connectionLogger } = require('./utils/loggerSetup');
 const fcmNotificationService = require('./services/fcmNotificationService');
-const { resumeCall } = require('./services/callResumeService');
+const { resumeCall, deliverCallNotification } = require('./services/callResumeService');
 const Notification = require('./models/Notification');
 
 // Use the enhanced logging system
@@ -1274,6 +1274,8 @@ const initializeSocketIO = (server) => {
           callerId: userId,
           callerName: caller?.name || 'Unknown',
           callerAvatar: caller?.profileImage || null,
+          receiverName: receiver.name,
+          receiverAvatar: receiver.profileImage || null,
           callType,
           offer,
           timestamp: call.createdAt.toISOString(),
@@ -1283,78 +1285,46 @@ const initializeSocketIO = (server) => {
         // NOTIFICATION STRATEGY
         // FCM is sent in BOTH cases — a "connected" socket can be a stale
         // background connection that never renders UI. The client dedupes
-        // socket vs FCM deliveries by callId.
-        const sendCallFcm = async () => {
-          try {
-            return await fcmNotificationService.sendCallNotification(receiver.userId, {
-              callId,
-              callerId: userId,
-              callerName: caller?.name || 'Unknown',
-              callerAvatar: caller?.profileImage || null,
-              callType,
-              timestamp: callNotificationData.timestamp,
-              expiresAt: callNotificationData.expiresAt
-            });
-          } catch (fcmErr) {
-            console.error('❌ [CALL] sendCallNotification threw:', fcmErr);
-            return { success: false, error: fcmErr.message };
-          }
-        };
-
-        // Strategy 1: WebSocket (receiver is online and connected)
-        if (isReceiverOnline) {
-          console.log(`📱 [CALL] Strategy 1: Sending via WebSocket to ${receiverSocket.id}`);
-          receiverSocket.emit('call:incoming', callNotificationData);
-          console.log(`✅ [CALL] call:incoming emitted via WebSocket`);
-
-          const fcmResult = await sendCallFcm();
-          // FCM failure while socket-online must NOT fail/delete a valid
-          // call — the socket path already delivered it.
-          if (!fcmResult.success) {
-            console.warn('⚠️ [CALL] FCM backup push failed for online receiver — call remains active');
-          }
-
-          // Confirm to caller
-          socket.emit('call:ringing', {
+        // socket vs FCM deliveries by callId. Online: call:ringing is emitted
+        // BEFORE the FCM await so push latency can't delay caller confirmation.
+        const sendCallFcm = () =>
+          fcmNotificationService.sendCallNotification(receiver.userId, {
             callId,
-            receiverId: receiver.userId,
+            callerId: userId,
+            callerName: caller?.name || 'Unknown',
+            callerAvatar: caller?.profileImage || null,
             receiverName: receiver.name,
+            receiverAvatar: receiver.profileImage || null,
             callType,
-            notificationMethod: 'websocket'
+            timestamp: callNotificationData.timestamp,
+            expiresAt: callNotificationData.expiresAt
           });
 
-        } else {
-          // Strategy 2: FCM push notification (receiver is offline / backgrounded)
-          console.log(`📱 [CALL] Strategy 2: Receiver offline, sending FCM push notification`);
+        const delivery = await deliverCallNotification({
+          socket,
+          receiverSocket,
+          isReceiverOnline,
+          callId,
+          receiver,
+          callType,
+          callNotificationData,
+          sendCallFcm,
+        });
 
-          const fcmResult = await sendCallFcm();
+        if (!isReceiverOnline && !delivery.fcm?.success) {
+          console.log(`❌ [CALL] FCM push notification failed - user truly unreachable`);
+          socket.emit('call:failed', { callId, reason: 'User is offline and unreachable' });
 
-          if (fcmResult.success) {
-            console.log(`✅ [CALL] FCM push notification sent successfully`);
+          // Clean up call
+          activeCalls.delete(callId);
+          clearTimeout(callTimeout);
 
-            // Confirm to caller that FCM was dispatched
-            socket.emit('call:ringing', {
-              callId,
-              receiverId: receiver.userId,
-              receiverName: receiver.name,
-              callType,
-              notificationMethod: 'fcm_push'
-            });
-          } else {
-            console.log(`❌ [CALL] FCM push notification failed - user truly unreachable`);
-            socket.emit('call:failed', { callId, reason: 'User is offline and unreachable' });
+          await Call.findOneAndUpdate(
+            { callId },
+            { status: 'failed', endTime: new Date(), endReason: 'receiver_offline_no_fcm' }
+          );
 
-            // Clean up call
-            activeCalls.delete(callId);
-            clearTimeout(callTimeout);
-
-            await Call.findOneAndUpdate(
-              { callId },
-              { status: 'failed', endTime: new Date(), endReason: 'receiver_offline_no_fcm' }
-            );
-
-            return;
-          }
+          return;
         }
         
         console.log(`📞 Call ${callId} is ringing - notification sent successfully`);
