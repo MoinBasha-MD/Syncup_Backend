@@ -492,16 +492,14 @@ class FCMNotificationService {
       const tokens = user.fcmTokens.map(t => t.token);
       console.log(`📞 [FCM CALL] Sending call notification to ${tokens.length} device(s)`);
 
-      // Create high-priority call notification
-      // CRITICAL: Use data-only message for call notifications to trigger custom UI
-      // IMPORTANT: Include top-level notification so Android displays it
-      // automatically via the incoming_calls channel (MAX importance + ring_tone)
-      // even when the app is killed — no phone account permissions needed.
+      // DATA-ONLY high-priority message on Android — the app's headless FCM
+      // handler owns the UI (native full-screen incoming-call notification).
+      // No top-level `notification` and no `android.notification`: a
+      // system-rendered tray copy would double-ring the native UI and can't
+      // carry a real full-screen intent.
+      // Offer SDP is intentionally omitted — it can exceed FCM's 4KB data
+      // limit; the client fetches it via call:resume on wake.
       const message = {
-        notification: {
-          title: String(callData.callerName || 'Unknown'),
-          body: `Incoming ${callData.callType} call`
-        },
         data: {
           type: 'incoming_call',
           callId: String(callData.callId),
@@ -509,27 +507,13 @@ class FCMNotificationService {
           callerName: String(callData.callerName || 'Unknown'),
           callerAvatar: String(callData.callerAvatar || ''),
           callType: String(callData.callType), // 'voice' or 'video'
-          timestamp: new Date().toISOString(),
-          // Include offer SDP for immediate call setup
-          offer: JSON.stringify(callData.offer || {})
+          timestamp: String(callData.timestamp || new Date().toISOString()),
+          expiresAt: String(callData.expiresAt || '')
         },
         tokens: tokens,
         android: {
           priority: 'high',
           ttl: 30000, // 30 seconds - call expires quickly
-          notification: {
-            channelId: 'incoming_calls', // MAX importance, ring_tone.aac sound
-            sound: 'ring_tone',
-            priority: 'max',
-            defaultSound: false,
-            defaultVibrateTimings: false,
-            color: '#00C853',
-            icon: 'ic_notification',
-            tag: String(callData.callId),
-            visibility: 'public',
-            // Opens app directly on tap
-            clickAction: 'android.intent.action.MAIN'
-          }
         },
         apns: {
           payload: {

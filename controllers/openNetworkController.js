@@ -181,8 +181,8 @@ const sectionClauses = async (section, userId, ctx) => {
         .lean();
       return [{ _id: { $in: rows.map((r) => r.rippleId) }, lifecycle: { $in: ['active', 'scheduled'] } }];
     }
-    // Friends' Ripples plus your own — "Ripples" (below) is the
-    // public/everyone feed.
+    // Friends' Ripples plus your own — Explore (below) is the
+    // public-only feed.
     case 'forYou':
       return [
         { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
@@ -193,16 +193,11 @@ const sectionClauses = async (section, userId, ctx) => {
           ],
         },
       ];
-    // Explicitly public, plus Pages followed by this viewer.
+    // Explore is limited to explicitly public/listed Ripples.
     case 'ripples':
       return [
         { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
-        {
-          $or: [
-            { visibility: 'public', discoverability: 'listed' },
-            { visibility: 'page_followers', hostPageId: { $in: [...(ctx?.pageIds ?? [])] } },
-          ],
-        },
+        { visibility: 'public', discoverability: 'listed' },
       ];
     // trending / anything else: the default discoverable set.
     default:
@@ -580,19 +575,16 @@ const getFeed = asyncHandler(async (req, res) => {
 
   const clauses = [];
 
-  // Optional country scope — the globe's "viewing {country}" mode. Applies
-  // to every section uniformly so the sheet consistently shows that
-  // country's Ripples until the user goes back home. place is undefined for
-  // reach 'online', so online-only Ripples simply never match a country
-  // scope.
+  // Country scope applies to public Explore results only; the query is
+  // ignored for friends, personal, and other section feeds.
   const country = String(req.query.country || '').toUpperCase();
-  if (/^[A-Z]{2}$/.test(country)) {
+  if (section === 'ripples' && /^[A-Z]{2}$/.test(country)) {
     clauses.push({ 'place.countryCode': country });
   }
 
   // Text search — title, the place label, or the host name. ANDed with the
   // active section, so "search" stays scoped to whatever tab is open (Yours
-  // searches your Ripples, Ripples searches the public feed, etc.).
+  // searches your Ripples, Explore searches the public feed, etc.).
   const q = String(req.query.q || '').trim().slice(0, 80);
   if (q) {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -639,7 +631,7 @@ const getFeed = asyncHandler(async (req, res) => {
       break;
     }
     // Friends' Ripples plus your own — this used to be the same broad
-    // discoverable set as "Ripples" below, which made the two sections
+    // discoverable set as Explore below, which made the two sections
     // indistinguishable. Own Ripples pass `visibility` via the filter's
     // hostUserId clause, so a 'friends'/'invite' Ripple of yours still shows.
     case 'forYou':
@@ -651,19 +643,13 @@ const getFeed = asyncHandler(async (req, res) => {
         ],
       });
       break;
-    // Public Ripples plus Page-follower Ripples visible to this viewer.
-    // `visibility` is ANDed on too — block + moderation filtering must not
-    // be bypassed just because a Ripple is public.
+    // Explore is explicitly public/listed; friends and followed pages have
+    // separate scopes. Keep the shared visibility gates for blocks/moderation.
     case 'ripples':
     default:
       clauses.push(
         visibility,
-        {
-          $or: [
-            { visibility: 'public', discoverability: 'listed' },
-            { visibility: 'page_followers', hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
-          ],
-        },
+        { visibility: 'public', discoverability: 'listed' },
         { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
       );
       break;

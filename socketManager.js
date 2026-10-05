@@ -10,6 +10,7 @@ const AIMessageService = require('./services/aiMessageService');
 const AISocketService = require('./services/aiSocketService');
 const { connectionLogger } = require('./utils/loggerSetup');
 const fcmNotificationService = require('./services/fcmNotificationService');
+const { resumeCall } = require('./services/callResumeService');
 const Notification = require('./models/Notification');
 
 // Use the enhanced logging system
@@ -1205,7 +1206,14 @@ const initializeSocketIO = (server) => {
             if (callerSocket && callerSocket.connected) {
               callerSocket.emit('call:timeout', { callId });
             }
-            
+
+            // Notify receiver too — their UI/native notification must stop
+            // ringing instead of waiting for a local expiry guess.
+            const timedOutReceiverSocket = userSockets.get(receiver.userId);
+            if (timedOutReceiverSocket && timedOutReceiverSocket.connected) {
+              timedOutReceiverSocket.emit('call:timeout', { callId });
+            }
+
             // Send missed call FCM notification to receiver
             try {
               // Persist a durable notification record so the missed call
@@ -1259,23 +1267,53 @@ const initializeSocketIO = (server) => {
         
         console.log(`✅ Call ${callId} created, notifying receiver ${receiver.name}`);
         
-        // Prepare call notification data
+        // Prepare call notification data — server timestamps let the client
+        // compute real call age and expiry instead of trusting tap time.
         const callNotificationData = {
           callId,
           callerId: userId,
           callerName: caller?.name || 'Unknown',
           callerAvatar: caller?.profileImage || null,
           callType,
-          offer
+          offer,
+          timestamp: call.createdAt.toISOString(),
+          expiresAt: String(call.createdAt.getTime() + 60000)
         };
-        
+
         // NOTIFICATION STRATEGY
+        // FCM is sent in BOTH cases — a "connected" socket can be a stale
+        // background connection that never renders UI. The client dedupes
+        // socket vs FCM deliveries by callId.
+        const sendCallFcm = async () => {
+          try {
+            return await fcmNotificationService.sendCallNotification(receiver.userId, {
+              callId,
+              callerId: userId,
+              callerName: caller?.name || 'Unknown',
+              callerAvatar: caller?.profileImage || null,
+              callType,
+              timestamp: callNotificationData.timestamp,
+              expiresAt: callNotificationData.expiresAt
+            });
+          } catch (fcmErr) {
+            console.error('❌ [CALL] sendCallNotification threw:', fcmErr);
+            return { success: false, error: fcmErr.message };
+          }
+        };
+
         // Strategy 1: WebSocket (receiver is online and connected)
         if (isReceiverOnline) {
           console.log(`📱 [CALL] Strategy 1: Sending via WebSocket to ${receiverSocket.id}`);
           receiverSocket.emit('call:incoming', callNotificationData);
           console.log(`✅ [CALL] call:incoming emitted via WebSocket`);
-          
+
+          const fcmResult = await sendCallFcm();
+          // FCM failure while socket-online must NOT fail/delete a valid
+          // call — the socket path already delivered it.
+          if (!fcmResult.success) {
+            console.warn('⚠️ [CALL] FCM backup push failed for online receiver — call remains active');
+          }
+
           // Confirm to caller
           socket.emit('call:ringing', {
             callId,
@@ -1284,23 +1322,16 @@ const initializeSocketIO = (server) => {
             callType,
             notificationMethod: 'websocket'
           });
-          
+
         } else {
           // Strategy 2: FCM push notification (receiver is offline / backgrounded)
           console.log(`📱 [CALL] Strategy 2: Receiver offline, sending FCM push notification`);
-          
-          const fcmResult = await fcmNotificationService.sendCallNotification(receiver.userId, {
-            callId,
-            callerId: userId,
-            callerName: caller?.name || 'Unknown',
-            callerAvatar: caller?.profileImage || null,
-            callType,
-            offer
-          });
-          
+
+          const fcmResult = await sendCallFcm();
+
           if (fcmResult.success) {
             console.log(`✅ [CALL] FCM push notification sent successfully`);
-            
+
             // Confirm to caller that FCM was dispatched
             socket.emit('call:ringing', {
               callId,
@@ -1312,16 +1343,16 @@ const initializeSocketIO = (server) => {
           } else {
             console.log(`❌ [CALL] FCM push notification failed - user truly unreachable`);
             socket.emit('call:failed', { callId, reason: 'User is offline and unreachable' });
-            
+
             // Clean up call
             activeCalls.delete(callId);
             clearTimeout(callTimeout);
-            
+
             await Call.findOneAndUpdate(
               { callId },
               { status: 'failed', endTime: new Date(), endReason: 'receiver_offline_no_fcm' }
             );
-            
+
             return;
           }
         }
@@ -1334,6 +1365,34 @@ const initializeSocketIO = (server) => {
       }
     });
     
+    // Resume an incoming call — receiver asks "is this call still ringing?"
+    // after waking from FCM/notification. Ack-driven:
+    //   ack(null, data) → active, hydrate from data
+    //   ack(null, null) → definitively inactive
+    //   ack(error)      → transport/server failure (client keeps pending)
+    socket.on('call:resume', async (data, ack) => {
+      try {
+        const callId = typeof data?.callId === 'string' && data.callId.length <= 128
+          ? data.callId
+          : null;
+        const respond = typeof ack === 'function' ? ack : () => {};
+        if (!callId) {
+          respond(null, null);
+          return;
+        }
+        const result = await resumeCall({
+          Call,
+          activeCalls,
+          userId,
+          callId,
+        });
+        respond(null, result);
+      } catch (error) {
+        console.error('❌ Error resuming call:', error);
+        if (typeof ack === 'function') ack({ message: 'resume failed' }, null);
+      }
+    });
+
     // Call answer
     socket.on('call:answer', async (data) => {
       console.log(`📞 [CALL] ===== CALL ANSWER RECEIVED =====`);
@@ -1354,16 +1413,18 @@ const initializeSocketIO = (server) => {
           return;
         }
         
-        // Find call record
-        const call = await Call.findOne({ callId });
-        if (!call) {
-          console.log(`❌ Call ${callId} not found`);
-          socket.emit('call:failed', { reason: 'Call not found' });
+        // Find call record — must still be ringing for THIS receiver. A stale
+        // answer (call already ended/timed out/rejected) is refused instead
+        // of resurrecting a dead call.
+        const call = await Call.findOne({ callId, receiverId: userId, status: 'ringing' });
+        const activeCall = activeCalls.get(callId);
+        if (!call || !activeCall || call.createdAt.getTime() + 60000 <= Date.now()) {
+          console.log(`❌ Call ${callId} not active for answer (receiver=${userId})`);
+          socket.emit('call:failed', { callId, reason: 'Call is no longer active' });
           return;
         }
-        
+
         // Clear timeout
-        const activeCall = activeCalls.get(callId);
         if (activeCall && activeCall.timeoutId) {
           clearTimeout(activeCall.timeoutId);
           console.log(`⏰ Call timeout cleared for ${callId}`);
