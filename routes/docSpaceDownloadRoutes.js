@@ -3,7 +3,36 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const { protect } = require('../middleware/authMiddleware');
+const { resolveUploadPath } = require('../utils/safeUploadPath');
 const DocSpace = require('../models/DocSpace');
+
+/**
+ * Locate the DocSpace document a filename belongs to and authorize access.
+ * Only the owner or a user with current (non-revoked, non-expired) general
+ * or document-specific access may read. Returns { document } or null —
+ * callers respond 404 for everything unauthorized so existence isn't leaked.
+ */
+const findAuthorizedLegacyDoc = async (filename, userId) => {
+  const docSpace = await DocSpace.findOne({
+    'documents.fileUrl': { $regex: filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$' }
+  });
+  if (!docSpace) return null;
+
+  const document = docSpace.documents.find(
+    d => (d.fileUrl || '').endsWith(`/${filename}`) || d.fileUrl === filename
+  );
+  if (!document || document.e2ee?.v) return null;
+  if (docSpace.userId === userId) return { document };
+
+  const hasGeneral = docSpace.generalAccessList.some(a => a.userId === userId);
+  const specific = docSpace.documentSpecificAccess.find(
+    a => a.documentId === document.documentId && a.userId === userId);
+  const hasSpecific = !!specific &&
+    !specific.isRevoked &&
+    (!specific.expiryDate || new Date() <= new Date(specific.expiryDate));
+
+  return (hasGeneral || hasSpecific) ? { document, docSpace } : null;
+};
 
 /**
  * View document (inline) with proper headers
@@ -13,14 +42,30 @@ const DocSpace = require('../models/DocSpace');
 router.get('/view/:filename', protect, async (req, res) => {
   try {
     const { filename } = req.params;
-    const filePath = path.join(__dirname, '../uploads/documents', filename);
+    const filePath = resolveUploadPath('documents', filename);
 
     console.log('👁️ [VIEW] Request for file:', filename);
-    console.log('👁️ [VIEW] File path:', filePath);
+
+    if (!filePath) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
       console.error('❌ [VIEW] File not found:', filePath);
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
+
+    // Authorize before streaming: owner or current grantee only; anything
+    // else (stranger, revoked, expired, unknown file, e2ee doc) → 404.
+    const authorized = await findAuthorizedLegacyDoc(filename, req.user.userId);
+    if (!authorized) {
       return res.status(404).json({
         success: false,
         message: 'File not found'
@@ -85,11 +130,16 @@ router.get('/:filename', protect, async (req, res) => {
   try {
     const { filename } = req.params;
     const userId = req.user.userId;
-    const filePath = path.join(__dirname, '../uploads/documents', filename);
+    const filePath = resolveUploadPath('documents', filename);
 
     console.log('📥 [DOWNLOAD] Request for file:', filename);
-    console.log('📥 [DOWNLOAD] User:', userId);
-    console.log('📥 [DOWNLOAD] File path:', filePath);
+
+    if (!filePath) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
@@ -100,59 +150,22 @@ router.get('/:filename', protect, async (req, res) => {
       });
     }
 
-    // ⚡ FIX: Check download permissions
-    // Find the document and check if user has download permission
-    const docSpace = await DocSpace.findOne({
-      'documents.fileUrl': { $regex: filename }
-    });
-
-    if (!docSpace) {
-      console.error('❌ [DOWNLOAD] Document not found in DocSpace');
+    // Authorize before streaming: owner or current (non-revoked,
+    // non-expired) grantee only; everything else → 404 (existence stays
+    // opaque — same for unknown files and e2ee docs).
+    const authorized = await findAuthorizedLegacyDoc(filename, userId);
+    if (!authorized) {
       return res.status(404).json({
         success: false,
-        message: 'Document not found'
+        message: 'File not found'
       });
     }
 
-    const document = docSpace.documents.find(d => d.fileUrl.includes(filename));
-    if (!document) {
-      console.error('❌ [DOWNLOAD] Document not found');
-      return res.status(404).json({
-        success: false,
-        message: 'Document not found'
-      });
-    }
-
-    // Check if user is the owner
-    const isOwner = docSpace.userId === userId;
-
-    if (!isOwner) {
-      // Check if user has general access (access to all documents)
-      const hasGeneralAccess = docSpace.generalAccessList.some(
-        access => access.userId === userId
-      );
-
-      // Check if user has document-specific access
-      const hasDocumentAccess = docSpace.documentSpecificAccess.some(
-        access => access.documentId === document.documentId && access.userId === userId
-      );
-
-      if (!hasGeneralAccess && !hasDocumentAccess) {
-        console.error('❌ [DOWNLOAD] No access permission');
-        console.log('📋 [DOWNLOAD] User ID:', userId);
-        console.log('📋 [DOWNLOAD] Document ID:', document.documentId);
-        console.log('📋 [DOWNLOAD] General Access List:', docSpace.generalAccessList.map(a => a.userId));
-        console.log('📋 [DOWNLOAD] Document Access List:', docSpace.documentSpecificAccess.filter(a => a.documentId === document.documentId).map(a => a.userId));
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to download this document'
-        });
-      }
-
-      // Log the access
+    const { document, docSpace } = authorized;
+    const isOwner = docSpace ? docSpace.userId === userId : true;
+    if (!isOwner && docSpace) {
       await docSpace.logAccess(document.documentId, userId, req.user.name || 'Unknown User', 'download');
-      
-      console.log(`✅ [DOWNLOAD] Access granted - ${hasGeneralAccess ? 'General Access' : 'Document-Specific Access'}`);
+      console.log('✅ [DOWNLOAD] Access granted to authorized grantee');
     } else {
       console.log('✅ [DOWNLOAD] Owner downloading their own document');
     }

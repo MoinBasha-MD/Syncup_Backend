@@ -237,6 +237,21 @@ const mongoSanitizer = mongoSanitize({
   replaceWith: '_'
 });
 
+// NoSQL operator injection protection. The express-mongo-sanitize middleware
+// reassigns req.query, which throws under Express 5 (getter-only property), so
+// this sanitizes req.body/req.params in place instead. It must run AFTER the
+// body parsers to see the parsed body. req.query is untouched on purpose: with
+// the default 'simple' query parser its values can only be strings/arrays.
+const sanitizeRequestPayload = (req, res, next) => {
+  for (const key of ['body', 'params']) {
+    const value = req[key];
+    if (value && typeof value === 'object' && !Buffer.isBuffer(value)) {
+      mongoSanitize.sanitize(value, { allowDots: true });
+    }
+  }
+  next();
+};
+
 // XSS protection middleware
 const xssProtection = (req, res, next) => {
   // PERF FIX: Skip sanitization for file uploads and non-JSON content types
@@ -302,6 +317,7 @@ module.exports = {
   statusValidationRules,
   securityHeaders,
   mongoSanitizer,
+  sanitizeRequestPayload,
   xssProtection,
   hppProtection,
   requestSizeLimiter,

@@ -1,6 +1,9 @@
 const asyncHandler = require('express-async-handler');
 const Call = require('../models/callModel');
 const User = require('../models/userModel');
+const liveKitService = require('../services/liveKitService');
+const { findAuthorizedCall } = require('../services/socketAuthorization');
+const { TrackSource } = require('@livekit/protocol');
 
 // @desc    Get call history for current user with detailed statistics
 // @route   GET /api/calls/history
@@ -317,6 +320,54 @@ const saveCallToHistory = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Mint a LiveKit room token for an E2EE call
+// @route   POST /api/calls/:callId/livekit-token
+// @access  Private
+const getCallLiveKitToken = asyncHandler(async (req, res) => {
+  const userId = req.user.userId;
+  const callId = typeof req.params.callId === 'string' ? req.params.callId : '';
+  if (!callId || callId.length > 200) {
+    res.status(400);
+    throw new Error('Invalid callId');
+  }
+
+  const call = await findAuthorizedCall(Call, userId, callId, {
+    statuses: ['ringing', 'connected'],
+  });
+  if (!call) {
+    res.status(404);
+    throw new Error('Call not found or no longer active');
+  }
+  if (call.transport !== 'livekit' || !call.roomName) {
+    res.status(400);
+    throw new Error('Call is not a LiveKit call');
+  }
+  if (!liveKitService.isConfigured()) {
+    res.status(503);
+    throw new Error('LIVEKIT_NOT_CONFIGURED');
+  }
+
+  const me = await User.findOne({ userId }).select('name').lean();
+  const token = await liveKitService.createToken({
+    identity: userId,
+    name: me?.name || 'Caller',
+    room: call.roomName,
+    canPublish: true,
+    ttl: '2h',
+    // Calls may only publish camera/mic — never screenshare.
+    publishSources: [TrackSource.CAMERA, TrackSource.MICROPHONE],
+  });
+
+  res.status(200).json({
+    success: true,
+    data: {
+      url: process.env.LIVEKIT_URL,
+      token,
+      room: call.roomName,
+    },
+  });
+});
+
 module.exports = {
   getCallHistory,
   getMissedCalls,
@@ -325,5 +376,6 @@ module.exports = {
   deleteCall,
   getCallStats,
   getCallDetails,
-  saveCallToHistory
+  saveCallToHistory,
+  getCallLiveKitToken
 };

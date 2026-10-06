@@ -9,7 +9,12 @@ const participantSchema = new mongoose.Schema({
 const lastPulseSchema = new mongoose.Schema({
   type: { type: String, default: 'text' },
   senderId: { type: String, default: '' },
-  caption: { type: String, default: '' }
+  caption: { type: String, default: '' },
+  // e2ee v2 envelope of the last pulse — caption is '' when set
+  e2ee: {
+    v: Number,
+    envelope: mongoose.Schema.Types.Mixed
+  }
 }, { _id: false });
 
 const pulseChainSchema = new mongoose.Schema({

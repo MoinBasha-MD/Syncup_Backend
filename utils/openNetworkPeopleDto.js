@@ -90,6 +90,7 @@ const toMessageDto = (m) => ({
   rippleSnapshot: m.rippleSnapshot?.title ? m.rippleSnapshot : null,
   clientId: m.clientId || null,
   deleted: !!m.deleted,
+  e2ee: m.e2ee?.v === 2 ? { v: 2, envelope: m.e2ee.envelope } : null,
   createdAt: m.createdAt ? new Date(m.createdAt).toISOString() : null,
 });
 
@@ -102,6 +103,9 @@ const toChatSummary = (chat, other, extras = {}) => ({
         type: chat.lastMessage.type || null,
         senderId: chat.lastMessage.senderId || null,
         at: chat.lastMessage.at ? new Date(chat.lastMessage.at).toISOString() : null,
+        lastE2ee: chat.lastMessage.lastE2ee?.v === 2
+          ? { v: 2, envelope: chat.lastMessage.lastE2ee.envelope }
+          : null,
       }
     : null,
   unread: Number(chat.unread?.get?.(extras.userId) ?? chat.unread?.[extras.userId] ?? 0),

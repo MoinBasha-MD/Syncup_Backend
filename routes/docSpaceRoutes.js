@@ -102,6 +102,27 @@ router.post('/requests/:requestId/respond',
   docSpaceController.respondToRequest
 );
 
+// E2EE document lifecycle (v2 encrypted docs — opaque ciphertext to the server)
+router.put('/document/:documentId/key',
+  logSecurityEvent('UPDATE_DOCUMENT_KEY'),
+  docSpaceController.updateDocumentKey
+);
+router.post('/document/:documentId/migrate',
+  logSecurityEvent('MIGRATE_DOCUMENT'),
+  docSpaceController.migrateDocument
+);
+// NOTE: validateDocumentAccess intentionally NOT applied here — it rejects
+// the owner, but v2 docs are only readable through these endpoints (owner's
+// own device must fetch its sealed record to view/re-seal).
+router.get('/document/:ownerId/:documentId/e2ee',
+  logSecurityEvent('ACCESS_E2EE_DOCUMENT'),
+  docSpaceController.getDocumentE2ee
+);
+router.get('/document/:ownerId/:documentId/blob',
+  logSecurityEvent('STREAM_E2EE_BLOB'),
+  docSpaceController.streamDocumentBlob
+);
+
 // Document Access
 router.get('/document/:ownerId/:documentType', 
   validateDocumentAccess,

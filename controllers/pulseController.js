@@ -5,6 +5,7 @@ const User = require('../models/userModel');
 const Friend = require('../models/Friend');
 const friendService = require('../services/friendService');
 const { broadcastToUser } = require('../socketManager');
+const { validateEnvelope, isE2eeV2, e2eePulseEnforced } = require('../utils/e2eeEnvelope');
 const { sanitizeUser } = require('../utils/logSanitizer');
 const fcmNotificationService = require('../services/fcmNotificationService');
 
@@ -232,7 +233,8 @@ const getChainMoments = asyncHandler(async (req, res) => {
 const sendPulse = asyncHandler(async (req, res) => {
   try {
     const senderId = req.user.userId;
-    const { receiverId, type, content, caption, moodTag } = req.body;
+    const { receiverId, type, content, caption, moodTag, e2ee } = req.body;
+    const v2 = isE2eeV2(e2ee);
 
     if (!receiverId || !type) {
       res.status(400);
@@ -244,22 +246,42 @@ const sendPulse = asyncHandler(async (req, res) => {
       throw new Error('Cannot send a pulse to yourself');
     }
 
-    if (typeof caption === 'string' && caption.length > MAX_CAPTION_LENGTH) {
+    // E2EE v2: content/caption/moodTag live inside the sealed envelope —
+    // skip plaintext validation and structural checks that don't apply.
+    if (v2) {
+      const envelopeError = validateEnvelope(e2ee, {
+        senderId,
+        expectedCtx: `pulse:${buildChainId(senderId, receiverId)}`,
+        allowedUserIds: new Set([senderId, receiverId]),
+      });
+      if (envelopeError) {
+        res.status(400);
+        throw new Error(`Invalid e2ee envelope: ${envelopeError}`);
+      }
+    } else if (e2eePulseEnforced()) {
+      res.status(400);
+      throw new Error('E2EE_REQUIRED');
+    }
+
+    if (!v2 && typeof caption === 'string' && caption.length > MAX_CAPTION_LENGTH) {
       res.status(400);
       throw new Error(`Caption exceeds max length of ${MAX_CAPTION_LENGTH} characters`);
     }
 
-    if (typeof moodTag === 'string' && moodTag.length > MAX_MOOD_TAG_LENGTH) {
+    if (!v2 && typeof moodTag === 'string' && moodTag.length > MAX_MOOD_TAG_LENGTH) {
       res.status(400);
       throw new Error(`Mood tag exceeds max length of ${MAX_MOOD_TAG_LENGTH} characters`);
     }
 
     // ✅ FIX: validate content matches the declared pulse type before
     // persisting anything (previously any content shape was accepted).
-    const contentError = validatePulseContent(type, content);
-    if (contentError) {
-      res.status(400);
-      throw new Error(contentError);
+    // v2 content is sealed — the client is responsible for its own schema.
+    if (!v2) {
+      const contentError = validatePulseContent(type, content);
+      if (contentError) {
+        res.status(400);
+        throw new Error(contentError);
+      }
     }
 
     const [sender, receiver] = await Promise.all([
@@ -287,16 +309,22 @@ const sendPulse = asyncHandler(async (req, res) => {
       senderId,
       receiverId,
       type,
-      content: content || {},
-      caption: caption || '',
-      moodTag: moodTag || '',
-      status: 'sent'
+      content: v2 ? {} : (content || {}),
+      caption: v2 ? '' : (caption || ''),
+      moodTag: v2 ? '' : (moodTag || ''),
+      status: 'sent',
+      ...(v2 ? { e2ee: { v: 2, envelope: e2ee.envelope } } : {})
     });
 
     const participants = [mapUserToPulseUser(sender), mapUserToPulseUser(receiver)].sort(
       (a, b) => a.userId.localeCompare(b.userId)
     );
-    const lastPulse = { type, senderId, caption: caption || '' };
+    const lastPulse = {
+      type,
+      senderId,
+      caption: v2 ? '' : (caption || ''),
+      ...(v2 ? { e2ee: { v: 2, envelope: e2ee.envelope } } : {})
+    };
 
     // ✅ FIX: chain summary was previously updated via a
     // findOne -> mutate -> save pattern, which is not atomic. Two pulses
@@ -332,8 +360,9 @@ const sendPulse = asyncHandler(async (req, res) => {
           senderId,
           receiverId,
           type,
-          caption: caption || '',
-          content: content || {},
+          caption: v2 ? '' : (caption || ''),
+          content: v2 ? {} : (content || {}),
+          ...(v2 ? { e2ee: { v: 2, envelope: e2ee.envelope } } : {}),
           createdAt: pulse.createdAt,
         },
         chain: updatedChain,
@@ -353,7 +382,9 @@ const sendPulse = asyncHandler(async (req, res) => {
     // Now we respond immediately and let FCM happen asynchronously.
     fcmNotificationService.sendVisibleNotification(receiverId, {
       title: sender.name || 'New Pulse',
-      body: caption?.trim() || `Sent you a ${type} Pulse`,
+      // E2EE v2 pulses keep their caption inside the envelope — never
+      // echo it (or sealed content) into a push payload.
+      body: v2 ? `Sent you a ${type} Pulse` : (caption?.trim() || `Sent you a ${type} Pulse`),
       channelId: 'pulse_notifications',
       data: {
         type: 'pulse',

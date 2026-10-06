@@ -45,7 +45,7 @@ const streamVideo = (req, res, next) => {
       'Content-Length': fileSize,
       'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
+      'Cache-Control': 'private, max-age=31536000', // Cache for 1 year
       'X-Content-Type-Options': 'nosniff'
     };
     
@@ -75,7 +75,7 @@ const streamVideo = (req, res, next) => {
     'Accept-Ranges': 'bytes',
     'Content-Length': chunksize,
     'Content-Type': contentType,
-    'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
+    'Cache-Control': 'private, max-age=31536000', // Cache for 1 year
     'X-Content-Type-Options': 'nosniff'
   };
 
@@ -141,7 +141,7 @@ const videoStreamingHandler = (uploadDir = 'post-media') => {
 const mediaCacheControl = (req, res, next) => {
   // Set cache headers for images and videos
   if (req.path.match(/\.(jpg|jpeg|png|gif|webp|mp4|webm|ogg|mov)$/i)) {
-    res.set('Cache-Control', 'public, max-age=31536000'); // 1 year
+    res.set('Cache-Control', 'private, max-age=31536000'); // 1 year
     res.set('X-Content-Type-Options', 'nosniff');
   }
   next();

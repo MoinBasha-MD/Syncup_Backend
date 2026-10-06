@@ -31,7 +31,6 @@ const protect = async (req, res, next) => {
 
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log('✅ [AUTH MIDDLEWARE] Token verified for user:', decoded.id);
 
       let user;
       if (decoded.tokenType === 'desk') {
@@ -49,20 +48,13 @@ const protect = async (req, res, next) => {
       }
       
       if (!user) {
-        console.log('❌ [AUTH MIDDLEWARE] User not found for token:', decoded.userId || decoded.id);
+        console.log('❌ [AUTH MIDDLEWARE] User not found for token');
         throw new UnauthorizedError('User not found - token may be invalid');
       }
 
-      console.log('👤 [AUTH MIDDLEWARE] User found:', {
-        id: user._id,
-        userId: user.userId,
-        name: user.name,
-        phoneNumber: user.phoneNumber
-      });
-
       // Check if user account is active (if you have such field)
       if (user.isActive === false) {
-        console.log('❌ [AUTH MIDDLEWARE] User account is deactivated:', user._id);
+        console.log('❌ [AUTH MIDDLEWARE] User account is deactivated');
         throw new UnauthorizedError('Account is deactivated');
       }
       
@@ -77,7 +69,6 @@ const protect = async (req, res, next) => {
         tokenType: decoded.tokenType || 'mobile',
       };
       
-      console.log('✅ [AUTH MIDDLEWARE] User authenticated successfully');
       next();
     } else {
       console.log('❌ [AUTH MIDDLEWARE] No authorization header or invalid format');

@@ -52,7 +52,8 @@ const sanitizeDocumentInput = (req, res, next) => {
     }
     
     if (req.query) {
-      req.query = mongoSanitize.sanitize(req.query);
+      // Express 5: req.query is a getter-only property — sanitize in place
+      mongoSanitize.sanitize(req.query);
     }
     
     // Additional XSS protection for text fields - only if req.body exists

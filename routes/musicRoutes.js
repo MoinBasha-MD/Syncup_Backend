@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const { requireMediaAccess } = require('../middleware/mediaAccess');
 const {
   getMusicLibrary,
   getTrendingTracks,
@@ -12,7 +13,7 @@ const {
 } = require('../controllers/musicController');
 
 // Public routes (streaming doesn't require auth for caching/CDN compatibility)
-router.get('/stream/:filename', streamMusic);
+router.get('/stream/:filename', requireMediaAccess, streamMusic);
 
 // Protected routes
 router.get('/library', protect, getMusicLibrary);

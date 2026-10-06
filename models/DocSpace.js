@@ -49,20 +49,31 @@ const docSpaceSchema = new mongoose.Schema(
         default: ''
       },
       
-      // File storage
+      // File storage (plaintext only — null for e2ee v2 documents)
       fileUrl: {
         type: String,
-        required: true
+        required: function() { return !(this.e2ee && this.e2ee.v); }
       },
       
       fileType: {
         type: String, // "application/pdf", "image/jpeg", etc.
-        required: true
+        required: function() { return !(this.e2ee && this.e2ee.v); }
       },
       
       fileSize: {
         type: Number, // in bytes
-        required: true
+        required: function() { return !(this.e2ee && this.e2ee.v); }
+      },
+      
+      // End-to-end encrypted record (v2): fileUrl is null and the customName /
+      // file metadata live inside the sealed payload whose keyEnvelope is
+      // wrapped for owner + every user with access. documentType and category
+      // stay plaintext — they drive the UI slots and the request flow.
+      e2ee: {
+        v: { type: Number },
+        blobId: { type: String },
+        keyEnvelope: { type: mongoose.Schema.Types.Mixed },
+        keyVersion: { type: Number, default: 1 },
       },
       
       uploadedAt: {

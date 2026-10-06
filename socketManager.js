@@ -6,12 +6,20 @@ const User = require('./models/userModel');
 const Friend = require('./models/Friend');
 const StatusPrivacy = require('./models/statusPrivacyModel');
 const Call = require('./models/callModel');
+const Message = require('./models/Message');
 const AIMessageService = require('./services/aiMessageService');
 const AISocketService = require('./services/aiSocketService');
 const { connectionLogger } = require('./utils/loggerSetup');
 const fcmNotificationService = require('./services/fcmNotificationService');
 const { resumeCall, deliverCallNotification } = require('./services/callResumeService');
+const liveKitService = require('./services/liveKitService');
+const { validateEnvelope, isE2eeV2 } = require('./utils/e2eeEnvelope');
 const Notification = require('./models/Notification');
+const {
+  findAuthorizedCall,
+  findAuthorizedReceipt,
+  getOtherCallParticipant,
+} = require('./services/socketAuthorization');
 
 // Use the enhanced logging system
 const socketLogger = connectionLogger;
@@ -71,7 +79,7 @@ const initializeSocketIO = (server) => {
     // Connection state recovery (Socket.IO v4.6+)
     connectionStateRecovery: {
       maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
-      skipMiddlewares: true,
+      skipMiddlewares: false,
     }
   });
 
@@ -115,8 +123,7 @@ const initializeSocketIO = (server) => {
       console.log('🔍 Token check:', {
         hasAuthToken: !!socket.handshake.auth.token,
         hasHeaderToken: !!socket.handshake.headers.authorization,
-        tokenLength: token?.length || 0,
-        tokenPrefix: token?.substring(0, 20) + '...'
+        tokenLength: token?.length || 0
       });
       
       if (!token) {
@@ -1124,12 +1131,38 @@ const initializeSocketIO = (server) => {
       console.log(`📞 Call initiation from ${userId} to ${data.receiverId}`);
       
       try {
-        const { receiverId, callType, offer } = data;
-        
+        const { receiverId, callType, offer, transport, callNonce, e2ee } = data;
+        const useLiveKit = transport === 'livekit';
+
         // Validate call type
         if (!['voice', 'video'].includes(callType)) {
           socket.emit('call:failed', { reason: 'Invalid call type' });
           return;
+        }
+
+        // LiveKit transport: the call key rides inside an E2EE v2 envelope
+        // bound to ctx call:<callerId>:<receiverId>:<callNonce> — no SDP.
+        if (useLiveKit) {
+          if (!liveKitService.isConfigured()) {
+            socket.emit('call:failed', { reason: 'LIVEKIT_NOT_CONFIGURED' });
+            return;
+          }
+          if (typeof callNonce !== 'string' || !/^[0-9a-f]{32}$/.test(callNonce)) {
+            socket.emit('call:failed', { reason: 'Invalid call nonce' });
+            return;
+          }
+          const envelopeError = !isE2eeV2(e2ee)
+            ? 'INVALID_ENVELOPE'
+            : validateEnvelope(e2ee, {
+                senderId: userId,
+                expectedCtx: `call:${userId}:${receiverId}:${callNonce}`,
+                allowedUserIds: new Set([userId, receiverId]),
+                maxBytes: 64 * 1024,
+              });
+          if (envelopeError) {
+            socket.emit('call:failed', { reason: `Invalid e2ee envelope: ${envelopeError}` });
+            return;
+          }
         }
         
         // Find receiver
@@ -1184,8 +1217,33 @@ const initializeSocketIO = (server) => {
           receiverAvatar: receiver.profileImage || null,
           callType,
           status: 'ringing',
-          offerSDP: offer?.sdp || null
+          offerSDP: offer?.sdp || null,
+          ...(useLiveKit
+            ? {
+                transport: 'livekit',
+                callNonce,
+                e2eeEnvelope: e2ee.envelope,
+                roomName: `call_${callId}`,
+              }
+            : {}),
         });
+
+        // Pre-create the SFU room so both ends can join immediately; it
+        // auto-closes after 60s empty if nobody joins.
+        if (useLiveKit) {
+          try {
+            await liveKitService.createRoom({
+              name: call.roomName,
+              emptyTimeout: 60,
+              maxParticipants: 2,
+            });
+          } catch (roomErr) {
+            console.error('❌ [CALL] LiveKit room creation failed:', roomErr.message);
+            socket.emit('call:failed', { reason: 'LIVEKIT_NOT_CONFIGURED' });
+            await Call.deleteOne({ callId });
+            return;
+          }
+        }
         
         // Track active call with timeout
         const callTimeout = setTimeout(async () => {
@@ -1197,7 +1255,11 @@ const initializeSocketIO = (server) => {
             call.endTime = new Date();
             call.endReason = 'timeout';
             await call.save();
-            
+
+            if (call.transport === 'livekit' && call.roomName) {
+              liveKitService.deleteRoom(call.roomName);
+            }
+
             // Remove from active calls
             activeCalls.delete(callId);
             
@@ -1277,7 +1339,13 @@ const initializeSocketIO = (server) => {
           receiverName: receiver.name,
           receiverAvatar: receiver.profileImage || null,
           callType,
-          offer,
+          offer: useLiveKit ? undefined : offer,
+          // LiveKit calls: the callee unwraps the call key from this envelope.
+          // The FCM push (sendCallFcm) deliberately carries none of this —
+          // the woken app re-fetches it via call:resume.
+          ...(useLiveKit
+            ? { transport: 'livekit', callNonce, e2ee: { v: 2, envelope: e2ee.envelope } }
+            : {}),
           timestamp: call.createdAt.toISOString(),
           expiresAt: String(call.createdAt.getTime() + 60000)
         };
@@ -1365,31 +1433,36 @@ const initializeSocketIO = (server) => {
 
     // Call answer
     socket.on('call:answer', async (data) => {
-      console.log(`📞 [CALL] ===== CALL ANSWER RECEIVED =====`);
-      console.log(`📞 [CALL] Call ID: ${data.callId}`);
-      console.log(`📞 [CALL] From User: ${userId}`);
-      console.log(`📞 [CALL] Socket ID: ${socket.id}`);
-      console.log(`📞 [CALL] Socket connected: ${socket.connected}`);
-      console.log(`📞 [CALL] Answer type: ${data.answer?.type}`);
-      console.log(`📞 [CALL] Answer SDP length: ${data.answer?.sdp?.length || 0}`);
-      
       try {
-        const { callId, answer } = data;
-        
-        // Validate answer
-        if (!answer || !answer.sdp || !answer.type) {
-          console.error(`❌ [CALL] Invalid answer received for ${callId}`);
-          socket.emit('call:failed', { reason: 'Invalid answer SDP' });
-          return;
-        }
-        
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        const answer = payload?.answer;
+        if (!callId || callId.length > 200) return;
+
+        console.log('📞 [CALL] Answer received:', {
+          answerType: answer?.type,
+          sdpLength: answer?.sdp?.length || 0,
+          transport: payload?.transport,
+        });
+
         // Find call record — must still be ringing for THIS receiver. A stale
         // answer (call already ended/timed out/rejected) is refused instead
         // of resurrecting a dead call.
-        const call = await Call.findOne({ callId, receiverId: userId, status: 'ringing' });
+        const call = await findAuthorizedCall(Call, userId, callId, {
+          receiverOnly: true,
+          statuses: ['ringing'],
+        });
+
+        // LiveKit calls join an SFU room — there is no answer SDP. Only
+        // accept the missing SDP when the call record is actually livekit.
+        if (call?.transport !== 'livekit' && (!answer || !answer.sdp || !answer.type)) {
+          console.error('❌ [CALL] Invalid answer received');
+          socket.emit('call:failed', { reason: 'Invalid answer SDP' });
+          return;
+        }
         const activeCall = activeCalls.get(callId);
         if (!call || !activeCall || call.createdAt.getTime() + 60000 <= Date.now()) {
-          console.log(`❌ Call ${callId} not active for answer (receiver=${userId})`);
+          console.log('❌ Call is no longer active for answer');
           socket.emit('call:failed', { callId, reason: 'Call is no longer active' });
           return;
         }
@@ -1405,6 +1478,10 @@ const initializeSocketIO = (server) => {
         call.startTime = new Date();
         call.answerSDP = answer?.sdp || null;
         await call.save();
+
+        if (call.transport === 'livekit') {
+          console.log(`✅ Call ${callId} answered on LiveKit transport`);
+        }
         
         console.log(`✅ Call ${callId} connected`);
         
@@ -1436,19 +1513,25 @@ const initializeSocketIO = (server) => {
     
     // Call reject
     socket.on('call:reject', async (data) => {
-      console.log(`📞 Call rejected: ${data.callId}`);
-      
       try {
-        const { callId } = data;
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        if (!callId || callId.length > 200) return;
         
-        // Find and update call record
-        const call = await Call.findOne({ callId });
+        const call = await findAuthorizedCall(Call, userId, callId, {
+          receiverOnly: true,
+          statuses: ['ringing'],
+        });
         if (call) {
           call.status = 'rejected';
           call.endTime = new Date();
           call.endReason = 'rejected';
           await call.save();
-          
+
+          if (call.transport === 'livekit' && call.roomName) {
+            liveKitService.deleteRoom(call.roomName);
+          }
+
           // Clear timeout and remove from active calls
           const activeCall = activeCalls.get(callId);
           if (activeCall && activeCall.timeoutId) {
@@ -1470,20 +1553,23 @@ const initializeSocketIO = (server) => {
     
     // Call end
     socket.on('call:end', async (data) => {
-      console.log(`📞 Call ended: ${data.callId}`);
-      
       try {
-        const { callId } = data;
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        if (!callId || callId.length > 200) return;
         
-        // Find and update call record
-        const call = await Call.findOne({ callId });
+        const call = await findAuthorizedCall(Call, userId, callId);
         if (call) {
           call.status = 'ended';
           call.endTime = new Date();
           call.endReason = 'user_ended';
           call.calculateDuration();
           await call.save();
-          
+
+          if (call.transport === 'livekit' && call.roomName) {
+            liveKitService.deleteRoom(call.roomName);
+          }
+
           // Clear timeout and remove from active calls
           const activeCall = activeCalls.get(callId);
           if (activeCall && activeCall.timeoutId) {
@@ -1518,12 +1604,21 @@ const initializeSocketIO = (server) => {
     
     // ICE candidate exchange
     socket.on('call:ice-candidate', async (data) => {
-      console.log(`🧊 ICE candidate from ${userId} for call ${data.callId}`);
-      
       try {
-        const { callId, candidate, targetUserId } = data;
-        
-        // Forward ICE candidate to target user
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        const candidate = payload?.candidate;
+        if (!callId || callId.length > 200 || !candidate || typeof candidate !== 'object') return;
+
+        const call = await findAuthorizedCall(Call, userId, callId, {
+          statuses: ['ringing', 'connected'],
+        });
+        const targetUserId = getOtherCallParticipant(call, userId);
+        if (!targetUserId || (
+          payload.targetUserId !== undefined &&
+          payload.targetUserId !== targetUserId
+        )) return;
+
         const targetSocket = userSockets.get(targetUserId);
         if (targetSocket && targetSocket.connected) {
           targetSocket.emit('call:ice-candidate', {
@@ -1543,25 +1638,24 @@ const initializeSocketIO = (server) => {
     
     // Network quality update
     socket.on('call:quality-update', async (data) => {
-      console.log(`📊 Quality update from ${userId} for call ${data.callId}: ${data.quality}`);
-      
       try {
-        const { callId, quality, metrics } = data;
-        
-        // Find call to get other participant
-        const call = await Call.findOne({ callId });
-        if (call) {
-          const targetUserId = call.callerId === userId ? call.receiverId : call.callerId;
-          const targetSocket = userSockets.get(targetUserId);
-          
-          if (targetSocket && targetSocket.connected) {
-            targetSocket.emit('call:quality-update', {
-              callId,
-              quality,
-              metrics
-            });
-            console.log(`✅ Quality update forwarded to ${targetUserId}`);
-          }
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        if (!callId || callId.length > 200) return;
+
+        const call = await findAuthorizedCall(Call, userId, callId, {
+          statuses: ['ringing', 'connected'],
+        });
+        const targetUserId = getOtherCallParticipant(call, userId);
+        if (!targetUserId) return;
+        const targetSocket = userSockets.get(targetUserId);
+
+        if (targetSocket && targetSocket.connected) {
+          targetSocket.emit('call:quality-update', {
+            callId,
+            quality: payload.quality,
+            metrics: payload.metrics,
+          });
         }
       } catch (error) {
         console.error('❌ Error forwarding quality update:', error);
@@ -1570,24 +1664,20 @@ const initializeSocketIO = (server) => {
     
     // ICE restart
     socket.on('call:ice-restart', async (data) => {
-      console.log(`🔄 ICE restart from ${userId} for call ${data.callId}`);
-      
       try {
-        const { callId, offer } = data;
-        
-        // Find call to get other participant
-        const call = await Call.findOne({ callId });
-        if (call) {
-          const targetUserId = call.callerId === userId ? call.receiverId : call.callerId;
-          const targetSocket = userSockets.get(targetUserId);
-          
-          if (targetSocket && targetSocket.connected) {
-            targetSocket.emit('call:ice-restart', {
-              callId,
-              offer
-            });
-            console.log(`✅ ICE restart offer forwarded to ${targetUserId}`);
-          }
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        if (!callId || callId.length > 200) return;
+
+        const call = await findAuthorizedCall(Call, userId, callId, {
+          statuses: ['ringing', 'connected'],
+        });
+        const targetUserId = getOtherCallParticipant(call, userId);
+        if (!targetUserId) return;
+        const targetSocket = userSockets.get(targetUserId);
+
+        if (targetSocket && targetSocket.connected) {
+          targetSocket.emit('call:ice-restart', { callId, offer: payload.offer });
         }
       } catch (error) {
         console.error('❌ Error forwarding ICE restart:', error);
@@ -1596,24 +1686,20 @@ const initializeSocketIO = (server) => {
     
     // ICE restart answer
     socket.on('call:ice-restart-answer', async (data) => {
-      console.log(`🔄 ICE restart answer from ${userId} for call ${data.callId}`);
-      
       try {
-        const { callId, answer } = data;
-        
-        // Find call to get other participant
-        const call = await Call.findOne({ callId });
-        if (call) {
-          const targetUserId = call.callerId === userId ? call.receiverId : call.callerId;
-          const targetSocket = userSockets.get(targetUserId);
-          
-          if (targetSocket && targetSocket.connected) {
-            targetSocket.emit('call:ice-restart-answer', {
-              callId,
-              answer
-            });
-            console.log(`✅ ICE restart answer forwarded to ${targetUserId}`);
-          }
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        if (!callId || callId.length > 200) return;
+
+        const call = await findAuthorizedCall(Call, userId, callId, {
+          statuses: ['ringing', 'connected'],
+        });
+        const targetUserId = getOtherCallParticipant(call, userId);
+        if (!targetUserId) return;
+        const targetSocket = userSockets.get(targetUserId);
+
+        if (targetSocket && targetSocket.connected) {
+          targetSocket.emit('call:ice-restart-answer', { callId, answer: payload.answer });
         }
       } catch (error) {
         console.error('❌ Error forwarding ICE restart answer:', error);
@@ -1624,30 +1710,42 @@ const initializeSocketIO = (server) => {
     // This eliminates the need for inefficient polling every 30 seconds
     
     // 💬 CHAT FEATURES: Message Status Updates
-    socket.on('message:delivered', (data) => {
-      console.log(`✅ Message ${data.messageId} delivered`);
-      
-      // Notify sender that message was delivered
-      const senderSocket = userSockets.get(data.senderId.toString());
-      if (senderSocket && senderSocket.connected) {
-        senderSocket.emit('message:delivered', {
-          messageId: data.messageId,
-          timestamp: new Date().toISOString()
-        });
+    socket.on('message:delivered', async (data) => {
+      try {
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        if (!payload) return;
+        const message = await findAuthorizedReceipt(Message, userId, payload.messageId);
+        if (!message) return;
+
+        const senderSocket = userSockets.get(message.senderId);
+        if (senderSocket && senderSocket.connected) {
+          senderSocket.emit('message:delivered', {
+            messageId: message._id,
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (error) {
+        console.error('❌ Error forwarding delivered receipt');
       }
     });
     
-    socket.on('message:read', (data) => {
-      console.log(`👁️ Message ${data.messageId} read`);
-      
-      // Notify sender that message was read
-      const senderSocket = userSockets.get(data.senderId.toString());
-      if (senderSocket && senderSocket.connected) {
-        senderSocket.emit('message:read', {
-          messageId: data.messageId,
-          readBy: userId,
-          timestamp: new Date().toISOString()
-        });
+    socket.on('message:read', async (data) => {
+      try {
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        if (!payload) return;
+        const message = await findAuthorizedReceipt(Message, userId, payload.messageId);
+        if (!message) return;
+
+        const senderSocket = userSockets.get(message.senderId);
+        if (senderSocket && senderSocket.connected) {
+          senderSocket.emit('message:read', {
+            messageId: message._id,
+            readBy: userId,
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (error) {
+        console.error('❌ Error forwarding read receipt');
       }
     });
     

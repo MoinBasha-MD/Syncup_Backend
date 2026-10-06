@@ -91,7 +91,7 @@ class FileEncryption {
       
       // Generate salt and derive key
       const salt = crypto.randomBytes(this.saltLength);
-      const key = this.deriveKey(salt);
+      const key = await this.deriveKey(salt);
       
       // Generate IV
       const iv = crypto.randomBytes(this.ivLength);
@@ -160,7 +160,7 @@ class FileEncryption {
       );
       
       // Derive key
-      const key = this.deriveKey(salt);
+      const key = await this.deriveKey(salt);
       
       // Create decipher
       const decipher = crypto.createDecipheriv(this.algorithm, key, iv);

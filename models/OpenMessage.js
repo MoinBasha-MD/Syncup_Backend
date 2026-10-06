@@ -34,6 +34,11 @@ const openMessageSchema = new mongoose.Schema(
     },
     /** Client-generated id for send retry idempotency (partial unique). */
     clientId: { type: String, default: undefined },
+    /** E2EE v2 envelope — body/imageUrl stay empty when set. */
+    e2ee: {
+      v: Number,
+      envelope: mongoose.Schema.Types.Mixed,
+    },
     deleted: { type: Boolean, default: false },
   },
   { timestamps: true },

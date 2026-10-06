@@ -9,7 +9,8 @@ const {
   deleteCall,
   getCallStats,
   getCallDetails,
-  saveCallToHistory
+  saveCallToHistory,
+  getCallLiveKitToken
 } = require('../controllers/callController');
 
 // All routes are protected
@@ -25,6 +26,9 @@ router.post('/missed/mark-seen', markMissedCallsAsSeen);
 
 // Call statistics
 router.get('/stats', getCallStats);
+
+// LiveKit E2EE call room token (participants only, active calls only)
+router.post('/:callId/livekit-token', getCallLiveKitToken);
 
 // Single call operations
 router.get('/:callId', getCallDetails);

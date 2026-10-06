@@ -10,6 +10,10 @@ const otpSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  resetTokenHash: {
+    type: String,
+    select: false,
+  },
   type: {
     type: String,
     required: true,

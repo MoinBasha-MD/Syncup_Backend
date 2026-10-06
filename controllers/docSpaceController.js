@@ -2,8 +2,45 @@ const DocSpace = require('../models/DocSpace');
 const DocumentRequest = require('../models/DocumentRequest');
 const Friend = require('../models/Friend');
 const User = require('../models/userModel');
+const Blob = require('../models/Blob');
+const {
+  validateEnvelope,
+  isE2eeV2,
+  e2eeDocsEnforced,
+  MAX_DOC_KEY_ENTRIES,
+} = require('../utils/e2eeEnvelope');
+const { resolveUploadPath } = require('../utils/safeUploadPath');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs').promises;
+
+const BLOB_ID_RE = /^[0-9a-f]{32}$/;
+const DOCUMENT_ID_RE = /^[0-9a-f]{32}$/;
+const DOC_TYPE_ENUM = new Set([
+  'PAN Card', 'Aadhar Card', 'Voter ID Card', 'Passport', 'Driving License',
+  'Birth Certificate', '10th Marksheet', '12th Marksheet',
+  'Degree Certificate', 'Ration Card', 'Bank Passbook', 'Other',
+]);
+const DOC_CATEGORY_ENUM = new Set([
+  'Identity', 'Financial', 'Medical', 'Education', 'Personal', 'Work', 'Other',
+]);
+const BLOB_DIR = process.env.BLOB_STORAGE_DIR || path.join(__dirname, '..', 'storage', 'blobs');
+const DOC_CTX_MAX_BYTES = 256 * 1024;
+
+/** Users currently holding a key for `document` — owner ∪ general ∪ specific. */
+const docAllowedUserIds = (docSpace, documentId) => {
+  const set = new Set([docSpace.userId]);
+  for (const a of docSpace.generalAccessList) set.add(a.userId);
+  for (const a of docSpace.documentSpecificAccess) {
+    if (a.documentId === documentId && !a.isRevoked) set.add(a.userId);
+  }
+  return set;
+};
+
+const docCtx = (ownerId, documentId) => `doc:${ownerId}:${documentId}`;
+
+const badDocRequest = (res, code, message, status = 400) =>
+  res.status(status).json({ success: false, code, message });
 
 /**
  * Get user's doc space
@@ -37,7 +74,21 @@ exports.uploadDocument = async (req, res) => {
   try {
     const userId = req.user.userId;
     const { documentType, customName } = req.body;
-    
+
+    // ── E2EE v2 upload: JSON body { documentId, documentType, category,
+    //    e2ee: { v:2, blobId, keyEnvelope } } — no multipart file. ──
+    if (isE2eeV2(req.body?.e2ee)) {
+      return await uploadE2eeDocument(req, res);
+    }
+
+    if (e2eeDocsEnforced()) {
+      if (req.file) {
+        try { await fs.unlink(req.file.path); } catch {}
+      }
+      return badDocRequest(
+        res, 'E2EE_REQUIRED', 'Encrypted document upload is required', 403);
+    }
+
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -707,6 +758,347 @@ exports.getAccessLog = async (req, res) => {
       message: 'Failed to get access log',
       error: error.message
     });
+  }
+};
+
+/**
+ * E2EE v2 document upload — no file reaches the server; the encrypted blob
+ * was already POSTed to /api/blobs by the client.
+ * Body: { documentId (32-hex, client-generated), documentType, category?,
+ *         e2ee: { v:2, blobId, keyEnvelope, keyVersion? } }
+ */
+const uploadE2eeDocument = async (req, res) => {
+  const userId = req.user.userId;
+  const { documentId, documentType, category, e2ee } = req.body;
+
+  if (!DOCUMENT_ID_RE.test(documentId || '')) {
+    return badDocRequest(res, 'INVALID_DOCUMENT_ID', 'documentId must be 32 lowercase hex chars');
+  }
+  if (!DOC_TYPE_ENUM.has(documentType)) {
+    return badDocRequest(res, 'INVALID_DOCUMENT_TYPE', 'Unknown document type');
+  }
+  if (category !== undefined && !DOC_CATEGORY_ENUM.has(category)) {
+    return badDocRequest(res, 'INVALID_CATEGORY', 'Unknown category');
+  }
+  if (!BLOB_ID_RE.test(e2ee?.blobId || '')) {
+    return badDocRequest(res, 'INVALID_BLOB', 'blobId must be 32 lowercase hex chars');
+  }
+
+  // The blob must exist and belong to the uploader — nobody may attach
+  // another user's ciphertext to their doc space.
+  const blob = await Blob.findOne({ blobId: e2ee.blobId, ownerUserId: userId });
+  if (!blob) {
+    return badDocRequest(res, 'BLOB_NOT_FOUND', 'Blob not found', 404);
+  }
+
+  const docSpace = await DocSpace.getOrCreate(userId);
+  if (docSpace.documents.some(d => d.documentId === documentId)) {
+    return badDocRequest(res, 'DUPLICATE_DOCUMENT', 'documentId already exists', 409);
+  }
+  if (docSpace.documents.length >= docSpace.settings.maxDocuments) {
+    return badDocRequest(res, 'MAX_DOCUMENTS',
+      `Maximum ${docSpace.settings.maxDocuments} documents allowed`);
+  }
+
+  // Envelope may only wrap keys for users who currently have access
+  // (general access already covers a brand-new doc — specific access can't
+  // exist yet).
+  const err = validateEnvelope(
+    { v: 2, envelope: e2ee.keyEnvelope },
+    {
+      senderId: userId,
+      expectedCtx: docCtx(userId, documentId),
+      allowedUserIds: docAllowedUserIds(docSpace, documentId),
+      maxKeys: MAX_DOC_KEY_ENTRIES,
+      maxBytes: DOC_CTX_MAX_BYTES,
+    },
+  );
+  if (err) {
+    return badDocRequest(res, err, `keyEnvelope rejected: ${err}`);
+  }
+
+  const documentData = {
+    documentId,
+    documentType,
+    customName: '', // sealed inside the envelope payload
+    category: category || 'Other',
+    fileUrl: null,
+    fileType: '',
+    fileSize: 0,
+    uploadedAt: new Date(),
+    e2ee: {
+      v: 2,
+      blobId: e2ee.blobId,
+      keyEnvelope: e2ee.keyEnvelope,
+      keyVersion: Number.isInteger(e2ee.keyVersion) && e2ee.keyVersion > 0 ? e2ee.keyVersion : 1,
+    },
+  };
+
+  await docSpace.addDocument(documentData);
+  console.log(`✅ [DOC SPACE] E2EE document uploaded: ${documentType} for user ${userId}`);
+
+  res.json({
+    success: true,
+    message: 'Document uploaded successfully',
+    document: documentData,
+    docSpace,
+  });
+};
+
+/**
+ * PUT /document/:documentId/key — owner re-seals a doc's payload key to the
+ * current recipient set (grant/approve) or rotates it (revoke).
+ * Body: { keyEnvelope, keyVersion, blobId? }
+ *  - keyVersion === current  → same key, more recipients (no blobId)
+ *  - keyVersion === current+1 → key rotation; blobId REQUIRED and must be a
+ *    blob owned by the caller (the server swaps blobId atomically).
+ */
+exports.updateDocumentKey = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { documentId } = req.params;
+    const { keyEnvelope, keyVersion, blobId } = req.body;
+
+    const docSpace = await DocSpace.findOne({ userId });
+    if (!docSpace) return badDocRequest(res, 'NOT_FOUND', 'Doc space not found', 404);
+
+    const document = docSpace.documents.find(d => d.documentId === documentId);
+    if (!document || !document.e2ee?.v) {
+      return badDocRequest(res, 'NOT_FOUND', 'Encrypted document not found', 404);
+    }
+
+    const current = document.e2ee.keyVersion || 1;
+    const next = Number(keyVersion);
+    if (!Number.isInteger(next) || (next !== current && next !== current + 1)) {
+      return badDocRequest(res, 'INVALID_KEY_VERSION',
+        `keyVersion must be ${current} (re-seal) or ${current + 1} (rotation)`);
+    }
+
+    if (next === current + 1) {
+      // Rotation: a new blob is mandatory and must be the caller's own.
+      if (!BLOB_ID_RE.test(blobId || '')) {
+        return badDocRequest(res, 'INVALID_BLOB', 'rotation requires a new blobId');
+      }
+      const blob = await Blob.findOne({ blobId, ownerUserId: userId });
+      if (!blob) return badDocRequest(res, 'BLOB_NOT_FOUND', 'Blob not found', 404);
+    } else if (blobId !== undefined) {
+      return badDocRequest(res, 'UNEXPECTED_BLOB', 'blobId only allowed on rotation');
+    }
+
+    const err = validateEnvelope(
+      { v: 2, envelope: keyEnvelope },
+      {
+        senderId: userId,
+        expectedCtx: docCtx(userId, documentId),
+        allowedUserIds: docAllowedUserIds(docSpace, documentId),
+        maxKeys: MAX_DOC_KEY_ENTRIES,
+        maxBytes: DOC_CTX_MAX_BYTES,
+      },
+    );
+    if (err) return badDocRequest(res, err, `keyEnvelope rejected: ${err}`);
+
+    document.e2ee.keyEnvelope = keyEnvelope;
+    document.e2ee.keyVersion = next;
+    if (next === current + 1) document.e2ee.blobId = blobId;
+    document.markModified?.('e2ee');
+    await docSpace.save();
+
+    res.json({ success: true, keyVersion: next, blobId: document.e2ee.blobId });
+  } catch (error) {
+    console.error('❌ [DOC SPACE] Error updating document key:', error);
+    res.status(500).json({ success: false, message: 'Failed to update document key', error: error.message });
+  }
+};
+
+/**
+ * Shared access check for the e2ee read paths — owner or a user with
+ * general/document-specific access. Returns { docSpace, document } or
+ * writes the error response and returns null.
+ */
+const authorizeDocAccess = async (req, res, documentIdRequired = true) => {
+  const { ownerId, documentId } = req.params;
+  const requesterId = req.user.userId;
+
+  const docSpace = await DocSpace.findOne({ userId: ownerId });
+  if (!docSpace) {
+    badDocRequest(res, 'NOT_FOUND', 'Document not found', 404);
+    return null;
+  }
+  const document = docSpace.documents.find(d => d.documentId === documentId);
+  if (!document) {
+    badDocRequest(res, 'NOT_FOUND', 'Document not found', 404);
+    return null;
+  }
+  const isOwner = docSpace.userId === requesterId;
+  if (!isOwner) {
+    // NOTE: DocSpace.hasAccess ignores isRevoked/expiry, so the check is
+    // done here directly — revoked or expired grantees get 403 even before
+    // the owner client finishes key rotation.
+    const hasGeneral = docSpace.generalAccessList.some(a => a.userId === requesterId);
+    const specific = docSpace.documentSpecificAccess.find(
+      a => a.documentId === document.documentId && a.userId === requesterId);
+    const hasSpecific = !!specific &&
+      !specific.isRevoked &&
+      (!specific.expiryDate || new Date() <= new Date(specific.expiryDate));
+    if (!hasGeneral && !hasSpecific) {
+      badDocRequest(res, 'ACCESS_DENIED', 'Access denied', 403);
+      return null;
+    }
+  }
+  return { docSpace, document, isOwner };
+};
+
+/**
+ * GET /document/:ownerId/:documentId/e2ee — the sealed record a grantee (or
+ * the owner's other device) downloads to decrypt locally.
+ */
+exports.getDocumentE2ee = async (req, res) => {
+  try {
+    const found = await authorizeDocAccess(req, res);
+    if (!found) return;
+    const { docSpace, document } = found;
+
+    if (!document.e2ee?.v) {
+      return badDocRequest(res, 'NOT_ENCRYPTED', 'Document is not encrypted', 404);
+    }
+
+    await docSpace.logAccess(document.documentId, req.user.userId, req.user.name || 'Unknown', 'view');
+
+    res.json({
+      success: true,
+      data: {
+        documentId: document.documentId,
+        documentType: document.documentType,
+        category: document.category,
+        blobId: document.e2ee.blobId,
+        keyEnvelope: document.e2ee.keyEnvelope,
+        keyVersion: document.e2ee.keyVersion,
+      },
+    });
+  } catch (error) {
+    console.error('❌ [DOC SPACE] Error getting e2ee document:', error);
+    res.status(500).json({ success: false, message: 'Failed to get document', error: error.message });
+  }
+};
+
+/**
+ * GET /document/:ownerId/:documentId/blob — stream the encrypted blob to an
+ * authorized reader. Grantees can't hit /api/blobs directly (owner-only), so
+ * the ciphertext rides this access-checked route.
+ */
+exports.streamDocumentBlob = async (req, res) => {
+  try {
+    const found = await authorizeDocAccess(req, res);
+    if (!found) return;
+    const { document } = found;
+
+    const blobId = document.e2ee?.blobId;
+    if (!document.e2ee?.v || !BLOB_ID_RE.test(blobId || '')) {
+      return badDocRequest(res, 'NOT_FOUND', 'Document blob not found', 404);
+    }
+
+    res.sendFile(blobId, { root: BLOB_DIR, dotfiles: 'deny' }, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({ success: false, message: 'Blob not found' });
+      }
+    });
+  } catch (error) {
+    console.error('❌ [DOC SPACE] Error streaming document blob:', error);
+    res.status(500).json({ success: false, message: 'Failed to stream blob', error: error.message });
+  }
+};
+
+/**
+ * POST /document/:documentId/migrate — owner promotes a legacy plaintext doc
+ * to v2. The server verifies blob ownership + envelope + the client's
+ * plaintext hash BEFORE deleting the plaintext file.
+ * Body: { blobId, keyEnvelope, plaintextSha256 }
+ */
+exports.migrateDocument = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { documentId } = req.params;
+    const { blobId, keyEnvelope, plaintextSha256 } = req.body;
+
+    const docSpace = await DocSpace.findOne({ userId });
+    if (!docSpace) return badDocRequest(res, 'NOT_FOUND', 'Doc space not found', 404);
+
+    const document = docSpace.documents.find(d => d.documentId === documentId);
+    if (!document) return badDocRequest(res, 'NOT_FOUND', 'Document not found', 404);
+    if (document.e2ee?.v) {
+      return badDocRequest(res, 'ALREADY_MIGRATED', 'Document is already encrypted', 409);
+    }
+
+    if (!BLOB_ID_RE.test(blobId || '')) {
+      return badDocRequest(res, 'INVALID_BLOB', 'blobId must be 32 lowercase hex chars');
+    }
+    const blob = await Blob.findOne({ blobId, ownerUserId: userId });
+    if (!blob) return badDocRequest(res, 'BLOB_NOT_FOUND', 'Blob not found', 404);
+
+    const err = validateEnvelope(
+      { v: 2, envelope: keyEnvelope },
+      {
+        senderId: userId,
+        expectedCtx: docCtx(userId, documentId),
+        allowedUserIds: docAllowedUserIds(docSpace, documentId),
+        maxKeys: MAX_DOC_KEY_ENTRIES,
+        maxBytes: DOC_CTX_MAX_BYTES,
+      },
+    );
+    if (err) return badDocRequest(res, err, `keyEnvelope rejected: ${err}`);
+
+    // The plaintext file's hash must match what the client says it encrypted —
+    // a mismatch means the blob belongs to different content; do NOT migrate
+    // or delete.
+    if (!/^[0-9a-f]{64}$/i.test(plaintextSha256 || '')) {
+      return badDocRequest(res, 'INVALID_HASH', 'plaintextSha256 must be a sha256 hex digest');
+    }
+    const filename = path.basename(document.fileUrl || '');
+    const filePath = filename ? resolveUploadPath('documents', filename) : null;
+    if (filePath) {
+      try {
+        const diskBytes = await fs.readFile(filePath);
+        const diskSha = crypto.createHash('sha256').update(diskBytes).digest('hex');
+        if (diskSha !== plaintextSha256.toLowerCase()) {
+          return badDocRequest(res, 'HASH_MISMATCH', 'plaintext hash mismatch', 409);
+        }
+      } catch (readErr) {
+        if (readErr?.code !== 'ENOENT') throw readErr;
+        // File already gone — nothing left to verify; still record the
+        // migration so the doc becomes encrypted.
+        console.warn('⚠️ [DOC SPACE] migrate: plaintext file already missing:', filename);
+      }
+    }
+
+    document.e2ee = {
+      v: 2,
+      blobId,
+      keyEnvelope,
+      keyVersion: 1,
+    };
+    document.fileUrl = null;
+    document.customName = '';
+    document.fileType = '';
+    document.fileSize = 0;
+    document.markModified?.('e2ee');
+    await docSpace.save();
+
+    // Plaintext deletion only AFTER the encrypted record is committed.
+    if (filePath) {
+      try {
+        await fs.unlink(filePath);
+      } catch (unlinkErr) {
+        if (unlinkErr?.code !== 'ENOENT') {
+          console.error('⚠️ [DOC SPACE] migrate: failed to delete plaintext:', unlinkErr.message);
+        }
+      }
+    }
+
+    console.log(`✅ [DOC SPACE] Document migrated to E2EE: ${documentId} for user ${userId}`);
+    res.json({ success: true, message: 'Document migrated to end-to-end encryption', docSpace });
+  } catch (error) {
+    console.error('❌ [DOC SPACE] Error migrating document:', error);
+    res.status(500).json({ success: false, message: 'Failed to migrate document', error: error.message });
   }
 };
 

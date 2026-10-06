@@ -96,6 +96,11 @@ const groupChatSchema = mongoose.Schema(
         type: String,
         enum: ['text', 'image', 'file', 'audio', 'video', 'gif', 'voice'],
         default: 'text'
+      },
+      // e2ee v2 envelope of the last message — list previews decrypt client-side
+      lastE2ee: {
+        v: Number,
+        envelope: mongoose.Schema.Types.Mixed
       }
     },
     isActive: {
@@ -190,7 +195,9 @@ groupChatSchema.methods.updateLastMessage = function(message) {
     senderId: message.senderId,
     senderName: message.senderName,
     timestamp: message.createdAt,
-    messageType: message.messageType
+    messageType: message.messageType,
+    // v2 envelopes carry the preview — text is '' for those
+    ...(message.e2ee && message.e2ee.v === 2 ? { lastE2ee: message.e2ee } : {})
   };
   this.lastActivity = new Date();
   return this;

@@ -3,6 +3,7 @@ const Notification = require('../models/Notification');
 // Lazy require to break circular dependency with socketManager
 const getSocketManager = () => require('../socketManager');
 const fcmNotificationService = require('./fcmNotificationService');
+const { withMediaToken } = require('../utils/mediaToken');
 
 /**
  * Enhanced Backend Notification Service (WebSocket + FCM)
@@ -49,6 +50,9 @@ class EnhancedNotificationService {
         return false;
       }
 
+      // Media-token-signed avatar for payloads rendered outside the app.
+      const senderAvatar = withMediaToken(sender.profileImage, receiverId);
+
       // Persist a durable notification record so it survives even if FCM is
       // dropped (TTL expires, device offline, etc.). The frontend will sync
       // unread notifications on app resume / socket reconnect.
@@ -65,7 +69,7 @@ class EnhancedNotificationService {
             messageId: message._id ? message._id.toString() : undefined,
             chatId: senderId,
             senderName: sender.name,
-            senderProfileImage: sender.profileImage,
+            senderProfileImage: senderAvatar,
             messageType: message.messageType,
             timestamp: new Date().toISOString()
           }
@@ -121,10 +125,10 @@ class EnhancedNotificationService {
           messageId: message._id,
           chatId: senderId,
           senderName: sender.name,
-          senderProfileImage: sender.profileImage,
+          senderProfileImage: senderAvatar,
           timestamp: new Date().toISOString()
         },
-        senderProfileImage: sender.profileImage,
+        senderProfileImage: senderAvatar,
         timestamp: new Date().toISOString()
       });
 
@@ -148,7 +152,7 @@ class EnhancedNotificationService {
       fcmNotificationService.sendWakeupNotification(receiverId, {
         senderId,
         senderName: sender.name,
-        senderProfileImage: sender.profileImage,
+        senderProfileImage: senderAvatar,
         messageId: message._id,
         messagePreview: this.formatMessagePreview(message)
       }).then((fcmResult) => {
@@ -196,7 +200,9 @@ class EnhancedNotificationService {
         type,
         actorId: actorUserId,
         actorName,
-        actorAvatar,
+        // Push payloads are rendered by the OS outside the app — sign our
+        // /uploads URLs with a media token bound to the recipient.
+        actorAvatar: withMediaToken(actorAvatar, recipientUserId),
         ...data,
         timestamp: new Date().toISOString()
       };

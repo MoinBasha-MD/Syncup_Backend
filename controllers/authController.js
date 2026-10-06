@@ -337,14 +337,10 @@ const loginUser = async (req, res) => {
       name: user.name,
       phoneNumber: user.phoneNumber,
       hasPassword: !!user.password,
-      passwordHashLength: user.password?.length,
-      passwordHashPrefix: user.password?.substring(0, 10)
     });
     
     // Check if password matches
     console.log('🔐 [AUTH CONTROLLER] Calling matchPassword...');
-    console.log('🔐 [AUTH CONTROLLER] Entered password:', password);
-    console.log('🔐 [AUTH CONTROLLER] Stored hash:', user.password);
     
     const bcrypt = require('bcryptjs');
     const isMatch = await bcrypt.compare(password, user.password);

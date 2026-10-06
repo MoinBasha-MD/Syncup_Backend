@@ -459,7 +459,7 @@ userSchema.pre('save', function trackStatusChange() {
 });
 
 // Normalize phone number before saving
-userSchema.pre('save', async function (next) {
+userSchema.pre('save', async function hashPasswordBeforeSave(next) {
   // Normalize phone number - remove spaces, dashes, and handle country codes
   if (this.isModified('phoneNumber')) {
     let normalizedPhone = this.phoneNumber.replace(/[\s\-\(\)]/g, '');
@@ -486,11 +486,12 @@ userSchema.pre('save', async function (next) {
   
   // Encrypt password using bcrypt
   if (!this.isModified('password')) {
-    next();
+    return next();
   }
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  return next();
 });
 
 // Sign JWT and return

@@ -4,6 +4,9 @@ const crypto = require('crypto');
 const { normalizePhoneNumber } = require('../utils/phoneUtils');
 const smsProvider = require('./smsProvider');
 
+const RESET_TOKEN_TTL_MS = 5 * 60 * 1000;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 class OTPService {
   /**
    * Generate a 6-digit OTP
@@ -49,8 +52,11 @@ class OTPService {
 
       // Invalidate previous OTPs of same type
       await OTP.updateMany(
-        { identifier, type, verified: false },
-        { verified: true }
+        { identifier, type },
+        {
+          $set: { verified: true },
+          $unset: { resetTokenHash: 1 },
+        }
       );
 
       // Create new OTP
@@ -121,6 +127,37 @@ class OTPService {
         };
       }
 
+      if (type === 'password_reset') {
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+        const claimedOTP = await OTP.findOneAndUpdate(
+          {
+            _id: otpDoc._id,
+            verified: false,
+            expiresAt: { $gt: new Date() },
+            attempts: { $lt: otpDoc.maxAttempts },
+          },
+          {
+            $set: {
+              verified: true,
+              resetTokenHash,
+              expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+            },
+          },
+          { new: true }
+        );
+
+        if (!claimedOTP) {
+          return {
+            success: false,
+            error: 'Invalid or expired OTP. Please request a new code.',
+          };
+        }
+
+        console.log(`✅ [OTP SERVICE] OTP verified successfully for ${identifier}`);
+        return { success: true, resetToken };
+      }
+
       // Mark as verified
       otpDoc.verified = true;
       await otpDoc.save();
@@ -128,8 +165,35 @@ class OTPService {
       console.log(`✅ [OTP SERVICE] OTP verified successfully for ${identifier}`);
       return { success: true };
     } catch (error) {
-      console.error('❌ [OTP SERVICE] Error verifying OTP:', error);
+      console.error('❌ [OTP SERVICE] Error verifying OTP');
       return { success: false, error: error.message };
+    }
+  }
+
+  async consumePasswordResetToken(identifier, resetToken) {
+    const normalizedIdentifier =
+      typeof identifier === 'string' ? identifier.trim().toLowerCase() : '';
+    if (
+      !EMAIL_REGEX.test(normalizedIdentifier) ||
+      typeof resetToken !== 'string' ||
+      !/^[a-f0-9]{64}$/i.test(resetToken)
+    ) {
+      return false;
+    }
+
+    const resetTokenHash = crypto.createHash('sha256').update(resetToken.toLowerCase()).digest('hex');
+    try {
+      const consumed = await OTP.findOneAndDelete({
+        identifier: normalizedIdentifier,
+        type: 'password_reset',
+        verified: true,
+        resetTokenHash,
+        expiresAt: { $gt: new Date() },
+      });
+      return !!consumed;
+    } catch (error) {
+      console.error('❌ [OTP SERVICE] Error consuming password reset token');
+      return false;
     }
   }
 

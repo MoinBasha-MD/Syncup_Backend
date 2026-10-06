@@ -33,7 +33,13 @@ async function resumeCall({ Call, activeCalls, userId, callId, now }) {
   // Re-check after the await — the call may have ended mid-query.
   if (!activeCalls.has(callId)) return null;
   if (!call) return null;
-  if (!call.offerSDP) return null;
+
+  const isLiveKit = call.transport === 'livekit';
+  if (isLiveKit) {
+    if (!call.callNonce || !call.e2eeEnvelope) return null;
+  } else if (!call.offerSDP) {
+    return null;
+  }
 
   const at = now !== undefined ? now : Date.now();
   if (call.createdAt.getTime() + CALL_LIFETIME_MS <= at) return null;
@@ -46,7 +52,17 @@ async function resumeCall({ Call, activeCalls, userId, callId, now }) {
     receiverName: call.receiverName,
     receiverAvatar: call.receiverAvatar,
     callType: call.callType,
-    offer: { type: 'offer', sdp: call.offerSDP },
+    ...(isLiveKit
+      ? {
+          // No SDP on the LiveKit path — the callee unwraps the call key
+          // from this envelope (same payload as the socket call:incoming).
+          transport: 'livekit',
+          callNonce: call.callNonce,
+          e2ee: { v: 2, envelope: call.e2eeEnvelope },
+        }
+      : {
+          offer: { type: 'offer', sdp: call.offerSDP },
+        }),
     timestamp: call.createdAt.toISOString(),
     expiresAt: String(call.createdAt.getTime() + CALL_LIFETIME_MS),
   };

@@ -3,6 +3,19 @@ const router = express.Router();
 const otpService = require('../services/otpService');
 const emailService = require('../services/emailService');
 
+const emailOTPTypes = new Set([
+  'registration',
+  'password_reset',
+  'email_change',
+  'password_change',
+  'phone_change',
+  'account_deletion',
+  '2fa',
+]);
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const normalizeEmail = value =>
+  typeof value === 'string' ? value.trim().toLowerCase() : '';
+
 /**
  * @route   POST /api/otp/send
  * @desc    Send OTP to email
@@ -10,12 +23,11 @@ const emailService = require('../services/emailService');
  */
 router.post('/send', async (req, res) => {
   try {
-    const { email, type } = req.body;
-
-    console.log(`📧 [OTP ROUTES] Send OTP request: ${email} (${type})`);
+    const { email: rawEmail, type } = req.body || {};
+    const email = normalizeEmail(rawEmail);
 
     // Validate input
-    if (!email || !type) {
+    if (!email || typeof type !== 'string') {
       return res.status(400).json({
         success: false,
         message: 'Email and type are required',
@@ -23,7 +35,6 @@ router.post('/send', async (req, res) => {
     }
 
     // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
@@ -32,8 +43,7 @@ router.post('/send', async (req, res) => {
     }
 
     // Validate type
-    const validTypes = ['registration', 'password_reset', 'email_change', 'password_change', 'phone_change', 'account_deletion', '2fa'];
-    if (!validTypes.includes(type)) {
+    if (!emailOTPTypes.has(type)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid OTP type',
@@ -42,7 +52,7 @@ router.post('/send', async (req, res) => {
 
     // Create OTP
     const otpResult = await otpService.createOTP(
-      email.toLowerCase(),
+      email,
       type,
       req.ip,
       req.get('user-agent')
@@ -66,7 +76,7 @@ router.post('/send', async (req, res) => {
       });
     }
 
-    console.log(`✅ [OTP ROUTES] OTP sent successfully to ${email}`);
+    console.log('✅ [OTP ROUTES] OTP sent successfully');
     res.json({
       success: true,
       message: 'OTP sent successfully to your email',
@@ -88,15 +98,21 @@ router.post('/send', async (req, res) => {
  */
 router.post('/verify', async (req, res) => {
   try {
-    const { email, otp, type } = req.body;
-
-    console.log(`🔍 [OTP ROUTES] Verify OTP request: ${email} (${type})`);
+    const { email: rawEmail, otp, type } = req.body || {};
+    const email = normalizeEmail(rawEmail);
 
     // Validate input
-    if (!email || !otp || !type) {
+    if (!email || typeof otp !== 'string' || typeof type !== 'string') {
       return res.status(400).json({
         success: false,
         message: 'Email, OTP, and type are required',
+      });
+    }
+
+    if (!emailRegex.test(email) || !emailOTPTypes.has(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email or OTP type',
       });
     }
 
@@ -109,7 +125,7 @@ router.post('/verify', async (req, res) => {
     }
 
     // Verify OTP
-    const result = await otpService.verifyOTP(email.toLowerCase(), otp, type);
+    const result = await otpService.verifyOTP(email, otp, type);
 
     if (!result.success) {
       return res.status(400).json({
@@ -119,13 +135,21 @@ router.post('/verify', async (req, res) => {
       });
     }
 
-    console.log(`✅ [OTP ROUTES] OTP verified successfully for ${email}`);
-    res.json({
+    console.log('✅ [OTP ROUTES] OTP verified successfully');
+    const response = {
       success: true,
       message: 'OTP verified successfully',
-    });
+    };
+    if (
+      type === 'password_reset' &&
+      typeof result.resetToken === 'string' &&
+      /^[a-f0-9]{64}$/i.test(result.resetToken)
+    ) {
+      response.resetToken = result.resetToken;
+    }
+    res.json(response);
   } catch (error) {
-    console.error('❌ [OTP ROUTES] Error in /verify:', error);
+    console.error('❌ [OTP ROUTES] Error in /verify');
     res.status(500).json({
       success: false,
       message: 'Internal server error. Please try again.',
@@ -140,12 +164,11 @@ router.post('/verify', async (req, res) => {
  */
 router.post('/resend', async (req, res) => {
   try {
-    const { email, type } = req.body;
-
-    console.log(`🔄 [OTP ROUTES] Resend OTP request: ${email} (${type})`);
+    const { email: rawEmail, type } = req.body || {};
+    const email = normalizeEmail(rawEmail);
 
     // Validate input
-    if (!email || !type) {
+    if (!email || typeof type !== 'string') {
       return res.status(400).json({
         success: false,
         message: 'Email and type are required',
@@ -153,7 +176,6 @@ router.post('/resend', async (req, res) => {
     }
 
     // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
@@ -161,9 +183,16 @@ router.post('/resend', async (req, res) => {
       });
     }
 
+    if (!emailOTPTypes.has(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP type',
+      });
+    }
+
     // Create new OTP
     const otpResult = await otpService.createOTP(
-      email.toLowerCase(),
+      email,
       type,
       req.ip,
       req.get('user-agent')
@@ -187,7 +216,7 @@ router.post('/resend', async (req, res) => {
       });
     }
 
-    console.log(`✅ [OTP ROUTES] OTP resent successfully to ${email}`);
+    console.log('✅ [OTP ROUTES] OTP resent successfully');
     res.json({
       success: true,
       message: 'OTP resent successfully',

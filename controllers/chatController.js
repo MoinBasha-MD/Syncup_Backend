@@ -1,6 +1,7 @@
 const Message = require('../models/Message');
 const User = require('../models/userModel');
 const Block = require('../models/blockModel');
+const { validateDmEnvelope, isE2eeV2, e2eeEnforced } = require('../utils/e2eeEnvelope');
 // const ContinuousTimerState = require('../models/ContinuousTimerState'); // ⚠️ DISABLED: File not on server
 const { broadcastToUser } = require('../socketManager');
 const enhancedNotificationService = require('../services/enhancedNotificationService');
@@ -9,11 +10,6 @@ const LogSanitizer = require('../utils/logSanitizer');
 // Send a message
 const sendMessage = async (req, res) => {
   try {
-    // Log raw request body first
-    console.log('📥 [BACKEND] Raw req.body:', JSON.stringify(req.body, null, 2));
-    console.log('📥 [BACKEND] req.body.sharedPost:', req.body.sharedPost);
-    console.log('📥 [BACKEND] req.body.sharedPost type:', typeof req.body.sharedPost);
-    
     const { 
       receiverId, 
       message, 
@@ -38,21 +34,20 @@ const sendMessage = async (req, res) => {
       e2ee             // Encrypted message payload
     } = req.body;
     const senderId = req.user.userId;
-    const senderObjectId = req.user.id; // MongoDB _id of sender
     
-    console.log('📥 [BACKEND] After destructuring - sharedPost:', sharedPost);
-    console.log('📥 [BACKEND] After destructuring - sharedPost type:', typeof sharedPost);
-
-    console.log('💬 Chat Controller - Send Message:', {
-      senderId,
-      senderObjectId,
-      receiverId,
-      messageType,
+    console.log('[CHAT] Send message:', {
       messageLength: message?.length,
       hasSharedPost: !!sharedPost,
       hasImageUrl: !!imageUrl,
       hasFileMetadata: !!fileMetadata,
-      hasE2EE: !!e2ee
+      hasE2EE: !!e2ee,
+      hasPrivacyMode: !!privacyMode,
+      hasTimerDuration: !!timerDuration,
+      hasBurnViewTime: !!burnViewTime,
+      isGhost: !!isGhost,
+      hasGhostSessionId: !!ghostSessionId,
+      isForwarded: !!isForwarded,
+      hasForwardedFrom: !!forwardedFrom,
     });
     
     // E2EE Phase 2 - Log encrypted message info
@@ -62,26 +57,21 @@ const sendMessage = async (req, res) => {
         hasIV: !!e2ee.iv,
         hasAuthTag: !!e2ee.authTag,
         hasEncryptedKey: !!e2ee.encryptedContentKey,
-        version: e2ee.version,
-        algorithm: e2ee.algorithm
       });
     }
     
     // Debug and fix sharedPost data
     if (sharedPost) {
-      console.log('📤 [BACKEND] Received sharedPost:', JSON.stringify(sharedPost, null, 2));
       console.log('📤 [BACKEND] sharedPost.postMedia type:', typeof sharedPost.postMedia);
       console.log('📤 [BACKEND] sharedPost.postMedia is array?', Array.isArray(sharedPost.postMedia));
-      console.log('📤 [BACKEND] sharedPost.postMedia value:', sharedPost.postMedia);
       
       // Fix: If postMedia is a string, try to parse it
       if (sharedPost.postMedia && typeof sharedPost.postMedia === 'string') {
         try {
           console.log('⚠️ [BACKEND] postMedia is a string, attempting to parse...');
           sharedPost.postMedia = JSON.parse(sharedPost.postMedia);
-          console.log('✅ [BACKEND] Successfully parsed postMedia:', sharedPost.postMedia);
-        } catch (parseError) {
-          console.error('❌ [BACKEND] Failed to parse postMedia string:', parseError);
+        } catch (_) {
+          console.error('❌ [BACKEND] Failed to parse postMedia string');
           // If parsing fails, set to empty array
           sharedPost.postMedia = [];
         }
@@ -94,18 +84,36 @@ const sendMessage = async (req, res) => {
       }
     }
 
-    // Validate input
-    if (!receiverId || !message) {
+    // Validate input (E2EE v2 messages carry an empty message field)
+    if (!receiverId || (!message && !isE2eeV2(e2ee))) {
       return res.status(400).json({
         success: false,
         message: 'Receiver ID and message are required'
       });
     }
 
+    // E2EE v2: validate the sealed envelope; when enforced, plaintext DMs are rejected
+    if (isE2eeV2(e2ee)) {
+      const envelopeError = validateDmEnvelope(e2ee, senderId, receiverId);
+      if (envelopeError) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid e2ee envelope',
+          code: envelopeError
+        });
+      }
+    } else if (e2eeEnforced()) {
+      return res.status(400).json({
+        success: false,
+        message: 'End-to-end encryption is required for direct messages',
+        code: 'E2EE_REQUIRED'
+      });
+    }
+
     // Check if users have blocked each other
     const blockStatus = await Block.isMutuallyBlocked(senderId, receiverId);
     if (blockStatus.anyBlocked) {
-      console.log(`🚫 Message blocked: ${senderId} -> ${receiverId} (users have blocked each other)`);
+      console.log('🚫 Message blocked because users have blocked each other');
       return res.status(403).json({
         success: false,
         message: 'Cannot send message to this user'
@@ -114,33 +122,31 @@ const sendMessage = async (req, res) => {
 
     // Find receiver and get both userId and _id
     if (process.env.NODE_ENV !== 'production') {
-      console.log('🔍 Looking up receiver in database with userId:', receiverId);
+      console.log('🔍 Looking up receiver in database');
     }
     
     // ⚡ PERFORMANCE OPTIMIZATION: Direct query with lean() - removed debug query that loaded ALL users
     const receiver = await User.findOne({ userId: receiverId }).select('_id userId name phoneNumber').lean();
     if (!receiver) {
-      console.log('❌ Receiver not found in database:', receiverId);
+      console.log('❌ Receiver not found in database');
       return res.status(404).json({
         success: false,
         message: 'Receiver not found'
       });
     }
 
-    const receiverObjectId = receiver._id.toString();
-    console.log('🎯 Receiver details:', {
-      receiverId: receiver.userId,
-      receiverObjectId,
-      receiverName: receiver.name,
-      receiverPhone: receiver.phoneNumber
-    });
-    
-    // Also check what user is currently connected
-    console.log('🔗 Currently connected users (from socket manager):');
-    // This will help us see if the right user is connected
-
     // Create new message
-    const messageData = {
+    const messageData = isE2eeV2(e2ee) ? {
+      // E2EE v2 - content lives inside the sealed envelope; the server must not
+      // persist sensitive plaintext fields even if the client sent them
+      senderId,
+      receiverId,
+      message: '',
+      messageType,
+      timestamp: new Date(),
+      status: 'sent',
+      e2ee: { v: 2, envelope: e2ee.envelope }
+    } : {
       senderId,
       receiverId,
       message,
@@ -170,12 +176,10 @@ const sendMessage = async (req, res) => {
 
     // Add privacy mode options if provided (manual timer mode)
     if (privacyMode) {
-      console.log('🔒 [BACKEND] Adding privacy mode to message:', privacyMode);
       messageData.privacyMode = privacyMode;
     }
 
     if (timerDuration) {
-      console.log('⏳ [BACKEND] Adding timer duration:', timerDuration, 'ms');
       messageData.timerDuration = timerDuration;
       
       // Calculate expiration time if not provided
@@ -184,16 +188,13 @@ const sendMessage = async (req, res) => {
       } else {
         messageData.expiresAt = new Date(expiresAt);
       }
-      console.log('⏳ [BACKEND] Message will expire at:', messageData.expiresAt);
     }
 
     if (burnViewTime) {
-      console.log('🔥 [BACKEND] Adding burn view time:', burnViewTime, 'seconds');
       messageData.burnViewTime = burnViewTime;
     }
 
     if (isGhost) {
-      console.log('👻 [BACKEND] Adding ghost mode with session:', ghostSessionId);
       messageData.isGhost = true;
       messageData.ghostSessionId = ghostSessionId;
     }
@@ -202,20 +203,16 @@ const sendMessage = async (req, res) => {
 
     // Save message to database
     const savedMessage = await newMessage.save();
-    console.log('✅ Message saved to database:', savedMessage._id);
+    console.log('✅ Message saved to database');
 
     // ENHANCED: Multi-device notification broadcast
     try {
       console.log('📡 Attempting to broadcast message to receiver...');
-      console.log('🔍 Broadcasting to receiverId (userId):', receiverId);
-      console.log('🔍 Receiver MongoDB ObjectId:', receiverObjectId);
       
       // CRITICAL FIX: Get sender information for notifications
       const sender = await User.findOne({ userId: senderId }).select('name profileImage');
       const senderName = sender ? sender.name : 'Unknown User';
       const senderProfileImage = sender ? sender.profileImage : null;
-      
-      console.log('👤 Sender info for notification:', { senderId, senderName, senderProfileImage });
       
       const messageData = {
         _id: savedMessage._id,
@@ -244,12 +241,7 @@ const sendMessage = async (req, res) => {
       }
       
       // Strategy 1: Primary WebSocket broadcast
-      console.log('📡 [BROADCAST] Attempting to broadcast message:new to receiver:', receiverId);
-      console.log('📡 [BROADCAST] Message data:', {
-        messageId: messageData._id,
-        status: messageData.status,
-        messageType: messageData.messageType
-      });
+      console.log('📡 [BROADCAST] Attempting to broadcast message:new');
       
       const broadcastSuccess = broadcastToUser(receiverId, 'message:new', messageData);
       console.log('📡 [BROADCAST] Broadcast result:', broadcastSuccess ? 'SUCCESS' : 'FAILED');
@@ -268,10 +260,10 @@ const sendMessage = async (req, res) => {
         ).then(() => {
           console.log('✅ [NOTIFICATION] Notification sent successfully');
         }).catch((notifError) => {
-          console.error('❌ [NOTIFICATION] Error sending notification:', notifError);
+          console.error('❌ [NOTIFICATION] Error sending notification');
         });
       } catch (notifError) {
-        console.error('❌ [NOTIFICATION] Error sending notification:', notifError);
+        console.error('❌ [NOTIFICATION] Error sending notification');
         // Don't fail the message send if notification fails
       }
       
@@ -283,8 +275,7 @@ const sendMessage = async (req, res) => {
         console.log('✅ [STATUS UPDATE] Message status saved to database as "delivered"');
         
         // ✅ Emit delivery confirmation to sender
-        console.log('📤 [DELIVERY CONFIRM] Emitting message:delivered to sender:', senderId);
-        console.log('📤 [DELIVERY CONFIRM] Message ID:', savedMessage._id.toString());
+        console.log('📤 [DELIVERY CONFIRM] Emitting message:delivered to sender');
         
         const deliveryConfirmation = broadcastToUser(senderId, 'message:delivered', { 
           messageId: savedMessage._id.toString() 
@@ -293,7 +284,7 @@ const sendMessage = async (req, res) => {
         console.log('📤 [DELIVERY CONFIRM] Delivery confirmation result:', deliveryConfirmation ? 'SUCCESS' : 'FAILED');
         
         if (deliveryConfirmation) {
-          console.log('✅ [DELIVERY CONFIRM] Delivery confirmation sent to sender:', senderId);
+          console.log('✅ [DELIVERY CONFIRM] Delivery confirmation sent');
         } else {
           console.log('⚠️ [DELIVERY CONFIRM] Failed to send delivery confirmation - sender may be offline');
         }
@@ -305,18 +296,9 @@ const sendMessage = async (req, res) => {
         console.log('📱 [MESSAGE] FCM notification will wake the app when delivered');
       }
     } catch (socketError) {
-      console.error('❌ Error broadcasting message:', socketError);
+      console.error('❌ Error broadcasting message');
       // Message is still saved, just not delivered in real-time
     }
-
-    // ✅ CRITICAL: Log the response being sent to frontend
-    console.log('📤 [RESPONSE] Sending response to frontend:', {
-      messageId: savedMessage._id,
-      status: savedMessage.status,
-      senderId: savedMessage.senderId,
-      receiverId: savedMessage.receiverId,
-      messageType: savedMessage.messageType
-    });
 
     res.status(201).json({
       success: true,
@@ -325,7 +307,7 @@ const sendMessage = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error sending message:', error);
+    console.error('❌ Error sending message');
     res.status(500).json({
       success: false,
       message: 'Failed to send message',
@@ -714,7 +696,6 @@ const toggleReaction = async (req, res) => {
     const { messageId } = req.params;
     const { emoji } = req.body;
     const userId = req.user.userId;
-    const userObjectId = req.user.id;
 
     console.log('😀 Chat Controller - Toggle Reaction:', {
       userId,
@@ -737,20 +718,16 @@ const toggleReaction = async (req, res) => {
 
     // Broadcast reaction update to both sender and receiver
     try {
-      const senderUser = await User.findOne({ userId: updatedMessage.senderId }).select('_id');
-      const receiverUser = await User.findOne({ userId: updatedMessage.receiverId }).select('_id');
-      
       const reactionData = {
         messageId: updatedMessage._id,
         reactions: updatedMessage.reactions,
         updatedBy: userId
       };
 
-      if (senderUser && senderUser._id.toString() !== userObjectId) {
-        broadcastToUser(senderUser._id.toString(), 'message:reaction', reactionData);
-      }
-      if (receiverUser && receiverUser._id.toString() !== userObjectId) {
-        broadcastToUser(receiverUser._id.toString(), 'message:reaction', reactionData);
+      for (const participantId of new Set([updatedMessage.senderId, updatedMessage.receiverId])) {
+        if (typeof participantId === 'string' && participantId !== userId) {
+          broadcastToUser(participantId, 'message:reaction', reactionData);
+        }
       }
     } catch (broadcastError) {
       console.error('❌ Error broadcasting reaction:', broadcastError);
@@ -766,6 +743,13 @@ const toggleReaction = async (req, res) => {
     });
 
   } catch (error) {
+    if (error?.statusCode === 404) {
+      return res.status(404).json({
+        success: false,
+        message: 'Message not found',
+      });
+    }
+
     console.error('❌ Error toggling reaction:', error);
     res.status(500).json({
       success: false,
@@ -838,7 +822,8 @@ const sendReply = async (req, res) => {
       replyToId,
       sharedPost,      // ✅ For shared posts
       imageUrl,        // ✅ For images
-      fileMetadata     // ✅ For files
+      fileMetadata,    // ✅ For files
+      e2ee             // E2EE v2 sealed envelope
     } = req.body;
     const senderId = req.user.userId;
     const senderObjectId = req.user.id;
@@ -852,11 +837,29 @@ const sendReply = async (req, res) => {
       hasSharedPost: !!sharedPost
     });
 
-    // Validate input
-    if (!receiverId || !message || !replyToId) {
+    // Validate input (E2EE v2 messages carry an empty message field)
+    if (!receiverId || (!message && !isE2eeV2(e2ee)) || !replyToId) {
       return res.status(400).json({
         success: false,
         message: 'Receiver ID, message, and reply-to message ID are required'
+      });
+    }
+
+    // E2EE v2: validate the sealed envelope; when enforced, plaintext DMs are rejected
+    if (isE2eeV2(e2ee)) {
+      const envelopeError = validateDmEnvelope(e2ee, senderId, receiverId);
+      if (envelopeError) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid e2ee envelope',
+          code: envelopeError
+        });
+      }
+    } else if (e2eeEnforced()) {
+      return res.status(400).json({
+        success: false,
+        message: 'End-to-end encryption is required for direct messages',
+        code: 'E2EE_REQUIRED'
       });
     }
 
@@ -881,7 +884,17 @@ const sendReply = async (req, res) => {
     const receiverObjectId = receiver._id.toString();
 
     // Create new reply message
-    const newMessage = new Message({
+    const newMessage = isE2eeV2(e2ee) ? new Message({
+      // E2EE v2 - content lives inside the sealed envelope
+      senderId,
+      receiverId,
+      message: '',
+      messageType,
+      replyTo: replyToId,
+      timestamp: new Date(),
+      status: 'sent',
+      e2ee: { v: 2, envelope: e2ee.envelope }
+    }) : new Message({
       senderId,
       receiverId,
       message,
@@ -924,7 +937,8 @@ const sendReply = async (req, res) => {
         status: 'sent', // ✅ Start with 'sent', will update to 'delivered' if broadcast succeeds
         sharedPost: savedMessage.sharedPost,     // ✅ Include shared post
         imageUrl: savedMessage.imageUrl,         // ✅ Include image URL
-        fileMetadata: savedMessage.fileMetadata  // ✅ Include file metadata
+        fileMetadata: savedMessage.fileMetadata, // ✅ Include file metadata
+        e2ee: savedMessage.e2ee || { enabled: false } // Include e2ee v2 envelope for recipient decryption
       });
       
       if (broadcastSuccess) {
@@ -1169,7 +1183,7 @@ const testNotificationFlow = async (req, res) => {
 // Send voice message
 const sendVoiceMessage = async (req, res) => {
   try {
-    const { receiverId, voiceUrl, duration, waveform, encrypted = false, encryptionData } = req.body;
+    const { receiverId, voiceUrl, duration, waveform, encrypted = false, encryptionData, e2ee } = req.body;
     const senderId = req.user.userId;
 
     console.log('🎤 [VOICE MESSAGE] Sending voice message:', {
@@ -1179,11 +1193,29 @@ const sendVoiceMessage = async (req, res) => {
       encrypted
     });
 
-    // Validate input
-    if (!receiverId || !voiceUrl || !duration) {
+    // Validate input (E2EE v2 carries voiceUrl/duration inside the sealed envelope)
+    if (!receiverId || (!isE2eeV2(e2ee) && (!voiceUrl || !duration))) {
       return res.status(400).json({
         success: false,
         message: 'Receiver ID, voice URL, and duration are required'
+      });
+    }
+
+    // E2EE v2: validate the sealed envelope; when enforced, plaintext DMs are rejected
+    if (isE2eeV2(e2ee)) {
+      const envelopeError = validateDmEnvelope(e2ee, senderId, receiverId);
+      if (envelopeError) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid e2ee envelope',
+          code: envelopeError
+        });
+      }
+    } else if (e2eeEnforced()) {
+      return res.status(400).json({
+        success: false,
+        message: 'End-to-end encryption is required for direct messages',
+        code: 'E2EE_REQUIRED'
       });
     }
 
@@ -1197,7 +1229,15 @@ const sendVoiceMessage = async (req, res) => {
     }
 
     // Create voice message
-    const messageData = {
+    const messageData = isE2eeV2(e2ee) ? {
+      // E2EE v2 - voiceUrl/duration/waveform live inside the sealed envelope
+      senderId,
+      receiverId,
+      message: '',
+      messageType: 'voice',
+      e2ee: { v: 2, envelope: e2ee.envelope },
+      timestamp: new Date()
+    } : {
       senderId,
       receiverId,
       message: encrypted ? encryptionData?.encryptedContent || '[Voice Message]' : '[Voice Message]',
@@ -1241,6 +1281,7 @@ const sendVoiceMessage = async (req, res) => {
         voiceMetadata: savedMessage.voiceMetadata,
         encrypted: savedMessage.encrypted,
         encryptionData: savedMessage.encryptionData,
+        e2ee: savedMessage.e2ee || { enabled: false }, // Include e2ee v2 envelope for recipient decryption
         timestamp: savedMessage.timestamp,
         status: 'sent' // ✅ Start with 'sent', will update to 'delivered' if broadcast succeeds
       });
@@ -1662,6 +1703,7 @@ const getConversations = async (req, res) => {
           lastMessageAt: { $first: '$timestamp' },
           lastMessageStatus: { $first: '$status' },
           lastMessageSenderId: { $first: '$senderId' },
+          lastE2ee: { $first: '$e2ee' },
           unreadCount: {
             $sum: {
               $cond: [
@@ -1700,7 +1742,9 @@ const getConversations = async (req, res) => {
           lastMessageAt: row.lastMessageAt,
           lastMessageStatus: row.lastMessageStatus,
           lastMessageSenderId: row.lastMessageSenderId,
-          unreadCount: row.unreadCount
+          unreadCount: row.unreadCount,
+          // v2 envelope so the client can decrypt the conversation preview
+          ...(row.lastE2ee && row.lastE2ee.v === 2 ? { lastE2ee: row.lastE2ee } : {})
         };
       })
       .filter(Boolean);

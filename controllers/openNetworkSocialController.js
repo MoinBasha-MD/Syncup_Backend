@@ -37,6 +37,7 @@ const {
   toChatSummary,
 } = require('../utils/openNetworkPeopleDto');
 const getSocketManager = () => require('../socketManager');
+const { validateEnvelope, isE2eeV2, e2eeOpenEnforced } = require('../utils/e2eeEnvelope');
 
 const OPEN_TO = OpenNetworkProfile.OPEN_TO;
 const DISCOVERABLE_LIFECYCLES = ['active', 'wrapping', 'scheduled'];
@@ -971,6 +972,23 @@ const sendMessage = asyncHandler(async (req, res) => {
     throw err(BadRequestError, 'type must be one of: text, image, ripple', 'VALIDATION');
   }
 
+  // E2EE v2 — the sealed envelope carries body/imageUrl; type, rippleId,
+  // rippleSnapshot and clientId stay plaintext (routing/public refs only).
+  const e2ee = req.body.e2ee;
+  const v2 = isE2eeV2(e2ee);
+  if (v2) {
+    const envelopeError = validateEnvelope(e2ee, {
+      senderId: userId,
+      expectedCtx: `open:${chat._id}`,
+      allowedUserIds: new Set(chat.participants),
+    });
+    if (envelopeError) {
+      throw err(BadRequestError, `Invalid e2ee envelope: ${envelopeError}`, 'INVALID_ENVELOPE');
+    }
+  } else if (e2eeOpenEnforced()) {
+    throw err(BadRequestError, 'End-to-end encryption is required for open chats', 'E2EE_REQUIRED');
+  }
+
   // Send retries replay the same clientId — return the original message.
   const clientId = req.body.clientId ? String(req.body.clientId) : null;
   if (clientId) {
@@ -989,12 +1007,34 @@ const sendMessage = asyncHandler(async (req, res) => {
     throw err(BadRequestError, 'Sending too fast — slow down', 'CHAT_RATE_LIMITED', 429);
   }
 
-  let body = String(req.body.body || '').trim();
+  let body = v2 ? '' : String(req.body.body || '').trim();
   let imageUrl = null;
   let rippleId = null;
   let rippleSnapshot = undefined;
 
-  if (type === 'text') {
+  if (v2) {
+    // body/imageUrl live inside the envelope — nothing to validate; ripple
+    // refs stay plaintext so the shared card still renders.
+    if (type === 'ripple') {
+      if (!mongoose.Types.ObjectId.isValid(req.body.rippleId)) {
+        throw err(BadRequestError, 'rippleId is required', 'VALIDATION');
+      }
+      const ripple = await Ripple.findById(req.body.rippleId).lean();
+      const member = ripple
+        ? await Rippler.findOne({ rippleId: ripple._id, userId }).lean()
+        : null;
+      if (!ripple || !canView(ripple, member, ctx, userId)) {
+        throw err(NotFoundError, 'Ripple not found', 'RIPPLE_NOT_FOUND');
+      }
+      rippleId = ripple._id;
+      rippleSnapshot = {
+        title: ripple.title,
+        coverUrl: ripple.media?.[0]?.url || null,
+        kind: ripple.kind || 'ripple',
+        placeLabel: ripple.place?.label || '',
+      };
+    }
+  } else if (type === 'text') {
     if (!body || body.length > 2000) {
       throw err(BadRequestError, 'A text message needs 1-2000 characters', 'VALIDATION');
     }
@@ -1035,9 +1075,12 @@ const sendMessage = asyncHandler(async (req, res) => {
     rippleId,
     ...(rippleSnapshot ? { rippleSnapshot } : {}),
     ...(clientId ? { clientId } : {}),
+    ...(v2 ? { e2ee: { v: 2, envelope: e2ee.envelope } } : {}),
   });
 
-  const preview = type === 'text' ? body : type === 'image' ? '📷 Photo' : rippleSnapshot.title;
+  const preview = v2
+    ? ''
+    : type === 'text' ? body : type === 'image' ? '📷 Photo' : rippleSnapshot.title;
   await OpenChat.updateOne(
     { _id: chat._id },
     {
@@ -1047,6 +1090,7 @@ const sendMessage = asyncHandler(async (req, res) => {
           type,
           senderId: userId,
           at: message.createdAt,
+          ...(v2 ? { lastE2ee: { v: 2, envelope: e2ee.envelope } } : {}),
         },
       },
       $inc: { [`unread.${otherId}`]: 1 },

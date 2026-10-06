@@ -1,6 +1,7 @@
 const admin = require('firebase-admin');
 const path = require('path');
 const User = require('../models/userModel');
+const { withMediaToken } = require('../utils/mediaToken');
 
 // Transient network errors that warrant a retry (DNS failures, timeouts,
 // connection resets, etc.). These are typically temporary and resolve
@@ -159,7 +160,7 @@ class FCMNotificationService {
           action: 'reconnect_websocket',
           senderId: String(messageData.senderId || ''),
           senderName: String(messageData.senderName || ''),
-          senderProfileImage: String(messageData.senderProfileImage || ''),
+          senderProfileImage: String(withMediaToken(messageData.senderProfileImage || '', userId) || ''),
           messageId: String(messageData.messageId || ''),
           chatId: String(messageData.senderId || ''),
           timestamp: new Date().toISOString()
@@ -341,13 +342,21 @@ class FCMNotificationService {
       // service form a cycle; resolved at call time like the other services.
       const { toPushData } = require('./openNetworkNotify');
 
+      // The OS fetches notification images outside the app — attach signed
+      // media tokens to our /uploads URLs before they go into the payload.
+      const pushEnvelope = {
+        ...envelope,
+        ...(envelope.image ? { image: withMediaToken(envelope.image, userId) } : {}),
+        ...(envelope.avatar ? { avatar: withMediaToken(envelope.avatar, userId) } : {}),
+      };
+
       const message = {
         notification: {
           title: envelope.title,
           body: envelope.body,
-          ...(envelope.image ? { imageUrl: envelope.image } : {}),
+          ...(pushEnvelope.image ? { imageUrl: pushEnvelope.image } : {}),
         },
-        data: toPushData(envelope),
+        data: toPushData(pushEnvelope),
         tokens: tokens,
         android: {
           priority: 'high',
@@ -509,6 +518,9 @@ class FCMNotificationService {
           receiverName: String(callData.receiverName || ''),
           receiverAvatar: String(callData.receiverAvatar || ''),
           callType: String(callData.callType), // 'voice' or 'video'
+          // 'p2p'|'livekit' — lets a cold-started app expect the envelope via
+          // call:resume instead of an offer (envelope itself never rides FCM).
+          transport: String(callData.transport || 'p2p'),
           timestamp: String(callData.timestamp || new Date().toISOString()),
           expiresAt: String(callData.expiresAt || '')
         },

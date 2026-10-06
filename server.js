@@ -51,7 +51,7 @@ const {
 
   statusLimiter,
 
-  mongoSanitizer,
+  sanitizeRequestPayload,
 
   xssProtection,
 
@@ -147,6 +147,10 @@ const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
 const otpRoutes = require('./routes/otpRoutes');
 
 const cryptoRoutes = require('./routes/cryptoRoutes');
+const e2eeRoutes = require('./routes/e2eeRoutes');
+const mediaRoutes = require('./routes/mediaRoutes');
+const blobRoutes = require('./routes/blobRoutes');
+const { requireMediaAccess } = require('./middleware/mediaAccess');
 const deviceRoutes = require('./routes/deviceRoutes');
 
 const placesRoutes = require('./routes/placesRoutes');
@@ -231,8 +235,6 @@ app.use(securityHeaders); // Add security headers
 
 app.use(requestSizeLimiter); // Limit request size
 
-// app.use(mongoSanitizer); // Temporarily disabled due to compatibility issue
-
 app.use(hppProtection); // Prevent HTTP Parameter Pollution
 
 app.use(xssProtection); // XSS protection
@@ -286,6 +288,9 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true, limit: '200mb' })); // Increased for video uploads
 
 app.use(express.raw({ limit: '200mb' })); // For raw binary data
+
+// NoSQL sanitization must run after the body parsers above (they populate req.body)
+app.use(sanitizeRequestPayload);
 
 
 
@@ -618,6 +623,9 @@ app.use('/api/sos', apiLimiter, require('./routes/sosRoutes')); // SOS emergency
 app.use('/api/otp', apiLimiter, otpRoutes); // OTP verification routes (email verification)
 
 app.use('/api/crypto', apiLimiter, cryptoRoutes); // E2EE key exchange routes (Phase 1)
+app.use('/api/e2ee', apiLimiter, e2eeRoutes); // E2EE v2 device directory routes
+app.use('/api/media', apiLimiter, mediaRoutes); // Signed media-token issuance
+app.use('/api/blobs', apiLimiter, blobRoutes); // E2EE ciphertext blobs
 app.use('/api/devices', apiLimiter, deviceRoutes); // Linked device pairing and session routes
 
 app.use('/api/hashtags', apiLimiter, require('./routes/hashtagRoutes')); // Hashtag management routes (trending, search, stats)
@@ -684,6 +692,11 @@ app.use('/api/admin', adminAuthMiddleware, require('./routes/adminNotificationRo
 
 // All file requests go through decryption middleware
 
+// 🔐 MEDIA ACCESS GATE — media is only available to the Syncup app.
+// Accepts a signed ?mt= token or a Bearer JWT. While MEDIA_AUTH_ENFORCE is
+// not 'true', unauthenticated requests fall through (grace for old builds).
+app.use('/api/uploads', requireMediaAccess);
+
 app.use('/api', encryptedFileRoutes);
 
 
@@ -698,6 +711,10 @@ app.use('/api', encryptedFileRoutes);
 
 
 
+// 🔐 MEDIA ACCESS GATE — covers every /uploads mount below (profile-images,
+// post-media streaming, music-library, chat-*, documents, etc.)
+app.use('/uploads', requireMediaAccess);
+
 // ✅ Profile Image Validator - Check file existence before serving
 
 const { validateProfileImage } = require('./middleware/profileImageValidator');
@@ -710,8 +727,19 @@ app.use('/uploads/profile-images', validateProfileImage);
 
 app.use('/uploads/post-media', mediaCacheControl, videoStreamingHandler('post-media'));
 
-app.use('/uploads/music-library', mediaCacheControl, express.static(path.join(__dirname, 'uploads', 'music-library')));
-app.use('/uploads', mediaCacheControl, express.static(path.join(__dirname, 'uploads')));
+// serve-static's default setHeaders would overwrite the private Cache-Control
+// set above with 'public, max-age=0' — force private, keep the 1y max-age that
+// mediaCacheControl applied to media files, default 0 for everything else.
+const privateStaticHeaders = (res) => {
+  const existing = res.getHeader('Cache-Control');
+  res.setHeader(
+    'Cache-Control',
+    existing ? String(existing).replace(/^public/i, 'private') : 'private, max-age=0'
+  );
+};
+
+app.use('/uploads/music-library', mediaCacheControl, express.static(path.join(__dirname, 'uploads', 'music-library'), { setHeaders: privateStaticHeaders }));
+app.use('/uploads', mediaCacheControl, express.static(path.join(__dirname, 'uploads'), { setHeaders: privateStaticHeaders }));
 
 
 

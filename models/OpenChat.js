@@ -25,6 +25,11 @@ const openChatSchema = new mongoose.Schema(
       type: { type: String, enum: ['text', 'image', 'ripple', 'system', null], default: null },
       senderId: { type: String, default: null },
       at: { type: Date, default: null },
+      // e2ee v2 envelope of the last message — clients decrypt the preview
+      lastE2ee: {
+        v: Number,
+        envelope: mongoose.Schema.Types.Mixed,
+      },
     },
     unread: { type: Map, of: Number, default: {} },
     readAt: { type: Map, of: Date, default: {} },

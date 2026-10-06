@@ -75,6 +75,28 @@ test('still active one ms before expiry', async () => {
   assert.ok(result);
 });
 
+test('livekit call resumes with transport/nonce/envelope — no offer', async () => {
+  const envelope = { v: 2, alg: 'x', sender: { userId: 'u_caller', deviceId: 'd' }, ct: 'x' };
+  const call = makeCall({
+    offerSDP: null, // livekit calls carry no SDP
+    transport: 'livekit',
+    callNonce: 'a'.repeat(32),
+    e2eeEnvelope: envelope,
+    roomName: `call_${ACTIVE_CALL_ID}`,
+  });
+  const result = await resumeCall(makeDeps({ call }));
+  assert.ok(result, 'livekit call must resume');
+  assert.equal(result.transport, 'livekit');
+  assert.equal(result.callNonce, 'a'.repeat(32));
+  assert.deepEqual(result.e2ee, { v: 2, envelope });
+  assert.equal(result.offer, undefined, 'livekit resume must not carry an SDP offer');
+});
+
+test('livekit call without envelope material resolves null', async () => {
+  const call = makeCall({ offerSDP: null, transport: 'livekit', callNonce: null, e2eeEnvelope: null });
+  assert.equal(await resumeCall(makeDeps({ call })), null);
+});
+
 test('call removed from activeCalls during the awaited find resolves null', async () => {
   const activeCalls = new Map([[ACTIVE_CALL_ID, { callerId: 'u_caller' }]]);
   const deps = makeDeps({ activeCalls });

@@ -329,6 +329,15 @@ const messageSchema = new mongoose.Schema({
     algorithm: {
       type: String,
       default: 'AES-256-GCM'
+    },
+    // E2EE v2 - sealed envelope (alg x25519-hkdf-sha256-aes256gcm+ed25519)
+    v: {
+      type: Number,
+      default: null
+    },
+    envelope: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
     }
   },
   // Message forwarding
@@ -479,8 +488,26 @@ messageSchema.statics.getAllUnreadCounts = async function(userId) {
 
 // Static method to add/remove message reactions
 messageSchema.statics.toggleReaction = async function(messageId, userId, emoji) {
-  const message = await this.findById(messageId);
-  if (!message) throw new Error('Message not found');
+  if (
+    typeof messageId !== 'string' ||
+    !/^[a-f\d]{24}$/i.test(messageId) ||
+    typeof userId !== 'string' ||
+    !userId.trim()
+  ) {
+    const error = new Error('Message not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const message = await this.findOne({
+    _id: messageId,
+    $or: [{ senderId: userId }, { receiverId: userId }],
+  });
+  if (!message || (message.senderId !== userId && message.receiverId !== userId)) {
+    const error = new Error('Message not found');
+    error.statusCode = 404;
+    throw error;
+  }
 
   const existingReactionIndex = message.reactions.findIndex(
     reaction => reaction.userId === userId && reaction.emoji === emoji
@@ -614,6 +641,7 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
         burnViewedAt: 1,
         burnViewedBy: 1,
         reaction: 1,
+        e2ee: 1, // ✅ Include e2ee v2 envelope so clients can decrypt history
         deletedFor: 1  // ✅ Include deletedFor for controller filtering
       }
     }

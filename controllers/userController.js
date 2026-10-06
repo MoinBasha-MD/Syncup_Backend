@@ -1207,10 +1207,10 @@ const setUserPublic = async (req, res) => {
 // @access  Private
 const setupEncryptionPin = async (req, res) => {
   try {
-    const { pinHash, encryptionKey } = req.body;
-    
-    if (!pinHash || !encryptionKey) {
-      return res.status(400).json({ message: 'PIN hash and encryption key are required' });
+    const { pinHash } = req.body;
+
+    if (!pinHash) {
+      return res.status(400).json({ message: 'PIN hash is required' });
     }
 
     const user = await User.findById(req.user.id);
@@ -1218,11 +1218,11 @@ const setupEncryptionPin = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Update encryption settings
+    // Update encryption settings — the encryption key itself is kept on the
+    // device only; the server stores a bcrypt hash of the client's pinHash.
     user.encryptionSettings = {
       isEnabled: true,
-      pinHash: pinHash,
-      encryptionKey: encryptionKey,
+      pinHash: await bcrypt.hash(pinHash, 12),
       updatedAt: new Date()
     };
 
@@ -1251,7 +1251,7 @@ const verifyEncryptionPin = async (req, res) => {
       return res.status(400).json({ message: 'PIN hash is required' });
     }
 
-    const user = await User.findById(req.user.id).select('+encryptionSettings.pinHash +encryptionSettings.encryptionKey');
+    const user = await User.findById(req.user.id).select('+encryptionSettings.pinHash');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -1260,14 +1260,28 @@ const verifyEncryptionPin = async (req, res) => {
       return res.status(400).json({ message: 'No encryption PIN set up' });
     }
 
-    // Verify PIN hash
-    const isValidPin = user.encryptionSettings.pinHash === pinHash;
-    
+    const storedPinHash = user.encryptionSettings.pinHash;
+    let isValidPin;
+    if (typeof storedPinHash === 'string' && storedPinHash.startsWith('$2')) {
+      // Bcrypt-stored hash
+      isValidPin = typeof pinHash === 'string' && await bcrypt.compare(pinHash, storedPinHash);
+    } else {
+      // Legacy raw sha256 hash — constant-time compare, then upgrade to bcrypt
+      isValidPin =
+        typeof pinHash === 'string' &&
+        typeof storedPinHash === 'string' &&
+        Buffer.byteLength(pinHash) === Buffer.byteLength(storedPinHash) &&
+        crypto.timingSafeEqual(Buffer.from(pinHash), Buffer.from(storedPinHash));
+      if (isValidPin) {
+        user.encryptionSettings.pinHash = await bcrypt.hash(pinHash, 12);
+        await user.save();
+      }
+    }
+
     if (isValidPin) {
       console.log(`✅ [BACKEND] Encryption PIN verified for user: ${user.name}`);
       res.status(200).json({
         message: 'PIN verified successfully',
-        encryptionKey: user.encryptionSettings.encryptionKey,
         isEnabled: user.encryptionSettings.isEnabled
       });
     } else {

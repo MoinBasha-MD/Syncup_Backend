@@ -14,8 +14,37 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Ripple = require('../models/Ripple');
+const { resolveUploadPath } = require('../utils/safeUploadPath');
+const { serveEncryptedFile } = require('../middleware/fileEncryptionMiddleware');
 
 const router = express.Router();
+
+/**
+ * Local-upload subdirs a Ripple cover may resolve into. Ripple media are
+ * uploaded through /upload/post-media only — anything else is not ours.
+ */
+const COVER_SUBDIRS = new Set(['post-media']);
+
+/**
+ * Stored cover URL → local file. Accepts path-only `/uploads/<dir>/<file>`
+ * or an absolute URL whose pathname matches (the upload endpoint stores
+ * absolute URLs — the file content is ours regardless of which host label
+ * it was saved under). Returns { subdir, filename } or null (then the URL
+ * is third-party and gets a 302).
+ */
+const OUR_UPLOAD_RE = /^(?:https?:\/\/[^/]+)?\/uploads\/([a-z0-9-]+)\/([^/?#]+)$/i;
+const parseOwnUpload = (url) => {
+  if (typeof url !== 'string') return null;
+  const m = OUR_UPLOAD_RE.exec(url.trim());
+  if (!m) return null;
+  const [, subdir, filename] = m;
+  if (!COVER_SUBDIRS.has(subdir)) return null;
+  // Upload names are generated hex/timestamps — a '..' or %-encoded byte in
+  // the stored name is a traversal attempt, not a real file.
+  if (filename.includes('..') || filename.includes('%')) return null;
+  if (!resolveUploadPath(subdir, filename)) return null; // traversal/bad name
+  return { subdir, filename };
+};
 
 /** Escape every interpolated value — the page is only as safe as this. */
 const escapeHtml = (s) =>
@@ -104,7 +133,12 @@ const ripplePage = (req, ripple) => {
   const title = ripple.title || 'Ripple';
   const place = ripple.place?.label || 'Open Network';
   const description = `${place} · on Syncup Open Network`;
-  const image = absoluteUrl(req, shareImage(ripple));
+  // The cover must be fetchable WITHOUT media-auth — /uploads is gated by
+  // requireMediaAccess. Route it through /r/:id/cover, which serves the file
+  // after the same shareable-check as this page.
+  const base = `${req.protocol}://${req.get('host') || ''}`;
+  const pageUrl = `${base}/r/${id}`;
+  const image = shareImage(ripple) ? `${pageUrl}/cover` : null;
   const host = ripple.hostName ? `Hosted by ${ripple.hostName}` : null;
 
   return `<!DOCTYPE html>
@@ -114,7 +148,10 @@ const ripplePage = (req, ripple) => {
 <title>${escapeHtml(title)} — Syncup Open Network</title>
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:url" content="${escapeHtml(pageUrl)}">
 ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ''}
+<meta name="twitter:card" content="summary_large_image">
+${image ? `<meta name="twitter:image" content="${escapeHtml(image)}">` : ''}
 <meta property="og:type" content="website">
 <style>${PAGE_CSS}</style>
 </head><body>
@@ -148,6 +185,47 @@ router.get('/:id', async (req, res) => {
   } catch (e) {
     // A landing page must never 500 for a crawler — fall back to generic.
     return res.status(200).type('html').send(genericPage(req.params.id));
+  }
+});
+
+// @route GET /r/:id/cover — no auth; the public cover for a shareable Ripple.
+// /uploads is behind requireMediaAccess, which browsers/crawlers don't have —
+// this is the media-auth-free surface for the SAME bytes, gated by the exact
+// same shareable-check as the landing page.
+router.get('/:id/cover', async (req, res) => {
+  const notFound = () => res.status(404).json({ success: false, message: 'Not found' });
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) return notFound();
+    const ripple = await Ripple.findById(req.params.id)
+      .select('title place media visibility lifecycle moderation hostName')
+      .lean();
+    if (!isShareable(ripple)) return notFound();
+    const cover = shareImage(ripple);
+    if (!cover) return notFound();
+
+    const local = parseOwnUpload(cover);
+    if (!local) {
+      // An /uploads/-shaped URL that failed the strict parse (bad subdir,
+      // traversal) is NOT ours to hand back — 404, never redirect into it.
+      let pathname = cover;
+      try { pathname = new URL(cover.trim()).pathname; } catch {}
+      if (pathname.startsWith('/uploads/')) return notFound();
+      // Third-party absolute URL — redirect rather than proxy.
+      if (/^https?:\/\//i.test(cover.trim())) {
+        return res.redirect(302, cover.trim());
+      }
+      return notFound();
+    }
+
+    const filePath = resolveUploadPath(local.subdir, local.filename);
+    if (!filePath) return notFound();
+
+    res.set('Cache-Control', 'public, max-age=300');
+    // serveEncryptedFile decrypts at-rest-encrypted post-media and falls back
+    // to plaintext when there's no metadata — same path /uploads uses.
+    return serveEncryptedFile(filePath, res);
+  } catch (e) {
+    return notFound();
   }
 });
 

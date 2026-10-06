@@ -99,7 +99,12 @@ const groupMessageSchema = mongoose.Schema(
         default: Date.now
       }
     }],
-    // Message encryption support
+    // E2EE v2 envelope (Syncup E2EE) — server stores opaque ciphertext
+    e2ee: {
+      v: Number,
+      envelope: mongoose.Schema.Types.Mixed
+    },
+    // Message encryption support (legacy PIN-key scheme)
     encrypted: {
       type: Boolean,
       default: false

@@ -198,6 +198,36 @@ const authLimiter = rateLimit({
   }
 });
 
+/**
+ * Rate limiter for PIN / password verification endpoints
+ * Limit: 5 attempts per 15 minutes per authenticated user (brute-force protection
+ * for the 6-digit encryption PIN and password checks). Every attempt counts.
+ */
+const sensitiveVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Max 5 attempts per window
+  message: {
+    success: false,
+    message: 'Too many verification attempts. Please try again in 15 minutes.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Keyed by authenticated user (mounted after `protect`); this install of
+  // express-rate-limit has no ipKeyGenerator export, so fall back to req.ip
+  keyGenerator: (req) => {
+    return req.user?.userId || req.ip;
+  },
+  handler: (req, res) => {
+    console.warn(`⚠️ [RATE LIMIT] Verification attempts limit exceeded`);
+    res.status(429).json({
+      success: false,
+      message: 'Too many verification attempts. Please try again in 15 minutes.',
+      retryAfter: Math.ceil(req.rateLimit.resetTime / 1000)
+    });
+  }
+});
+
 module.exports = {
   postCreationLimiter,
   commentLimiter,
@@ -205,5 +235,6 @@ module.exports = {
   followLimiter,
   pageCreationLimiter,
   generalLimiter,
-  authLimiter
+  authLimiter,
+  sensitiveVerifyLimiter
 };

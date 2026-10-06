@@ -24,6 +24,11 @@ const contentSchema = new mongoose.Schema({
 }, { _id: false });
 
 const pulseSchema = new mongoose.Schema({
+  // E2EE v2 envelope — content/caption/moodTag stay empty when set
+  e2ee: {
+    v: Number,
+    envelope: mongoose.Schema.Types.Mixed
+  },
   chainId: {
     type: String,
     required: true,

@@ -39,7 +39,7 @@ const getRoomService = () => {
  * @param {string} opts.room      LiveKit room name (LiveSession.roomName).
  * @param {boolean} opts.canPublish  true for the host, false for viewers.
  */
-const createToken = async ({ identity, name, room, canPublish }) => {
+const createToken = async ({ identity, name, room, canPublish, ttl = '4h', publishSources }) => {
   if (!isConfigured()) {
     const err = new Error('Live broadcasts are not configured on this server');
     err.code = 'LIVE_NOT_CONFIGURED';
@@ -48,7 +48,7 @@ const createToken = async ({ identity, name, room, canPublish }) => {
   const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
     identity,
     name,
-    ttl: '4h',
+    ttl,
   });
   at.addGrant({
     room,
@@ -62,10 +62,21 @@ const createToken = async ({ identity, name, room, canPublish }) => {
     // livekit-server-sdk >=2.19 wants the proto enum values here, not the
     // string names — passing 'camera' throws "Cannot convert TrackSource".
     canPublishSources: canPublish
-      ? [TrackSource.CAMERA, TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE]
+      ? (publishSources || [TrackSource.CAMERA, TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE])
       : undefined,
   });
   return at.toJwt();
+};
+
+/** Create a room (used for 1:1 E2EE calls — broadcasts let the server auto-create). */
+const createRoom = async ({ name, emptyTimeout = 60, maxParticipants = 2 }) => {
+  const svc = getRoomService();
+  if (!svc) {
+    const err = new Error('LiveKit is not configured on this server');
+    err.code = 'LIVEKIT_NOT_CONFIGURED';
+    throw err;
+  }
+  return svc.createRoom({ name, emptyTimeout, maxParticipants });
 };
 
 /** Force-disconnects every participant — used when a host ends a broadcast. */
@@ -80,4 +91,4 @@ const deleteRoom = async (room) => {
   }
 };
 
-module.exports = { isConfigured, createToken, deleteRoom };
+module.exports = { isConfigured, createToken, createRoom, deleteRoom };

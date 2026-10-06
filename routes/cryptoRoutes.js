@@ -15,7 +15,7 @@ router.post('/key-exchange', protect, async (req, res) => {
     const { targetUserId, myPublicKey, myX25519PublicKey } = req.body;
     const currentUserId = req.user.userId;
     
-    console.log('🔑 [KEY EXCHANGE] Request from:', currentUserId, 'to:', targetUserId);
+    console.log('🔑 [KEY EXCHANGE] Request received');
     
     // Update current user's public keys
     await User.findOneAndUpdate(
@@ -70,8 +70,7 @@ router.post('/key-exchange', protect, async (req, res) => {
     console.error('❌ [KEY EXCHANGE] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Key exchange failed',
-      error: error.message
+      message: 'Key exchange failed'
     });
   }
 });
@@ -107,8 +106,7 @@ router.get('/my-keys', protect, async (req, res) => {
     console.error('❌ [GET MY KEYS] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get keys',
-      error: error.message
+      message: 'Failed to get keys'
     });
   }
 });

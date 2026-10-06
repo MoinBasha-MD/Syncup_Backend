@@ -120,6 +120,26 @@ const callSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // 'p2p' = legacy WebRTC signaling (offer/answer SDP over the socket);
+  // 'livekit' = SFU room with E2EE media (no SDP — key rides in the envelope).
+  transport: {
+    type: String,
+    enum: ['p2p', 'livekit'],
+    default: 'p2p'
+  },
+  // LiveKit calls only: ctx-binding nonce + sealed call key + room name.
+  callNonce: {
+    type: String,
+    default: null
+  },
+  e2eeEnvelope: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  roomName: {
+    type: String,
+    default: null
+  },
   // Metadata
   missedCallSeen: {
     type: Boolean,

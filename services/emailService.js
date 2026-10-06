@@ -24,10 +24,11 @@ class EmailService {
           pass: process.env.EMAIL_APP_PASSWORD,
         },
         tls: {
-          rejectUnauthorized: false // Allow self-signed certificates in development
+          rejectUnauthorized: true
         },
-        debug: true, // Enable debug logs
-        logger: true // Log to console
+        requireTLS: true,
+        debug: false,
+        logger: false
       });
       this.initialized = true;
       console.log('✅ [EMAIL SERVICE] Initialized successfully');

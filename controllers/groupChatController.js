@@ -7,6 +7,32 @@ const mongoose = require('mongoose');
 const { broadcastToUser } = require('../socketManager');
 
 /**
+ * Notify every current member (plus affected user(s), e.g. just-removed/left)
+ * that the roster changed so their E2EE member-id caches invalidate. Bodies
+ * carry only the groupId — members re-fetch the roster.
+ */
+const broadcastMembersChanged = async (groupId, extraUserIds = []) => {
+  try {
+    const members = await GroupMember.find({ groupId, isActive: true }).select('userId');
+    const targets = new Set(members.map((m) => m.userId));
+    for (const id of extraUserIds) targets.add(id);
+    for (const userId of targets) {
+      broadcastToUser(userId, 'group:members-changed', { groupId: String(groupId) });
+    }
+  } catch (e) {
+    console.warn('⚠️ [GROUP MEMBERS] members-changed broadcast failed:', e.message);
+  }
+};
+
+const {
+  validateEnvelope,
+  isE2eeV2,
+  e2eeGroupEnforced,
+  MAX_GROUP_KEY_ENTRIES,
+  MAX_GROUP_ENVELOPE_BYTES,
+} = require('../utils/e2eeEnvelope');
+
+/**
  * @desc    Create a new group chat
  * @route   POST /api/group-chats
  * @access  Private
@@ -265,7 +291,7 @@ const getGroupChatDetails = asyncHandler(async (req, res) => {
  */
 const sendGroupMessage = asyncHandler(async (req, res) => {
   const { groupId } = req.params;
-  const { message, messageType = 'text', replyTo, imageUrl, voiceMetadata, fileMetadata, encrypted = false, encryptionData } = req.body;
+  const { message, messageType = 'text', replyTo, imageUrl, voiceMetadata, fileMetadata, encrypted = false, encryptionData, e2ee } = req.body;
   const senderId = req.user.userId;
 
   console.log('🔍 [GROUP MESSAGE] Request params:', { groupId, senderId, messageType });
@@ -318,23 +344,57 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
       throw new Error('Sender not found');
     }
 
-    // Create message
+    // Load all active members once — used for envelope validation, delivery
+    // marks, the broadcast loop and notifications below.
+    const allActiveMembers = await GroupMember.find({ groupId, isActive: true });
+
+    // E2EE v2: the envelope must be bound to this group's ctx and only wrap
+    // keys for current active members.
+    if (isE2eeV2(e2ee)) {
+      const envelopeError = validateEnvelope(e2ee, {
+        senderId,
+        expectedCtx: `group:${groupId}`,
+        allowedUserIds: new Set(allActiveMembers.map((m) => m.userId)),
+        maxKeys: MAX_GROUP_KEY_ENTRIES,
+        maxBytes: MAX_GROUP_ENVELOPE_BYTES,
+      });
+      if (envelopeError) {
+        // INVALID_KEYS usually means a member cache is stale (member added or
+        // removed mid-send) — tell the client so it can refresh and retry.
+        const code = envelopeError === 'INVALID_KEYS' ? 'E2EE_STALE_MEMBERS' : envelopeError;
+        return res.status(400).json({ success: false, message: 'Invalid e2ee envelope', code });
+      }
+    } else if (e2eeGroupEnforced()) {
+      res.status(400);
+      throw new Error('E2EE_REQUIRED');
+    }
+
+    // Create message — for v2 the server stores only the envelope; plaintext
+    // content and the replied-to snippet never touch the record.
     const groupMessage = await GroupMessage.create({
       groupId,
       senderId,
       senderName: sender.name,
-      message: message || '',
+      message: isE2eeV2(e2ee) ? '' : (message || ''),
       messageType,
-      imageUrl,
-      voiceMetadata,
-      fileMetadata,
-      encrypted,
-      encryptionData,
-      replyTo: replyTo ? {
-        messageId: replyTo.messageId,
-        message: replyTo.message,
-        senderName: replyTo.senderName
-      } : undefined
+      ...(isE2eeV2(e2ee) ? {
+        e2ee: { v: 2, envelope: e2ee.envelope },
+      } : {
+        imageUrl,
+        voiceMetadata,
+        fileMetadata,
+        encrypted,
+        encryptionData,
+      }),
+      replyTo: replyTo ? (
+        isE2eeV2(e2ee)
+          ? { messageId: replyTo.messageId } // client resolves the snippet locally
+          : {
+              messageId: replyTo.messageId,
+              message: replyTo.message,
+              senderName: replyTo.senderName
+            }
+      ) : undefined
     });
 
     // Update group's last message and activity
@@ -342,11 +402,7 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
     await groupChat.save();
 
     // Mark as delivered to all active members
-    const activeMembers = await GroupMember.find({
-      groupId,
-      isActive: true,
-      userId: { $ne: senderId }
-    });
+    const activeMembers = allActiveMembers.filter((m) => m.userId !== senderId);
 
     const deliveryPromises = activeMembers.map(member =>
       groupMessage.markAsDelivered(member.userId)
@@ -370,7 +426,8 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
         status: 'delivered',
         groupId: groupId,
         senderName: groupMessage.senderName,
-        isGroupMessage: true
+        isGroupMessage: true,
+        ...(groupMessage.e2ee && groupMessage.e2ee.v === 2 ? { e2ee: groupMessage.e2ee } : {})
       };
 
       let successfulBroadcasts = 0;
@@ -401,7 +458,9 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
           const notificationData = {
             type: 'group_message',
             title: `${groupChat.groupName} - ${sender.name}`,
-            body: groupMessage.message || 'Sent a message',
+            body: isE2eeV2(groupMessage.e2ee)
+              ? 'New message'
+              : (groupMessage.message || 'Sent a message'),
             data: {
               type: 'group_message',
               groupId: groupId,
@@ -442,8 +501,10 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('❌ [GROUP MESSAGE] Error sending message:', error);
-    res.status(500);
-    throw new Error('Failed to send message');
+    // Preserve a more specific status set earlier (400 envelope, 403 member)
+    const statusCode = res.statusCode && res.statusCode !== 200 ? res.statusCode : 500;
+    res.status(statusCode);
+    throw statusCode === 500 ? new Error('Failed to send message') : error;
   }
 });
 
@@ -594,6 +655,10 @@ const addGroupMembers = asyncHandler(async (req, res) => {
     });
 
     console.log(`👥 [GROUP MEMBERS] Added ${newMemberIds.length} members to group ${groupId}`);
+
+    // Rosters changed — tell members (and the new members themselves) so
+    // E2EE member caches refresh before their next send.
+    broadcastMembersChanged(groupId, newMemberIds);
 
     // Create system message for each added member (like WhatsApp)
     const adderUser = await User.findOne({ userId }).select('name');
@@ -804,6 +869,9 @@ const removeGroupMember = asyncHandler(async (req, res) => {
     });
 
     console.log(`👥 [GROUP MEMBERS] Removed member ${memberId} from group ${groupId}`);
+
+    // Include the removed user — their app should drop the cached roster too.
+    broadcastMembersChanged(groupId, [memberId]);
 
     res.status(200).json({
       success: true,
@@ -1227,6 +1295,8 @@ const leaveGroup = asyncHandler(async (req, res) => {
     });
 
     console.log(`🚪 [GROUP CHAT] User ${userId} left group ${groupId}`);
+
+    broadcastMembersChanged(groupId, [userId]);
 
     res.status(200).json({
       success: true,

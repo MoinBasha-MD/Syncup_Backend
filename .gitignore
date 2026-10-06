@@ -1,5 +1,6 @@
 node_modules/ 
 logs/
+storage/
 scripts/
 components.zip
 *.md

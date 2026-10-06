@@ -95,7 +95,8 @@ exports.requestMoreAccess = async (req, res) => {
           type: 'doc_access_request',
           documentId,
           documentType: document.documentType,
-          customName: document.customName,
+          // v2 docs keep customName sealed — never put it in notifications
+          ...(document.customName ? { customName: document.customName } : {}),
           requesterId,
           requesterName: requester.name,
           requesterProfileImage: requester.profileImage,
