@@ -54,6 +54,12 @@ test('reconstructs offer + server timestamps', async () => {
   assert.equal(result.expiresAt, String(1_000_000 + 60_000));
 });
 
+test('returns serverNow so skewed device clocks can convert timestamps', async () => {
+  const result = await resumeCall(makeDeps({ now: 1_000_000 + 12_345 }));
+  assert.ok(result);
+  assert.equal(result.serverNow, String(1_000_000 + 12_345));
+});
+
 test('returns null when not in activeCalls, absent, ended, missing SDP, or expired', async () => {
   // Not in activeCalls map
   assert.equal(await resumeCall(makeDeps({ activeCalls: new Map() })), null);
@@ -259,4 +265,56 @@ test('sendCallNotification sends Android data-only high-priority, no SDP, retain
     fcm._sendWithRetry = origSend;
     fcm.fcmEnabled = origEnabled;
   }
+});
+
+const { decideInitiate, applyHold } = require('../services/callResumeService');
+
+test('decideInitiate: self-call, busy-with-waiting, waiting allowed once', () => {
+  const activeCalls = new Map();
+  assert.deepEqual(
+    decideInitiate({ callerId: 'me', receiverId: 'me', activeCalls }),
+    { decision: 'self-call' });
+
+  // Free receiver → proceed, not waiting.
+  assert.deepEqual(
+    decideInitiate({ callerId: 'me', receiverId: 'them', activeCalls }),
+    { decision: 'proceed', callWaiting: false });
+
+  // Receiver on a call → first extra call waits.
+  activeCalls.set('c1', { callerId: 'x', receiverId: 'them' });
+  assert.deepEqual(
+    decideInitiate({ callerId: 'me', receiverId: 'them', activeCalls }),
+    { decision: 'proceed', callWaiting: true });
+
+  // A waiting call already parked → busy.
+  activeCalls.set('c2', { callerId: 'y', receiverId: 'them', waiting: true });
+  assert.deepEqual(
+    decideInitiate({ callerId: 'me2', receiverId: 'them', activeCalls }),
+    { decision: 'busy' });
+
+  // A waiting flag on an unrelated user's call does not count.
+  const other = new Map([['c9', { callerId: 'a', receiverId: 'b', waiting: true }]]);
+  assert.deepEqual(
+    decideInitiate({ callerId: 'me', receiverId: 'them', activeCalls: other }),
+    { decision: 'proceed', callWaiting: false });
+});
+
+test('applyHold: participant only, records heldBy, relays to the other side', () => {
+  const activeCalls = new Map([
+    ['c1', { callerId: 'alice', receiverId: 'bob' }],
+  ]);
+  // Non-participant → null, no mutation.
+  assert.equal(applyHold({ activeCalls, userId: 'mallory', callId: 'c1', held: true }), null);
+  assert.equal(activeCalls.get('c1').held, undefined);
+
+  const held = applyHold({ activeCalls, userId: 'alice', callId: 'c1', held: true });
+  assert.deepEqual(held, { callId: 'c1', held: true, by: 'alice', notifyUserId: 'bob' });
+  assert.equal(activeCalls.get('c1').held, true);
+  assert.equal(activeCalls.get('c1').heldBy, 'alice');
+
+  const resumed = applyHold({ activeCalls, userId: 'bob', callId: 'c1', held: false });
+  assert.equal(resumed.notifyUserId, 'alice');
+  assert.equal(activeCalls.get('c1').heldBy, null);
+
+  assert.equal(applyHold({ activeCalls, userId: 'alice', callId: 'missing', held: true }), null);
 });

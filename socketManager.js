@@ -6,12 +6,21 @@ const User = require('./models/userModel');
 const Friend = require('./models/Friend');
 const StatusPrivacy = require('./models/statusPrivacyModel');
 const Call = require('./models/callModel');
+const GroupCall = require('./models/GroupCall');
+const {
+  capFor,
+  validateGroupCreate,
+  canJoinGroupCall,
+  validateGroupInvite,
+  rosterTransition,
+  canEscalate,
+} = require('./services/groupCallService');
 const Message = require('./models/Message');
 const AIMessageService = require('./services/aiMessageService');
 const AISocketService = require('./services/aiSocketService');
 const { connectionLogger } = require('./utils/loggerSetup');
 const fcmNotificationService = require('./services/fcmNotificationService');
-const { resumeCall, deliverCallNotification } = require('./services/callResumeService');
+const { resumeCall, deliverCallNotification, decideInitiate, applyHold } = require('./services/callResumeService');
 const liveKitService = require('./services/liveKitService');
 const { validateEnvelope, isE2eeV2 } = require('./utils/e2eeEnvelope');
 const Notification = require('./models/Notification');
@@ -1115,13 +1124,20 @@ const initializeSocketIO = (server) => {
     // 📞 WEBRTC CALLING FEATURES
     // Track active calls to prevent duplicate calls (shared across all connections)
     const activeCalls = global.activeCalls || (global.activeCalls = new Map());
-    
-    // Helper function to check if user is on a call
+    // callId -> { roomName, ringTimers: Map, liveUsers: Set } — populated by
+    // the groupcall handlers below; joined + ringing invitees count as busy.
+    const activeGroupCalls = global.activeGroupCalls ||
+      (global.activeGroupCalls = new Map());
+
+    // Helper function to check if user is on a call (1:1 or group)
     const isUserOnCall = (checkUserId) => {
       for (const [callId, callData] of activeCalls.entries()) {
         if (callData.callerId === checkUserId || callData.receiverId === checkUserId) {
           return true;
         }
+      }
+      for (const g of activeGroupCalls.values()) {
+        if (g.liveUsers?.has(checkUserId)) return true;
       }
       return false;
     };
@@ -1133,6 +1149,12 @@ const initializeSocketIO = (server) => {
       try {
         const { receiverId, callType, offer, transport, callNonce, e2ee } = data;
         const useLiveKit = transport === 'livekit';
+
+        // Never allow a call to oneself — fail before any DB writes.
+        if (receiverId === userId) {
+          socket.emit('call:failed', { reason: 'SELF_CALL', message: "You can't call yourself" });
+          return;
+        }
 
         // Validate call type
         if (!['voice', 'video'].includes(callType)) {
@@ -1184,13 +1206,22 @@ const initializeSocketIO = (server) => {
           deviceTokens: receiver.deviceTokens?.length || 0
         });
         
-        // Check if receiver is busy (already on a call)
-        if (isUserOnCall(receiver.userId)) {
-          console.log(`📞 Receiver ${receiverId} is busy on another call`);
-          // FIXED: send callId not userId — frontend CallSignaling expects { callId }
+        // Call waiting: a busy receiver may hold ONE waiting call — a second
+        // caller still gets call:busy (decision is unit-tested pure logic).
+        const initiateDecision = decideInitiate({
+          callerId: userId,
+          receiverId: receiver.userId,
+          activeCalls,
+        });
+        if (initiateDecision.decision === 'busy') {
+          console.log(`📞 Receiver ${receiverId} already has a waiting call`);
           const tempId = `busy_${Date.now()}`;
           socket.emit('call:busy', { callId: tempId, userId: receiverId });
           return;
+        }
+        const callWaiting = initiateDecision.callWaiting === true;
+        if (callWaiting) {
+          console.log(`📞 Receiver ${receiverId} is on a call — offering as waiting call`);
         }
         
         // Check if caller is busy
@@ -1232,10 +1263,12 @@ const initializeSocketIO = (server) => {
         // auto-closes after 60s empty if nobody joins.
         if (useLiveKit) {
           try {
+            // maxParticipants is the video-group cap (not 2) so a LiveKit
+            // 1:1 call can escalate in place — tokens still gate access.
             await liveKitService.createRoom({
               name: call.roomName,
               emptyTimeout: 60,
-              maxParticipants: 2,
+              maxParticipants: capFor('video'),
             });
           } catch (roomErr) {
             console.error('❌ [CALL] LiveKit room creation failed:', roomErr.message);
@@ -1324,7 +1357,8 @@ const initializeSocketIO = (server) => {
           receiverId: receiver.userId,
           startTime: new Date(),
           callType,
-          timeoutId: callTimeout
+          timeoutId: callTimeout,
+          waiting: callWaiting,
         });
         
         console.log(`✅ Call ${callId} created, notifying receiver ${receiver.name}`);
@@ -1347,7 +1381,13 @@ const initializeSocketIO = (server) => {
             ? { transport: 'livekit', callNonce, e2ee: { v: 2, envelope: e2ee.envelope } }
             : {}),
           timestamp: call.createdAt.toISOString(),
-          expiresAt: String(call.createdAt.getTime() + 60000)
+          expiresAt: String(call.createdAt.getTime() + 60000),
+          // Server clock lets skewed device clocks convert timestamps instead
+          // of expiring a still-valid call.
+          serverNow: String(Date.now()),
+          // The receiver is already on a call — their UI shows call-waiting
+          // UX instead of a full incoming screen.
+          callWaiting,
         };
 
         // NOTIFICATION STRATEGY
@@ -1365,7 +1405,9 @@ const initializeSocketIO = (server) => {
             receiverAvatar: receiver.profileImage || null,
             callType,
             timestamp: callNotificationData.timestamp,
-            expiresAt: callNotificationData.expiresAt
+            expiresAt: callNotificationData.expiresAt,
+            serverNow: callNotificationData.serverNow,
+            callWaiting
           });
 
         const delivery = await deliverCallNotification({
@@ -1466,6 +1508,8 @@ const initializeSocketIO = (server) => {
           socket.emit('call:failed', { callId, reason: 'Call is no longer active' });
           return;
         }
+        // An answered call is never "waiting" anymore — it became primary.
+        activeCall.waiting = false;
 
         // Clear timeout
         if (activeCall && activeCall.timeoutId) {
@@ -1511,6 +1555,33 @@ const initializeSocketIO = (server) => {
       }
     });
     
+    // Hold/unhold — relayed to the other party of an ACTIVE call. The sender
+    // must be a participant; state is kept on the in-memory entry only.
+    socket.on('call:hold', async (data) => {
+      try {
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        const held = payload?.held === true;
+        if (!callId || callId.length > 200) return;
+
+        const call = await findAuthorizedCall(Call, userId, callId);
+        if (!call || call.status !== 'connected') return;
+
+        const holdRelay = applyHold({ activeCalls, userId, callId, held });
+        if (!holdRelay) {
+          console.log(`❌ [CALL] call:hold denied — ${userId} not a participant of ${callId}`);
+          return;
+        }
+        const otherSocket = userSockets.get(holdRelay.notifyUserId);
+        if (otherSocket && otherSocket.connected) {
+          otherSocket.emit('call:hold', { callId, held, by: holdRelay.by });
+        }
+        console.log(`📞 [CALL] call:hold ${held ? 'held' : 'resumed'} by ${userId} on ${callId}`);
+      } catch (error) {
+        console.error('❌ Error handling call:hold:', error);
+      }
+    });
+
     // Call reject
     socket.on('call:reject', async (data) => {
       try {
@@ -1602,6 +1673,453 @@ const initializeSocketIO = (server) => {
       }
     });
     
+    // ====================================================================
+    // 📞 GROUP CALLS (LiveKit + E2EE) — activeGroupCalls declared above so
+    // isUserOnCall already counts joined/ringing group participation.
+    // ====================================================================
+
+    const emitToUser = (uid, event, payload) => {
+      const s = userSockets.get(uid);
+      if (s && s.connected) s.emit(event, payload);
+    };
+
+    /** Broadcast a roster change to every joined/invited participant. */
+    const broadcastRoster = (call, changedUserId, status) => {
+      const p = (call.participants || []).find(x => x.userId === changedUserId);
+      for (const other of call.participants || []) {
+        if (!['joined', 'invited'].includes(other.status)) continue;
+        emitToUser(other.userId, 'groupcall:participant', {
+          callId: call.callId,
+          userId: changedUserId,
+          status,
+          name: p?.name,
+          avatar: p?.avatar,
+        });
+      }
+    };
+
+    /**
+     * Fan out a groupcall invite: socket + data-only FCM + 60s per-invitee
+     * ring timeout (→ 'missed' + Notification record). Busy receivers get
+     * callWaiting semantics (single waiting slot, like 1:1).
+     */
+    const deliverGroupInvite = async (call, participant, inviter, inviterId) => {
+      const uid = participant.userId;
+      const g = activeGroupCalls.get(call.callId);
+      const payload = {
+        callId: call.callId,
+        kind: 'group',
+        callType: call.callType,
+        hostId: call.hostId,
+        hostName: call.participants.find(p => p.userId === call.hostId)?.name || '',
+        hostAvatar: call.participants.find(p => p.userId === call.hostId)?.avatar || null,
+        groupId: call.groupId || null,
+        inviterId,
+        callNonce: participant.callNonce,
+        e2ee: { v: 2, envelope: participant.e2eeEnvelope },
+        participantsPreview: (call.participants || []).slice(0, 5).map(p => ({
+          userId: p.userId, name: p.name, avatar: p.avatar,
+        })),
+        timestamp: new Date().toISOString(),
+        expiresAt: String(Date.now() + 60000),
+        serverNow: String(Date.now()),
+        callWaiting: isUserOnCall(uid),
+      };
+
+      // Already waiting on another call → this invite can't also wait.
+      const alreadyWaiting = [...activeCalls.values()].some(
+        e => e.receiverId === uid && e.waiting
+      );
+      if (alreadyWaiting && participant.status === 'invited') {
+        participant.status = 'missed';
+        broadcastRoster(call, uid, 'missed');
+      } else {
+        emitToUser(uid, 'groupcall:incoming', payload);
+        try {
+          await fcmNotificationService.sendCallNotification(uid, {
+            ...payload,
+            callerId: inviterId,
+            callerName: inviter?.name || payload.hostName || 'Unknown',
+            callerAvatar: inviter?.profileImage || null,
+            receiverName: participant.name,
+            kind: 'group',
+          });
+        } catch (e) {
+          console.error('❌ [GCALL] FCM invite failed:', e.message);
+        }
+
+        if (g) {
+          const t = setTimeout(async () => {
+            try {
+              const fresh = await GroupCall.findOne({ callId: call.callId });
+              const fp = fresh?.participants.find(x => x.userId === uid);
+              if (fp && fp.status === 'invited') {
+                fp.status = 'missed';
+                await fresh.save();
+                broadcastRoster(fresh, uid, 'missed');
+                try {
+                  await Notification.create({
+                    userId: uid,
+                    type: 'call_missed',
+                    fromUserId: inviterId,
+                    message: `Missed ${call.callType} group call from ${payload.hostName || 'Unknown'}`,
+                    data: { type: 'missed_call', callId: call.callId, callerId: inviterId, callType: call.callType, group: true },
+                  });
+                } catch {}
+              }
+            } catch (e) {
+              console.error('❌ [GCALL] ring timeout failed:', e.message);
+            }
+          }, 60000);
+          g.ringTimers.set(uid, t);
+        }
+      }
+    };
+
+    /** Ends the call when no 'joined' participants remain. */
+    const endGroupCallIfEmpty = async (call) => {
+      if ((call.participants || []).some(p => p.status === 'joined')) return false;
+      call.status = 'ended';
+      call.endedAt = new Date();
+      await call.save();
+      liveKitService.deleteRoom(call.roomName);
+      const g = activeGroupCalls.get(call.callId);
+      g?.ringTimers.forEach(timer => clearTimeout(timer));
+      activeGroupCalls.delete(call.callId);
+      for (const p of call.participants || []) {
+        emitToUser(p.userId, 'groupcall:ended', { callId: call.callId });
+      }
+      return true;
+    };
+
+    socket.on('groupcall:create', async (data, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        if (!liveKitService.isConfigured()) {
+          return reply({ ok: false, reason: 'LIVEKIT_NOT_CONFIGURED' });
+        }
+        const { callType, inviteeIds, groupId, callNonce, envelopes } = data || {};
+        const v = validateGroupCreate(
+          { callerId: userId, callType, inviteeIds, callNonce, envelopes },
+          { validateEnv: validateEnvelope },
+        );
+        if (!v.ok) return reply({ ok: false, reason: v.reason });
+
+        const invitees = await User.find({ userId: { $in: v.inviteeIds } })
+          .select('userId name profileImage').lean();
+        if (invitees.length !== v.inviteeIds.length) {
+          return reply({ ok: false, reason: 'Some users not found' });
+        }
+        const caller = await User.findOne({ userId }).select('userId name profileImage').lean();
+        const callId = `gcall_${Date.now()}_${uuidv4().slice(0, 8)}`;
+        const roomName = `gcall_${callId}`;
+        const cap = capFor(callType);
+        try {
+          await liveKitService.createRoom({ name: roomName, emptyTimeout: 60, maxParticipants: cap });
+        } catch (e) {
+          return reply({ ok: false, reason: 'LIVEKIT_NOT_CONFIGURED' });
+        }
+        const token = await liveKitService.createToken({
+          identity: userId, name: caller?.name || 'User', room: roomName, canPublish: true,
+        });
+
+        const call = await GroupCall.create({
+          callId,
+          roomName,
+          callType,
+          hostId: userId,
+          groupId: groupId || null,
+          status: 'active',
+          participants: [
+            {
+              userId, name: caller?.name, avatar: caller?.profileImage,
+              status: 'joined', invitedBy: userId,
+              invitedAt: new Date(), joinedAt: new Date(),
+            },
+            ...invitees.map(u => ({
+              userId: u.userId, name: u.name, avatar: u.profileImage,
+              status: 'invited', invitedBy: userId, invitedAt: new Date(),
+              callNonce, e2eeEnvelope: envelopes[u.userId],
+            })),
+          ],
+        });
+        activeGroupCalls.set(callId, {
+          roomName,
+          ringTimers: new Map(),
+          liveUsers: new Set([userId, ...v.inviteeIds]),
+        });
+        for (const p of call.participants.slice(1)) {
+          await deliverGroupInvite(call, p, caller, userId);
+        }
+        reply({ ok: true, callId, roomName, token, url: process.env.LIVEKIT_URL });
+      } catch (e) {
+        console.error('❌ [GCALL] create failed:', e);
+        reply({ ok: false, reason: 'create failed' });
+      }
+    });
+
+    socket.on('groupcall:join', async (data, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const callId = typeof data?.callId === 'string' ? data.callId.trim() : '';
+        if (!callId || callId.length > 200) return reply({ ok: false, reason: 'bad callId' });
+        const call = await GroupCall.findOne({ callId });
+        if (canJoinGroupCall(call, userId) !== 'ok') {
+          return reply({ ok: false, reason: canJoinGroupCall(call, userId) });
+        }
+        const me = await User.findOne({ userId }).select('userId name profileImage').lean();
+        const p = call.participants.find(x => x.userId === userId);
+        rosterTransition(call, userId, 'joined'); // status + joinedAt
+        await call.save();
+        const g = activeGroupCalls.get(callId);
+        const timer = g?.ringTimers.get(userId);
+        if (timer) { clearTimeout(timer); g.ringTimers.delete(userId); }
+        g?.liveUsers?.add(userId);
+        const token = await liveKitService.createToken({
+          identity: userId, name: me?.name || 'User', room: call.roomName, canPublish: true,
+        });
+        broadcastRoster(call, userId, 'joined');
+        reply({
+          ok: true,
+          callId,
+          roomName: call.roomName,
+          callType: call.callType,
+          token,
+          url: process.env.LIVEKIT_URL,
+          callNonce: p.callNonce,
+          e2ee: p.e2eeEnvelope ? { v: 2, envelope: p.e2eeEnvelope } : undefined,
+          inviterId: p.invitedBy || call.hostId,
+          groupId: call.groupId || null,
+          hostId: call.hostId,
+          serverNow: String(Date.now()),
+          participants: call.participants.map(x => ({
+            userId: x.userId, name: x.name, avatar: x.avatar, status: x.status,
+          })),
+        });
+      } catch (e) {
+        console.error('❌ [GCALL] join failed:', e);
+        reply({ ok: false, reason: 'join failed' });
+      }
+    });
+
+    socket.on('groupcall:resume', async (data, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const callId = typeof data?.callId === 'string' ? data.callId.trim() : '';
+        if (!callId || callId.length > 200) return reply({ ok: false, reason: 'bad callId' });
+        const call = await GroupCall.findOne({ callId, status: 'active' });
+        const p = call?.participants.find(x => x.userId === userId);
+        if (!call || !p || !['invited', 'left', 'joined'].includes(p.status)) {
+          return reply({ ok: false, reason: 'inactive' });
+        }
+        reply({
+          ok: true,
+          callId,
+          callType: call.callType,
+          hostId: call.hostId,
+          groupId: call.groupId || null,
+          inviterId: p.invitedBy || call.hostId,
+          callNonce: p.callNonce,
+          e2ee: p.e2eeEnvelope ? { v: 2, envelope: p.e2eeEnvelope } : undefined,
+          status: p.status,
+          expiresAt: String(Date.now() + 60000),
+          serverNow: String(Date.now()),
+          participants: call.participants.map(x => ({
+            userId: x.userId, name: x.name, avatar: x.avatar, status: x.status,
+          })),
+        });
+      } catch (e) {
+        reply({ ok: false, reason: 'resume failed' });
+      }
+    });
+
+    socket.on('groupcall:decline', async (data) => {
+      try {
+        const callId = typeof data?.callId === 'string' ? data.callId.trim() : '';
+        if (!callId) return;
+        const call = await GroupCall.findOne({ callId, status: 'active' });
+        const p = call?.participants.find(x => x.userId === userId && x.status === 'invited');
+        if (!call || !p) return;
+        rosterTransition(call, userId, 'declined');
+        await call.save();
+        const g = activeGroupCalls.get(callId);
+        const t = g?.ringTimers.get(userId);
+        if (t) { clearTimeout(t); g.ringTimers.delete(userId); }
+        g?.liveUsers?.delete(userId);
+        broadcastRoster(call, userId, 'declined');
+        await endGroupCallIfEmpty(call);
+      } catch (e) {
+        console.error('❌ [GCALL] decline failed:', e);
+      }
+    });
+
+    socket.on('groupcall:leave', async (data) => {
+      try {
+        const callId = typeof data?.callId === 'string' ? data.callId.trim() : '';
+        if (!callId) return;
+        const call = await GroupCall.findOne({ callId, status: 'active' });
+        const p = call?.participants.find(
+          x => x.userId === userId && (x.status === 'joined' || x.status === 'invited'),
+        );
+        if (!call || !p) return;
+        rosterTransition(call, userId, 'left');
+        await call.save();
+        const g = activeGroupCalls.get(callId);
+        const t = g?.ringTimers.get(userId);
+        if (t) { clearTimeout(t); g.ringTimers.delete(userId); }
+        g?.liveUsers?.delete(userId);
+        broadcastRoster(call, userId, 'left');
+        await endGroupCallIfEmpty(call);
+      } catch (e) {
+        console.error('❌ [GCALL] leave failed:', e);
+      }
+    });
+
+    socket.on('groupcall:invite', async (data, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const callId = typeof data?.callId === 'string' ? data.callId.trim() : '';
+        const call = await GroupCall.findOne({ callId, status: 'active' });
+        const v = validateGroupInvite(
+          {
+            call, inviterId: userId,
+            inviteeIds: data?.inviteeIds,
+            callNonce: data?.callNonce,
+            envelopes: data?.envelopes,
+          },
+          { validateEnv: validateEnvelope },
+        );
+        if (!v.ok) return reply({ ok: false, reason: v.reason });
+        const invitees = await User.find({ userId: { $in: v.inviteeIds } })
+          .select('userId name profileImage').lean();
+        const me = await User.findOne({ userId }).select('userId name profileImage').lean();
+        for (const u of invitees) {
+          const p = {
+            userId: u.userId, name: u.name, avatar: u.profileImage,
+            status: 'invited', invitedBy: userId, invitedAt: new Date(),
+            callNonce: data.callNonce, e2eeEnvelope: data.envelopes[u.userId],
+          };
+          call.participants.push(p);
+        }
+        await call.save();
+        const g = activeGroupCalls.get(callId);
+        v.inviteeIds.forEach(id => g?.liveUsers?.add(id));
+        for (const p of call.participants.filter(x => v.inviteeIds.includes(x.userId))) {
+          await deliverGroupInvite(call, p, me, userId);
+          broadcastRoster(call, p.userId, 'invited');
+        }
+        reply({ ok: true, inviteeIds: v.inviteeIds });
+      } catch (e) {
+        console.error('❌ [GCALL] invite failed:', e);
+        reply({ ok: false, reason: 'invite failed' });
+      }
+    });
+
+    // Group-chat banner: is there an active group call for this group?
+    socket.on('groupcall:active', async (data, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const groupId = typeof data?.groupId === 'string' ? data.groupId.trim() : '';
+        if (!groupId || groupId.length > 200) return reply({ active: false });
+        const call = await GroupCall.findOne({ groupId, status: 'active' }).lean();
+        if (!call || !(call.participants || []).some(p => p.status === 'joined')) {
+          return reply({ active: false });
+        }
+        reply({
+          active: true,
+          callId: call.callId,
+          callType: call.callType,
+          joinedCount: call.participants.filter(p => p.status === 'joined').length,
+        });
+      } catch {
+        reply({ active: false });
+      }
+    });
+
+    // 1:1 → group escalation: reuse the LiveKit room (no media gap).
+    socket.on('call:escalate', async (data, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+        const callId = typeof payload?.callId === 'string' ? payload.callId.trim() : '';
+        const call = await Call.findOne({ callId });
+        const activeCall = activeCalls.get(callId);
+        if (!canEscalate({ call, activeCall, userId })) {
+          return reply({ ok: false, reason: 'not-allowed' });
+        }
+        const v = validateGroupCreate(
+          {
+            callerId: userId, callType: call.callType,
+            inviteeIds: payload.inviteeIds,
+            callNonce: payload.callNonce,
+            envelopes: payload.envelopes,
+          },
+          { validateEnv: validateEnvelope },
+        );
+        if (!v.ok) return reply({ ok: false, reason: v.reason });
+        const invitees = await User.find({ userId: { $in: v.inviteeIds } })
+          .select('userId name profileImage').lean();
+        if (invitees.length !== v.inviteeIds.length) {
+          return reply({ ok: false, reason: 'Some users not found' });
+        }
+        // +2 existing participants alongside the new invitees.
+        if (v.inviteeIds.length + 2 > capFor(call.callType)) {
+          return reply({ ok: false, reason: `GROUP_CALL_LIMIT:${capFor(call.callType)}` });
+        }
+
+        const me = await User.findOne({ userId }).select('userId name profileImage').lean();
+        const groupCallId = `gcall_${Date.now()}_${uuidv4().slice(0, 8)}`;
+        const both = [call.callerId, call.receiverId];
+        const existing = await User.find({ userId: { $in: both } })
+          .select('userId name profileImage').lean();
+
+        const gcall = await GroupCall.create({
+          callId: groupCallId,
+          roomName: call.roomName, // reuse — same media session, no gap
+          callType: call.callType,
+          hostId: call.callerId,
+          status: 'active',
+          participants: [
+            ...existing.map(u => ({
+              userId: u.userId, name: u.name, avatar: u.profileImage,
+              status: 'joined', invitedBy: userId,
+              invitedAt: new Date(), joinedAt: new Date(),
+            })),
+            ...invitees.map(u => ({
+              userId: u.userId, name: u.name, avatar: u.profileImage,
+              status: 'invited', invitedBy: userId, invitedAt: new Date(),
+              callNonce: payload.callNonce, e2eeEnvelope: payload.envelopes[u.userId],
+            })),
+          ],
+        });
+
+        // The 1:1 record ends as 'escalated' — no call:ended (media lives on).
+        call.status = 'ended';
+        call.endTime = new Date();
+        call.endReason = 'escalated';
+        await call.save();
+        const ac = activeCalls.get(callId);
+        if (ac?.timeoutId) clearTimeout(ac.timeoutId);
+        activeCalls.delete(callId);
+
+        activeGroupCalls.set(groupCallId, {
+          roomName: call.roomName,
+          ringTimers: new Map(),
+          liveUsers: new Set([...both, ...v.inviteeIds]),
+        });
+        for (const uid of both) {
+          emitToUser(uid, 'call:escalated', { callId, groupCallId });
+        }
+        for (const p of gcall.participants.filter(x => x.status === 'invited')) {
+          await deliverGroupInvite(gcall, p, me, userId);
+        }
+        reply({ ok: true, callId: groupCallId, roomName: call.roomName });
+      } catch (e) {
+        console.error('❌ [CALL] escalate failed:', e);
+        reply({ ok: false, reason: 'escalate failed' });
+      }
+    });
+
     // ICE candidate exchange
     socket.on('call:ice-candidate', async (data) => {
       try {

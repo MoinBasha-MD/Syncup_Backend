@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const Call = require('../models/callModel');
+const GroupCall = require('../models/GroupCall');
 const User = require('../models/userModel');
 const liveKitService = require('../services/liveKitService');
 const { findAuthorizedCall } = require('../services/socketAuthorization');
@@ -24,6 +25,14 @@ const getCallHistory = asyncHandler(async (req, res) => {
   .limit(limit)
   .skip(skip)
   .lean();
+
+  // Group calls the user participated in, folded into the same list.
+  const groupCalls = await GroupCall.find({
+    'participants.userId': userId,
+  })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
 
   // Populate user details for each call
   const callsWithUserDetails = await Promise.all(calls.map(async (call) => {
@@ -50,6 +59,30 @@ const getCallHistory = asyncHandler(async (req, res) => {
     };
   }));
 
+  const groupEntries = groupCalls.map(gc => ({
+    callId: gc.callId,
+    callType: gc.callType,
+    group: true,
+    groupId: gc.groupId,
+    isOutgoing: gc.hostId === userId,
+    status: gc.status === 'ended' ? 'ended' : gc.status,
+    createdAt: gc.createdAt,
+    duration: gc.endedAt && gc.createdAt
+      ? Math.max(0, Math.round((new Date(gc.endedAt) - new Date(gc.createdAt)) / 1000))
+      : 0,
+    participants: (gc.participants || []).map(p => ({
+      userId: p.userId, name: p.name, avatar: p.avatar, status: p.status,
+    })),
+    otherUser: {
+      userId: gc.hostId,
+      name: gc.participants?.find(p => p.userId === gc.hostId)?.name || 'Group call',
+    },
+  }));
+
+  const merged = [...callsWithUserDetails, ...groupEntries]
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, limit);
+
   const total = await Call.countDocuments({
     $or: [
       { callerId: userId },
@@ -59,7 +92,7 @@ const getCallHistory = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    calls: callsWithUserDetails,
+    calls: merged,
     pagination: {
       total,
       page,

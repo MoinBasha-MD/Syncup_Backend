@@ -65,6 +65,9 @@ async function resumeCall({ Call, activeCalls, userId, callId, now }) {
         }),
     timestamp: call.createdAt.toISOString(),
     expiresAt: String(call.createdAt.getTime() + CALL_LIFETIME_MS),
+    // Server clock — clients convert timestamps to local time, so a skewed
+    // device clock can't expire (or extend) a real call.
+    serverNow: String(at),
   };
 }
 
@@ -94,6 +97,7 @@ async function deliverCallNotification({
       receiverId: receiver.userId,
       receiverName: receiver.name,
       callType,
+      callWaiting: !!callNotificationData.callWaiting,
       notificationMethod: 'websocket',
     });
 
@@ -120,10 +124,57 @@ async function deliverCallNotification({
       receiverId: receiver.userId,
       receiverName: receiver.name,
       callType,
+      callWaiting: !!callNotificationData.callWaiting,
       notificationMethod: 'fcm_push',
     });
   }
   return { method: 'fcm_push', fcm: fcmResult };
 }
 
-module.exports = { resumeCall, deliverCallNotification, CALL_LIFETIME_MS };
+/**
+ * Decide how call:initiate proceeds (pure — unit tested).
+ *  'self-call' → receiverId === callerId
+ *  'busy'      → receiver already has a waiting call
+ *  'proceed'   → create the call; callWaiting flags the one allowed hold.
+ */
+function decideInitiate({ callerId, receiverId, activeCalls }) {
+  if (receiverId === callerId) return { decision: 'self-call' };
+  let receiverBusy = false;
+  let hasWaiting = false;
+  for (const entry of activeCalls.values()) {
+    if (entry.callerId === receiverId || entry.receiverId === receiverId) {
+      receiverBusy = true;
+      if (entry.receiverId === receiverId && entry.waiting) hasWaiting = true;
+    }
+  }
+  if (receiverBusy && hasWaiting) return { decision: 'busy' };
+  return { decision: 'proceed', callWaiting: receiverBusy };
+}
+
+/**
+ * Apply a hold/unhold (pure — unit tested). Returns the relay payload +
+ * notify target, or null when the sender is not a participant.
+ */
+function applyHold({ activeCalls, userId, callId, held }) {
+  const activeCall = activeCalls.get(callId);
+  if (!activeCall) return null;
+  if (activeCall.callerId !== userId && activeCall.receiverId !== userId) return null;
+  activeCall.held = held;
+  activeCall.heldBy = held ? userId : null;
+  return {
+    callId,
+    held,
+    by: userId,
+    notifyUserId: activeCall.callerId === userId
+      ? activeCall.receiverId
+      : activeCall.callerId,
+  };
+}
+
+module.exports = {
+  resumeCall,
+  deliverCallNotification,
+  decideInitiate,
+  applyHold,
+  CALL_LIFETIME_MS,
+};

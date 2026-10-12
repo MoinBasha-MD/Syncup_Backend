@@ -6,8 +6,10 @@
 port: 7880
 rtc:
   tcp_port: 7881
-  port_range_start: 50000
-  port_range_end: 50100
+  # Single-port UDP mux for all WebRTC media. The previous 50000-50100
+  # per-participant port range caps out around ~100 concurrent participants;
+  # the mux removes that ceiling (needed for group calls).
+  udp_port: 7882
   # Replace with the VPS's public IP — without this, clients behind strict
   # NATs/firewalls can fail to establish media even though signaling works.
   use_external_ip: true

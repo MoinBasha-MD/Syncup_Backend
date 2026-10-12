@@ -510,7 +510,12 @@ class FCMNotificationService {
       // limit; the client fetches it via call:resume on wake.
       const message = {
         data: {
-          type: 'incoming_call',
+          type: callData.kind === 'group' ? 'incoming_group_call' : 'incoming_call',
+          ...(callData.kind === 'group' ? {
+            groupId: String(callData.groupId || ''),
+            inviterId: String(callData.inviterId || ''),
+            hostName: String(callData.hostName || ''),
+          } : {}),
           callId: String(callData.callId),
           callerId: String(callData.callerId),
           callerName: String(callData.callerName || 'Unknown'),
@@ -522,7 +527,9 @@ class FCMNotificationService {
           // call:resume instead of an offer (envelope itself never rides FCM).
           transport: String(callData.transport || 'p2p'),
           timestamp: String(callData.timestamp || new Date().toISOString()),
-          expiresAt: String(callData.expiresAt || '')
+          expiresAt: String(callData.expiresAt || ''),
+          serverNow: String(callData.serverNow || Date.now()),
+          callWaiting: String(callData.callWaiting || 'false')
         },
         tokens: tokens,
         android: {
