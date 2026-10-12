@@ -54,7 +54,7 @@ const statusScheduleSchema = mongoose.Schema(
     calendarEventId: String,
     calendarSource: { 
       type: String, 
-      enum: ['manual', 'google', 'outlook', 'apple', 'system'],
+      enum: ['manual', 'google', 'outlook', 'apple', 'system', 'microsoft', 'imap', 'device', 'email'],
       default: 'manual'
     },
     autoCreatedFromCalendar: { type: Boolean, default: false },

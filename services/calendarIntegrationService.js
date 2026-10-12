@@ -1,6 +1,7 @@
 const StatusSchedule = require('../models/statusScheduleModel');
 const StatusTemplate = require('../models/statusTemplateModel');
 const { addMinutes, isWithinInterval, format } = require('date-fns');
+const { mapEventToStatus } = require('./calendar/statusMapping');
 
 /**
  * 🆕 Enhanced Calendar Integration Service
@@ -80,68 +81,8 @@ class CalendarIntegrationService {
    * Determine appropriate status based on calendar event
    */
   determineStatusFromEvent(event) {
-    const title = event.title.toLowerCase();
-    const description = (event.description || '').toLowerCase();
-    const location = (event.location || '').toLowerCase();
-    
-    // Meeting patterns
-    if (this.containsKeywords(title, ['meeting', 'call', 'conference', 'standup', 'sync', 'review'])) {
-      return {
-        status: 'In a meeting',
-        customStatus: event.title
-      };
-    }
-    
-    // Travel patterns
-    if (this.containsKeywords(title, ['flight', 'travel', 'trip', 'commute']) ||
-        this.containsKeywords(location, ['airport', 'station', 'terminal'])) {
-      return {
-        status: 'Traveling',
-        customStatus: `Traveling - ${event.title}`
-      };
-    }
-    
-    // Health appointments
-    if (this.containsKeywords(title, ['doctor', 'appointment', 'medical', 'dentist', 'clinic', 'hospital'])) {
-      return {
-        status: 'Doctor appointment',
-        customStatus: 'Medical appointment'
-      };
-    }
-    
-    // Personal time
-    if (this.containsKeywords(title, ['lunch', 'break', 'personal', 'gym', 'workout'])) {
-      return {
-        status: 'On a break',
-        customStatus: event.title
-      };
-    }
-    
-    // Work focus time
-    if (this.containsKeywords(title, ['focus', 'deep work', 'coding', 'development', 'writing'])) {
-      return {
-        status: 'Do not disturb',
-        customStatus: 'Focus time'
-      };
-    }
-    
-    // Training/Learning
-    if (this.containsKeywords(title, ['training', 'workshop', 'seminar', 'course', 'learning'])) {
-      return {
-        status: 'In training',
-        customStatus: event.title
-      };
-    }
-    
-    // Default for other calendar events
-    if (event.title && event.title.trim()) {
-      return {
-        status: 'Busy',
-        customStatus: event.title
-      };
-    }
-    
-    return null;
+    if (!event.title || !event.title.trim()) return null;
+    return mapEventToStatus(event);
   }
   
   /**

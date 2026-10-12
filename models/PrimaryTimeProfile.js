@@ -96,6 +96,19 @@ const primaryTimeProfileSchema = new mongoose.Schema({
     min: 1,
     max: 10,
   },
+  // 'calendar-sync' marks profiles upserted by calendar recurrence
+  // detection — only those are safe to overwrite on later syncs.
+  source: {
+    type: String,
+    enum: ['manual', 'calendar-sync'],
+    default: 'manual',
+    index: true,
+  },
+  patternKey: {
+    type: String,
+    default: null,
+    index: true,
+  },
 }, {
   timestamps: true,
 });

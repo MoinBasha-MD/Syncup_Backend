@@ -2,11 +2,11 @@
  * Calendar Integration
  * Handles integration with calendar services to sync status with calendar events
  */
-const { BadRequestError } = require('./errorClasses');
+const { mapEventToStatus } = require('../services/calendar/statusMapping');
 
 class CalendarIntegration {
   /**
-   * Get events from Google Calendar
+   * Get events from Google Calendar using a raw OAuth access token.
    * @param {string} accessToken - Google OAuth access token
    * @param {Date} startDate - Start date for events
    * @param {Date} endDate - End date for events
@@ -14,18 +14,34 @@ class CalendarIntegration {
    */
   async getGoogleCalendarEvents(accessToken, startDate, endDate) {
     try {
-      // In a real implementation, this would use the Google Calendar API
-      // For now, return empty array - no mock data
-      console.log('Google Calendar integration not implemented - returning empty events');
-      return [];
+      const axios = require('axios');
+      const response = await axios.get('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: {
+          timeMin: startDate.toISOString(),
+          timeMax: endDate.toISOString(),
+          maxResults: 250,
+          singleEvents: true,
+          orderBy: 'startTime',
+        },
+        timeout: 20000,
+      });
+      return (response.data.items || []).map(item => ({
+        id: item.id,
+        title: item.summary || '(no title)',
+        start: new Date((item.start || {}).dateTime || `${(item.start || {}).date}T00:00:00Z`),
+        end: new Date((item.end || {}).dateTime || `${(item.end || {}).date}T00:00:00Z`),
+        recurring: !!(item.recurrence || []).length,
+        source: 'google',
+      }));
     } catch (error) {
-      console.error('Error fetching Google Calendar events:', error);
+      console.error('Error fetching Google Calendar events:', error.message);
       return [];
     }
   }
 
   /**
-   * Get events from Microsoft Outlook Calendar
+   * Get events from Microsoft Outlook Calendar using a raw access token.
    * @param {string} accessToken - Microsoft OAuth access token
    * @param {Date} startDate - Start date for events
    * @param {Date} endDate - End date for events
@@ -33,33 +49,35 @@ class CalendarIntegration {
    */
   async getOutlookCalendarEvents(accessToken, startDate, endDate) {
     try {
-      // In a real implementation, this would use the Microsoft Graph API
-      // For now, return empty array - no mock data
-      console.log('Outlook Calendar integration not implemented - returning empty events');
-      return [];
+      const axios = require('axios');
+      const response = await axios.get('https://graph.microsoft.com/v1.0/me/calendarView', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: {
+          startDateTime: startDate.toISOString(),
+          endDateTime: endDate.toISOString(),
+          $top: 100,
+        },
+        timeout: 20000,
+      });
+      return (response.data.value || []).map(item => ({
+        id: item.id,
+        title: item.subject || '(no title)',
+        start: new Date(`${(item.start || {}).dateTime}Z`),
+        end: new Date(`${(item.end || {}).dateTime}Z`),
+        recurring: !!item.recurrence,
+        source: 'outlook',
+      }));
     } catch (error) {
-      console.error('Error fetching Outlook Calendar events:', error);
+      console.error('Error fetching Outlook Calendar events:', error.message);
       return [];
     }
   }
 
   /**
-   * Get events from Apple Calendar
-   * @param {string} accessToken - Apple OAuth access token
-   * @param {Date} startDate - Start date for events
-   * @param {Date} endDate - End date for events
-   * @returns {Promise<Array>} - Calendar events
+   * Apple calendar is covered by on-device calendar sync — nothing to fetch here.
    */
   async getAppleCalendarEvents(accessToken, startDate, endDate) {
-    try {
-      // In a real implementation, this would use the Apple Calendar API
-      // For now, return empty array - no mock data
-      console.log('Apple Calendar integration not implemented - returning empty events');
-      return [];
-    } catch (error) {
-      console.error('Error fetching Apple Calendar events:', error);
-      return [];
-    }
+    return [];
   }
 
   /**
@@ -69,35 +87,7 @@ class CalendarIntegration {
    */
   mapEventsToStatusSchedules(events) {
     return events.map(event => {
-      // Determine appropriate status based on event type/title
-      let status = 'busy'; // Default status
-      let customStatus = '';
-      
-      const title = event.title.toLowerCase();
-      
-      // Simple rule-based mapping
-      if (title.includes('meeting') || title.includes('call')) {
-        status = 'meeting';
-      } else if (title.includes('lunch') || title.includes('dinner') || title.includes('breakfast')) {
-        status = 'eating';
-      } else if (title.includes('commute') || title.includes('travel')) {
-        status = 'commuting';
-      } else if (title.includes('work')) {
-        status = 'at_work';
-      } else if (title.includes('gym') || title.includes('workout') || title.includes('exercise')) {
-        status = 'working_out';
-      } else if (title.includes('study')) {
-        status = 'studying';
-      } else if (title.includes('sleep')) {
-        status = 'sleeping';
-      } else if (title.includes('do not disturb') || title.includes('dnd') || title.includes('focus')) {
-        status = 'dnd';
-      } else {
-        // For other events, use custom status with event title
-        status = 'custom';
-        customStatus = event.title;
-      }
-      
+      const { status, customStatus } = mapEventToStatus(event);
       return {
         status,
         customStatus,
@@ -110,4 +100,6 @@ class CalendarIntegration {
   }
 }
 
-module.exports = new CalendarIntegration();
+const instance = new CalendarIntegration();
+module.exports = instance;
+module.exports.mapEventsToStatusSchedules = instance.mapEventsToStatusSchedules.bind(instance);

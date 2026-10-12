@@ -10,6 +10,7 @@ class MasterScheduler {
   constructor() {
     this.oneMinuteJob = null;
     this.oneHourJob = null;
+    this.fifteenMinuteJob = null;
     this.isRunning = false;
   }
 
@@ -68,9 +69,23 @@ class MasterScheduler {
       }
     });
 
+    // 📅 Calendar account sync (every 15 minutes; per-account backoff on error)
+    this.fifteenMinuteJob = cron.schedule('*/15 * * * *', async () => {
+      try {
+        const calendarSyncService = require('./calendar/calendarSyncService');
+        const results = await calendarSyncService.syncAllAccounts();
+        if (results.synced || results.failed) {
+          console.log('📅 [CAL SYNC] Completed:', results);
+        }
+      } catch (error) {
+        console.error('❌ [CAL SYNC] Error:', error.message);
+      }
+    });
+
     this.isRunning = true;
     console.log('✅ Master Scheduler started');
     console.log('   📅 1-minute tasks: Primary Time, Location Cleanup, Status Expiration');
+    console.log('   📅 15-minute tasks: Calendar Account Sync');
     console.log('   📅 1-hour tasks: Story Cleanup, OTP Cleanup, Message Cleanup');
 
     // Run initial cleanup on startup (non-blocking)
@@ -90,6 +105,11 @@ class MasterScheduler {
       this.oneHourJob.stop();
       this.oneHourJob = null;
     }
+
+    if (this.fifteenMinuteJob) {
+      this.fifteenMinuteJob.stop();
+      this.fifteenMinuteJob = null;
+    }
     
     this.isRunning = false;
     console.log('✅ Master Scheduler stopped');
@@ -102,7 +122,8 @@ class MasterScheduler {
     return {
       isRunning: this.isRunning,
       oneMinuteJobActive: !!this.oneMinuteJob,
-      oneHourJobActive: !!this.oneHourJob
+      oneHourJobActive: !!this.oneHourJob,
+      fifteenMinuteJobActive: !!this.fifteenMinuteJob
     };
   }
 
