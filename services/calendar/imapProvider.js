@@ -1,12 +1,25 @@
-const { ImapFlow } = require('imapflow');
-const { simpleParser } = require('mailparser');
 const { extractBookingEvents } = require('./emailParser');
 
 const BOOKING_KEYWORDS = ['ticket', 'booking', 'reservation', 'confirmation', 'itinerary'];
 const LOOKBACK_MS = 30 * 24 * 3600 * 1000;
 const MAX_MESSAGES = 25;
 
-const makeClient = ({ host, port, secure, email, password }) =>
+// imapflow/mailparser are optional installs — lazy-require so a missing
+// package can never crash server boot (routes load this module eagerly).
+const loadDeps = () => {
+  try {
+    const { ImapFlow } = require('imapflow');
+    const { simpleParser } = require('mailparser');
+    return { ImapFlow, simpleParser };
+  } catch {
+    const error = new Error('IMAP support is not installed on this server (imapflow/mailparser missing)');
+    error.code = 'IMAP_UNAVAILABLE';
+    error.status = 503;
+    throw error;
+  }
+};
+
+const makeClient = ({ host, port, secure, email, password }, ImapFlow) =>
   new ImapFlow({
     host,
     port: port || (secure === false ? 143 : 993),
@@ -18,7 +31,8 @@ const makeClient = ({ host, port, secure, email, password }) =>
 
 /** Validate credentials by logging in; throws on failure. */
 const verifyConnection = async (account) => {
-  const client = makeClient(account);
+  const { ImapFlow } = loadDeps();
+  const client = makeClient(account, ImapFlow);
   await client.connect();
   await client.logout();
 };
@@ -29,7 +43,8 @@ const verifyConnection = async (account) => {
  * events are normalized via emailParser rules.
  */
 const fetchBookingEvents = async (account) => {
-  const client = makeClient(account);
+  const { ImapFlow, simpleParser } = loadDeps();
+  const client = makeClient(account, ImapFlow);
   const events = [];
   let lastUid = Number(account.lastUid) || 0;
   try {
@@ -37,9 +52,8 @@ const fetchBookingEvents = async (account) => {
     const lock = await client.getMailboxLock('INBOX');
     try {
       const since = new Date(Date.now() - LOOKBACK_MS);
-      const criteria = [{ since }];
       const subjectQuery = BOOKING_KEYWORDS.map(k => ({ subject: k }));
-      const uids = await client.search({ or: subjectQuery.map(q => ({ ...criteria[0], ...q })) });
+      const uids = await client.search({ or: subjectQuery.map(q => ({ since, ...q })) });
       const candidates = (uids || []).filter(uid => uid > lastUid).slice(-MAX_MESSAGES);
       for (const uid of candidates) {
         try {

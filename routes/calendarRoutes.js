@@ -160,7 +160,7 @@ router.post('/accounts/imap', protect, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('❌ IMAP connect failed:', error.message);
-    res.status(400).json({ message: 'Could not connect to that mailbox', error: error.message });
+    res.status(error.status || 400).json({ message: error.code === 'IMAP_UNAVAILABLE' ? error.message : 'Could not connect to that mailbox', error: error.message });
   }
 });
 
