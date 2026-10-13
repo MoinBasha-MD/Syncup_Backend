@@ -265,7 +265,7 @@ test('an incorrect password reset code cannot issue a reset grant', async () => 
   assert.equal(Object.hasOwn(result, 'resetToken'), false);
 });
 
-test('non-reset OTP verification keeps its existing verified flow without a grant', async () => {
+test('non-grant OTP verification keeps its existing verified flow', async () => {
   let saved = 0;
   let claims = 0;
   const OTP = {
@@ -283,7 +283,7 @@ test('non-reset OTP verification keeps its existing verified flow without a gran
   const result = await loadOTPService(OTP).verifyOTP(
     'alice@example.com',
     '123456',
-    'registration'
+    'email_change'
   );
 
   assert.deepEqual(result, { success: true });
@@ -310,7 +310,7 @@ test('new OTP issuance invalidates all previous reset grants', async () => {
   assert.equal(result.success, true);
   assert.deepEqual(query, { identifier: 'alice@example.com', type: 'password_reset' });
   assert.deepEqual(update.$set, { verified: true });
-  assert.deepEqual(update.$unset, { resetTokenHash: 1 });
+  assert.deepEqual(update.$unset, { resetTokenHash: 1, registrationTokenHash: 1 });
 });
 
 test('reset token consumption hashes a normalized email-bound token and is single use', async () => {

@@ -177,6 +177,9 @@ class LogSanitizer {
       'privateKey',
       'sessionKey',
       'contentKey',
+      'registrationToken',
+      'resetToken',
+      'otp',
     ];
     
     sensitiveFields.forEach(field => {

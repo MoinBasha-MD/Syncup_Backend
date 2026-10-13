@@ -14,6 +14,10 @@ const otpSchema = new mongoose.Schema({
     type: String,
     select: false,
   },
+  registrationTokenHash: {
+    type: String,
+    select: false,
+  },
   type: {
     type: String,
     required: true,

@@ -5,116 +5,16 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const LogSanitizer = require('../utils/logSanitizer');
 const { encryptUserData, isUserDataEncrypted } = require('../utils/userEncryption');
+const { registerUser: registerVerifiedUser } = require('./authController');
 
 // @desc    Register a new user
 // @route   POST /api/users
 // @access  Public
-// ✅ Minimum age required to create an account (kept in sync with
-// controllers/authController.js's registerUser, which is the endpoint the
-// app actually uses). This legacy endpoint is not called by the current app
-// build, but is patched here as a safety net so it can't be used to bypass
-// the age gate enforced elsewhere.
-const MIN_SIGNUP_AGE = 16;
-
-const registerUser = async (req, res) => {
-  try {
-    const { name, phoneNumber, email, password, dateOfBirth, gender } = req.body;
-
-    console.log(' [REGISTRATION] New user registration with encryption');
-
-    // ✅ dateOfBirth is required so the age gate below cannot be bypassed
-    if (!dateOfBirth) {
-      return res.status(400).json({ message: 'Date of birth is required' });
-    }
-
-    const dobDate = new Date(dateOfBirth);
-    if (isNaN(dobDate.getTime())) {
-      return res.status(400).json({ message: 'Please provide a valid date of birth' });
-    }
-
-    const today = new Date();
-    if (dobDate > today) {
-      return res.status(400).json({ message: 'Date of birth cannot be in the future' });
-    }
-
-    const minAgeCutoff = new Date();
-    minAgeCutoff.setFullYear(minAgeCutoff.getFullYear() - MIN_SIGNUP_AGE);
-    if (dobDate > minAgeCutoff) {
-      return res.status(400).json({ message: `You must be at least ${MIN_SIGNUP_AGE} years old to register` });
-    }
-
-    if (gender && !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender.toLowerCase())) {
-      return res.status(400).json({ message: 'Please provide a valid gender option' });
-    }
-
-    // Check if user already exists with this email or phone
-    // Note: After migration, we need to check encrypted fields too
-    const userExistsWithEmail = await User.findOne({ email });
-    if (userExistsWithEmail) {
-      return res.status(400).json({ message: 'User with this email already exists' });
-    }
-
-    const userExistsWithPhone = await User.findOne({ phoneNumber });
-    if (userExistsWithPhone) {
-      return res.status(400).json({ message: 'User with this phone number already exists' });
-    }
-
-    // Encrypt sensitive user data
-    const encryptedData = encryptUserData({
-      email,
-      phoneNumber,
-      password
-    });
-
-    console.log(' [REGISTRATION] User data encrypted successfully');
-
-    // Generate username from name (lowercase, no spaces)
-    const username = name.toLowerCase().replace(/\s+/g, '');
-
-    // Create user with encrypted data
-    const user = await User.create({
-      name,
-      username, // Keep visible for admin
-      // Encrypted fields
-      encryptedEmail: encryptedData.encryptedEmail,
-      encryptedPhone: encryptedData.encryptedPhone,
-      encryptedPassword: encryptedData.encryptedPassword,
-      // Placeholder values for plain text fields (for schema compatibility)
-      email: `encrypted_${Date.now()}@encrypted.local`,
-      phoneNumber: `encrypted_${Date.now()}`,
-      // Other fields
-      dateOfBirth: dobDate,
-      gender: gender ? gender.toLowerCase() : undefined,
-      status: 'available',
-      customStatus: '',
-      statusUntil: null,
-      searchableName: name.toLowerCase() // For search optimization
-    });
-
-    if (user) {
-      console.log(' [REGISTRATION] User created with encrypted data:', user.userId);
-      
-      res.status(201).json({
-        _id: user._id,
-        userId: user.userId,
-        name: user.name,
-        username: user.username,
-        phoneNumber: phoneNumber, // Send original phone to client
-        email: email, // Send original email to client
-        emailVerified: user.emailVerified || false,
-        status: user.status,
-        customStatus: user.customStatus,
-        statusUntil: user.statusUntil,
-        token: user.getSignedJwtToken(),
-      });
-    } else {
-      res.status(400).json({ message: 'Invalid user data' });
-    }
-  } catch (error) {
-    console.error(' [REGISTRATION] Error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
+// This legacy endpoint previously created encrypted-placeholder credentials
+// that bypassed the OTP grant, the password policy, and canonical user
+// storage. It now delegates to the canonical authController.registerUser so
+// both routes share one registration path.
+const registerUser = async (req, res) => registerVerifiedUser(req, res);
 
 // @desc    Auth user & get token
 // @route   POST /api/users/login

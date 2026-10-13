@@ -1,8 +1,25 @@
 const User = require('../models/userModel');
 const AIInstance = require('../models/aiInstanceModel');
+const bcrypt = require('bcryptjs');
+const otpService = require('../services/otpService');
 const { generateToken } = require('../utils/generateToken');
 const { normalizePhoneNumber, isValidPhoneNumber } = require('../utils/phoneUtils');
 const LogSanitizer = require('../utils/logSanitizer');
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const GRANT_REGEX = /^[a-f0-9]{64}$/i;
+const VALID_GENDERS = ['male', 'female', 'other', 'prefer_not_to_say'];
+
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// UTC date string (YYYY-MM-DD) `years` before today — for calendar-age checks.
+const utcCutoffDate = (yearsAgo) => {
+  const now = new Date();
+  const year = now.getUTCFullYear() - yearsAgo;
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 /**
  * @desc    Register a new user
@@ -13,179 +30,178 @@ const registerUser = async (req, res) => {
   try {
     console.log('🔵 [REGISTER] Registration request received');
     console.log('📥 [REGISTER] Request body:', LogSanitizer.sanitizeRequestBody(req.body));
-    
-    const { name, phoneNumber, email, password, dateOfBirth, gender } = req.body;
 
-    // Validate required fields
-    // ✅ dateOfBirth is now required (not just optional) so the 16+ age gate
-    // below cannot be bypassed by simply omitting it from the request body.
-    if (!name || !phoneNumber || !email || !password || !dateOfBirth) {
-      console.log('❌ [REGISTER] Missing required fields');
-      return res.status(400).json({ 
+    const body = req.body || {};
+    const { registrationToken } = body;
+
+    // Grant gate: a well-formed proof of email verification is required
+    // before any database work. Missing/malformed -> 403 without a lookup.
+    if (typeof registrationToken !== 'string' || !GRANT_REGEX.test(registrationToken)) {
+      console.log('❌ [REGISTER] Missing or malformed registration grant');
+      return res.status(403).json({
         success: false,
-        message: 'Please provide all required fields: name, phoneNumber, email, password, dateOfBirth' 
+        message: 'Email verification is required before registering',
       });
     }
 
-    // Enhanced password validation
-    console.log('🔍 [REGISTER] Validating password...');
+    const { name: rawName, phoneNumber: rawPhone, email: rawEmail, password, dateOfBirth, gender } = body;
+
+    // Type-safe required field validation — a malformed body must be a 400,
+    // never a 500 from a thrown property access.
+    const requiredStrings = [rawName, rawPhone, rawEmail, password, dateOfBirth];
+    if (
+      requiredStrings.some((v) => typeof v !== 'string' || !v.trim()) ||
+      (gender !== undefined && gender !== null && typeof gender !== 'string')
+    ) {
+      console.log('❌ [REGISTER] Missing or malformed required fields');
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields: name, phoneNumber, email, password, dateOfBirth'
+      });
+    }
+
+    const name = rawName.trim();
+    const email = rawEmail.trim().toLowerCase();
+
+    if (!EMAIL_REGEX.test(email)) {
+      console.log('❌ [REGISTER] Invalid email format');
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address'
+      });
+    }
+
+    // Password policy (checked on the exact value — no trimming).
     if (password.length < 8) {
-      console.log('❌ [REGISTER] Password too short');
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Password must be at least 8 characters long' 
+        message: 'Password must be at least 8 characters long'
       });
     }
-
     if (password.length > 20) {
-      console.log('❌ [REGISTER] Password too long');
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Password must be less than 20 characters long' 
+        message: 'Password must be less than 20 characters long'
       });
     }
-
-    // Check for uppercase letter
     if (!/[A-Z]/.test(password)) {
-      console.log('❌ [REGISTER] Password missing uppercase letter');
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Password must contain at least one uppercase letter' 
+        message: 'Password must contain at least one uppercase letter'
       });
     }
-
-    // Check for lowercase letter
     if (!/[a-z]/.test(password)) {
-      console.log('❌ [REGISTER] Password missing lowercase letter');
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Password must contain at least one lowercase letter' 
+        message: 'Password must contain at least one lowercase letter'
       });
     }
-
-    // Check for number
     if (!/\d/.test(password)) {
-      console.log('❌ [REGISTER] Password missing number');
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Password must contain at least one number' 
+        message: 'Password must contain at least one number'
       });
     }
-    console.log('✅ [REGISTER] Password validation passed');
 
-    // Special character is now optional but recommended
-    // Removed strict requirement to make registration easier
-
-    // Normalize phone number using utility function
-    console.log('🔍 [REGISTER] Validating phone number...');
-    const normalizedPhone = normalizePhoneNumber(phoneNumber);
-    console.log('📞 [REGISTER] Normalized phone:', LogSanitizer.maskPhoneNumber(normalizedPhone));
-    
-    // Validate phone number format
-    if (!isValidPhoneNumber(phoneNumber)) {
+    // Phone number
+    if (!isValidPhoneNumber(rawPhone)) {
       console.log('❌ [REGISTER] Invalid phone number format');
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Please enter a valid phone number' 
+        message: 'Please enter a valid phone number'
       });
     }
-    console.log('✅ [REGISTER] Phone number validation passed');
+    const normalizedPhone = normalizePhoneNumber(rawPhone);
 
-    // Enhanced date of birth validation
-    if (dateOfBirth) {
-      console.log('🔍 [REGISTER] Validating date of birth...');
-      const dobDate = new Date(dateOfBirth);
-      if (isNaN(dobDate.getTime())) {
-        return res.status(400).json({ 
-          success: false,
-          message: 'Please provide a valid date of birth in YYYY-MM-DD format' 
-        });
-      }
-
-      // Check if date is not in the future
-      const today = new Date();
-      if (dobDate > today) {
-        return res.status(400).json({ 
-          success: false,
-          message: 'Date of birth cannot be in the future' 
-        });
-      }
-
-      // Check if person is at least 16 years old
-      const sixteenYearsAgo = new Date();
-      sixteenYearsAgo.setFullYear(sixteenYearsAgo.getFullYear() - 16);
-      if (dobDate > sixteenYearsAgo) {
-        return res.status(400).json({ 
-          success: false,
-          message: 'You must be at least 16 years old to register' 
-        });
-      }
-
-      // Check if date is reasonable (not more than 120 years ago)
-      const oneHundredTwentyYearsAgo = new Date();
-      oneHundredTwentyYearsAgo.setFullYear(oneHundredTwentyYearsAgo.getFullYear() - 120);
-      if (dobDate < oneHundredTwentyYearsAgo) {
-        console.log('❌ [REGISTER] Date of birth too old');
-        return res.status(400).json({ 
-          success: false,
-          message: 'Please enter a valid date of birth' 
-        });
-      }
-      console.log('✅ [REGISTER] Date of birth validation passed');
-    }
-
-    // ✅ FIX: Gender validation - case-insensitive
-    console.log('🔍 [REGISTER] Validating gender...');
-    if (gender && !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender.toLowerCase())) {
-      console.log('❌ [REGISTER] Invalid gender:', gender);
-      return res.status(400).json({ 
+    // Date of birth: strict YYYY-MM-DD, calendar-valid, UTC date-only age.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+      return res.status(400).json({
         success: false,
-        message: 'Please provide a valid gender option' 
+        message: 'Please provide a valid date of birth in YYYY-MM-DD format'
       });
     }
-    console.log('✅ [REGISTER] Gender validation passed');
+    const dobDate = new Date(`${dateOfBirth}T00:00:00.000Z`);
+    if (isNaN(dobDate.getTime()) || dobDate.toISOString().slice(0, 10) !== dateOfBirth) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid date of birth in YYYY-MM-DD format'
+      });
+    }
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    if (dateOfBirth > todayUTC) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date of birth cannot be in the future'
+      });
+    }
+    if (dateOfBirth > utcCutoffDate(16)) {
+      return res.status(400).json({
+        success: false,
+        message: 'You must be at least 16 years old to register'
+      });
+    }
+    if (dateOfBirth < utcCutoffDate(120)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid date of birth'
+      });
+    }
 
-    // Check if user already exists with this email or normalized phone
-    console.log('🔍 [REGISTER] Checking for existing users...');
-    const userExistsWithEmail = await User.findOne({ email });
+    // Gender (optional, normalized to the model enum).
+    if (gender && !VALID_GENDERS.includes(gender.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid gender option'
+      });
+    }
+
+    // Duplicate checks — email is matched case-insensitively (older accounts
+    // may have stored uppercase) with regex metacharacters escaped.
+    const userExistsWithEmail = await User.findOne({
+      email: { $regex: new RegExp(`^${escapeRegExp(email)}$`, 'i') },
+    });
     if (userExistsWithEmail) {
       console.log('❌ [REGISTER] Email already exists:', LogSanitizer.maskEmail(email));
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'User with this email already exists' 
+        message: 'User with this email already exists'
       });
     }
 
     const userExistsWithPhone = await User.findOne({ phoneNumber: normalizedPhone });
     if (userExistsWithPhone) {
       console.log('❌ [REGISTER] Phone number already exists:', LogSanitizer.maskPhoneNumber(normalizedPhone));
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'User with this phone number already exists' 
+        message: 'User with this phone number already exists'
       });
     }
-    console.log('✅ [REGISTER] No existing user found, proceeding with registration');
 
-    // Create user with normalized phone number
-    console.log('📝 [REGISTER] Creating user document...');
+    // Consume the single-use registration grant — after validation and
+    // duplicate checks, before any user document is created.
+    const grantConsumed = await otpService.consumeRegistrationToken(email, registrationToken);
+    if (!grantConsumed) {
+      console.log('❌ [REGISTER] Registration grant rejected');
+      return res.status(403).json({
+        success: false,
+        message: 'Email verification is required before registering',
+      });
+    }
+
     const userData = {
       name,
       phoneNumber: normalizedPhone,
       email,
       password,
+      dateOfBirth: dobDate,
+      emailVerified: true,
       status: 'available',
       customStatus: '',
       statusUntil: null
     };
 
-    // Add optional fields if provided
-    if (dateOfBirth) {
-      userData.dateOfBirth = new Date(dateOfBirth);
-    }
     if (gender) {
-      // ✅ FIX: Convert gender to lowercase to match Mongoose enum
       userData.gender = gender.toLowerCase();
-      console.log('📝 [REGISTER] Gender normalized to:', userData.gender);
     }
 
     const user = await User.create(userData);
@@ -235,12 +251,15 @@ const registerUser = async (req, res) => {
           isActive: true
         });
 
-        // ✅ FIX: Add 5-second timeout to prevent hanging
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('AI instance creation timeout')), 5000)
+        // ✅ FIX: Add 5-second timeout to prevent hanging — cleared when the
+        // race finishes so no pending timer handle leaks.
+        let aiTimeout;
+        const timeoutPromise = new Promise((_, reject) =>
+          { aiTimeout = setTimeout(() => reject(new Error('AI instance creation timeout')), 5000); }
         );
 
-        const aiInstance = await Promise.race([aiInstancePromise, timeoutPromise]);
+        const aiInstance = await Promise.race([aiInstancePromise, timeoutPromise])
+          .finally(() => clearTimeout(aiTimeout));
         console.log(`✅ AI instance created successfully: ${aiInstance.aiId} for user ${LogSanitizer.maskName(user.name)}`);
         
       } catch (aiError) {
@@ -281,10 +300,9 @@ const registerUser = async (req, res) => {
   } catch (error) {
     console.error('❌ [REGISTER] Registration error:', error);
     console.error('❌ [REGISTER] Error stack:', error.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Server error during registration', 
-      error: error.message 
+      message: 'Server error during registration'
     });
   }
 };
@@ -300,23 +318,35 @@ const loginUser = async (req, res) => {
   console.log('📍 [AUTH CONTROLLER] Request IP:', req.ip);
   
   try {
-    const { phoneNumber, password } = req.body;
-    
+    const { phoneNumber, password } = req.body || {};
+
     console.log('📞 [AUTH CONTROLLER] Phone number:', LogSanitizer.maskPhoneNumber(phoneNumber));
 
-    // Validate required fields
-    if (!phoneNumber || !password) {
-      console.error('❌ [AUTH CONTROLLER] Missing required fields');
-      return res.status(400).json({ 
+    // Validate required fields — non-string or empty values must be a 400,
+    // never reach bcrypt/normalization where they'd throw into a 500.
+    if (
+      typeof phoneNumber !== 'string' || !phoneNumber.trim() ||
+      typeof password !== 'string' || password.length === 0
+    ) {
+      console.error('❌ [AUTH CONTROLLER] Missing or malformed credentials');
+      return res.status(400).json({
         success: false,
-        message: 'Please provide both phoneNumber and password' 
+        message: 'Please provide both phoneNumber and password'
+      });
+    }
+
+    if (!isValidPhoneNumber(phoneNumber)) {
+      console.error('❌ [AUTH CONTROLLER] Invalid phone number format');
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid phone number'
       });
     }
 
     // Normalize phone number for login lookup using utility function
     console.log('🔄 [AUTH CONTROLLER] Normalizing phone number...');
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
-    console.log('📞 [AUTH CONTROLLER] Normalized phone:', normalizedPhone);
+    console.log('📞 [AUTH CONTROLLER] Normalized phone:', LogSanitizer.maskPhoneNumber(normalizedPhone));
 
     // Check for user with normalized phone number
     console.log('🔍 [AUTH CONTROLLER] Looking up user in database...');
@@ -333,16 +363,15 @@ const loginUser = async (req, res) => {
 
     console.log('✅ [AUTH CONTROLLER] User found, checking password...');
     console.log('👤 [AUTH CONTROLLER] User details:', {
-      userId: user.userId,
-      name: user.name,
-      phoneNumber: user.phoneNumber,
+      userId: LogSanitizer.maskUserId(user.userId),
+      name: LogSanitizer.maskName(user.name),
+      phoneNumber: LogSanitizer.maskPhoneNumber(user.phoneNumber),
       hasPassword: !!user.password,
     });
     
     // Check if password matches
     console.log('🔐 [AUTH CONTROLLER] Calling matchPassword...');
-    
-    const bcrypt = require('bcryptjs');
+
     const isMatch = await bcrypt.compare(password, user.password);
     console.log('🔐 [AUTH CONTROLLER] Password match result:', isMatch);
 
@@ -388,17 +417,15 @@ const loginUser = async (req, res) => {
         token
       }
     };
-    console.log('📦 [AUTH CONTROLLER] Response data:', JSON.stringify(responseData, null, 2));
-    
+
     res.json(responseData);
     console.log('✅ [AUTH CONTROLLER] Response sent successfully');
   } catch (error) {
     console.error('❌ [AUTH CONTROLLER] Login error:', error);
     console.error('❌ [AUTH CONTROLLER] Error stack:', error.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Server error during login', 
-      error: error.message 
+      message: 'Server error during login'
     });
   }
 };
@@ -431,10 +458,9 @@ const checkUserExists = async (req, res) => {
     });
   } catch (error) {
     console.error('Check user error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Server error while checking user', 
-      error: error.message 
+      message: 'Server error while checking user'
     });
   }
 };

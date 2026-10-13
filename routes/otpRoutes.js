@@ -147,6 +147,13 @@ router.post('/verify', async (req, res) => {
     ) {
       response.resetToken = result.resetToken;
     }
+    if (
+      type === 'registration' &&
+      typeof result.registrationToken === 'string' &&
+      /^[a-f0-9]{64}$/i.test(result.registrationToken)
+    ) {
+      response.registrationToken = result.registrationToken;
+    }
     res.json(response);
   } catch (error) {
     console.error('❌ [OTP ROUTES] Error in /verify');

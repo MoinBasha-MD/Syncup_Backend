@@ -50,12 +50,13 @@ class OTPService {
       const otp = this.generateOTP();
       const otpHash = await bcrypt.hash(otp, 10);
 
-      // Invalidate previous OTPs of same type
+      // Invalidate previous OTPs of same type — including any unconsumed
+      // grants, since 'verified' alone never proves successful verification.
       await OTP.updateMany(
         { identifier, type },
         {
           $set: { verified: true },
-          $unset: { resetTokenHash: 1 },
+          $unset: { resetTokenHash: 1, registrationTokenHash: 1 },
         }
       );
 
@@ -127,9 +128,12 @@ class OTPService {
         };
       }
 
-      if (type === 'password_reset') {
-        const resetToken = crypto.randomBytes(32).toString('hex');
-        const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+      if (type === 'password_reset' || type === 'registration') {
+        // Issue a single-use grant: stored as a SHA-256 digest, claimed
+        // atomically so concurrent verifies can't both win.
+        const grant = crypto.randomBytes(32).toString('hex');
+        const grantHash = crypto.createHash('sha256').update(grant).digest('hex');
+        const grantField = type === 'password_reset' ? 'resetTokenHash' : 'registrationTokenHash';
         const claimedOTP = await OTP.findOneAndUpdate(
           {
             _id: otpDoc._id,
@@ -140,7 +144,7 @@ class OTPService {
           {
             $set: {
               verified: true,
-              resetTokenHash,
+              [grantField]: grantHash,
               expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
             },
           },
@@ -155,7 +159,9 @@ class OTPService {
         }
 
         console.log(`✅ [OTP SERVICE] OTP verified successfully for ${identifier}`);
-        return { success: true, resetToken };
+        return type === 'password_reset'
+          ? { success: true, resetToken: grant }
+          : { success: true, registrationToken: grant };
       }
 
       // Mark as verified
@@ -193,6 +199,36 @@ class OTPService {
       return !!consumed;
     } catch (error) {
       console.error('❌ [OTP SERVICE] Error consuming password reset token');
+      return false;
+    }
+  }
+
+  async consumeRegistrationToken(identifier, registrationToken) {
+    const normalizedIdentifier =
+      typeof identifier === 'string' ? identifier.trim().toLowerCase() : '';
+    if (
+      !EMAIL_REGEX.test(normalizedIdentifier) ||
+      typeof registrationToken !== 'string' ||
+      !/^[a-f0-9]{64}$/i.test(registrationToken)
+    ) {
+      return false;
+    }
+
+    const registrationTokenHash = crypto
+      .createHash('sha256')
+      .update(registrationToken.toLowerCase())
+      .digest('hex');
+    try {
+      const consumed = await OTP.findOneAndDelete({
+        identifier: normalizedIdentifier,
+        type: 'registration',
+        verified: true,
+        registrationTokenHash,
+        expiresAt: { $gt: new Date() },
+      });
+      return !!consumed;
+    } catch (error) {
+      console.error('❌ [OTP SERVICE] Error consuming registration token');
       return false;
     }
   }
