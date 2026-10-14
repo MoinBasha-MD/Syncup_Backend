@@ -20,6 +20,8 @@ const sendMessage = async (req, res) => {
       sharedPost,      // ✅ For shared posts
       imageUrl,        // ✅ For images
       fileMetadata,    // ✅ For files
+      locationData,    // ✅ For location messages
+      replyTo,         // ✅ Optional reply reference
       // Privacy mode options
       privacyMode,     // 'normal' | 'burn' | 'ghost' | 'timer'
       timerDuration,   // milliseconds
@@ -156,6 +158,9 @@ const sendMessage = async (req, res) => {
       sharedPost,      // ✅ Include shared post data
       imageUrl,        // ✅ Include image URL
       fileMetadata,    // ✅ Include file metadata
+      ...(voiceMetadata ? { voiceMetadata } : {}),
+      ...(locationData ? { locationData } : {}),
+      ...(replyTo ? { replyTo } : {}),
       isForwarded,     // ✅ Include forwarded flag
       forwardedFrom,   // ✅ Include original sender
       // E2EE Phase 2 - Include encrypted payload if present
@@ -227,6 +232,11 @@ const sendMessage = async (req, res) => {
         sharedPost: savedMessage.sharedPost,     // ✅ Include shared post
         imageUrl: savedMessage.imageUrl,         // ✅ Include image URL
         fileMetadata: savedMessage.fileMetadata, // ✅ Include file metadata
+        voiceMetadata: savedMessage.voiceMetadata,
+        locationData: savedMessage.locationData,
+        replyTo: savedMessage.replyTo,
+        isForwarded: savedMessage.isForwarded,
+        forwardedFrom: savedMessage.forwardedFrom,
         // ✅ FIX: Include ghost mode fields
         isGhost: savedMessage.isGhost,
         ghostSessionId: savedMessage.ghostSessionId,
@@ -619,20 +629,49 @@ const getAllUnreadCounts = async (req, res) => {
   }
 };
 
-// Delete a message
+// Delete a message (supports deleteFor='me' and deleteFor='everyone')
 const deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
+    const deleteFor = (req.query?.deleteFor || req.body?.deleteFor || 'everyone').toString();
     const userId = req.user.userId;
-    const userObjectId = req.user.id; // MongoDB _id of current user
 
-    console.log('🗑️ Chat Controller - Delete Message:', {
-      userId,
-      userObjectId,
-      messageId
-    });
+    const existing = await Message.findById(messageId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Message not found'
+      });
+    }
 
-    // Find and delete the message (only if user is the sender)
+    const isParticipant = existing.senderId === userId || existing.receiverId === userId;
+    if (!isParticipant) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to delete this message'
+      });
+    }
+
+    // Delete for me (or non-sender deleting a received message): hide only for current user
+    if (deleteFor === 'me' || existing.senderId !== userId) {
+      if (deleteFor === 'everyone' && existing.senderId !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only the sender can delete a message for everyone'
+        });
+      }
+      await Message.updateOne(
+        { _id: messageId },
+        { $addToSet: { deletedFor: userId } }
+      );
+      return res.status(200).json({
+        success: true,
+        deleteFor: 'me',
+        message: 'Message deleted for you'
+      });
+    }
+
+    // Delete for everyone (sender only)
     const deletedMessage = await Message.findOneAndDelete({
       _id: messageId,
       senderId: userId
@@ -645,38 +684,18 @@ const deleteMessage = async (req, res) => {
       });
     }
 
-    console.log('✅ Message deleted successfully');
-
-    // Find receiver and get MongoDB _id for broadcasting
     try {
-      const receiver = await User.findOne({ userId: deletedMessage.receiverId }).select('_id userId name');
-      if (receiver) {
-        const receiverObjectId = receiver._id.toString();
-        console.log('🎯 Receiver details for deletion broadcast:', {
-          receiverId: receiver.userId,
-          receiverObjectId,
-          receiverName: receiver.name
-        });
-        
-        console.log('📡 Broadcasting message deletion to receiver...');
-        console.log('🔍 Broadcasting to receiverId (userId):', receiver.userId);
-        console.log('🔍 Receiver MongoDB ObjectId:', receiverObjectId);
-        
-        const broadcastSuccess = broadcastToUser(receiver.userId, 'message:deleted', { messageId });
-        if (broadcastSuccess) {
-          console.log('✅ Message deletion successfully broadcasted via WebSocket');
-        } else {
-          console.log('⚠️ Message deletion not delivered via WebSocket (receiver offline)');
-        }
-      } else {
-        console.log('❌ Receiver not found for deletion broadcast:', deletedMessage.receiverId);
-      }
+      broadcastToUser(deletedMessage.receiverId, 'message:deleted', {
+        messageId: String(messageId),
+        deleteFor: 'everyone'
+      });
     } catch (socketError) {
       console.error('❌ Error broadcasting message deletion:', socketError);
     }
 
     res.status(200).json({
       success: true,
+      deleteFor: 'everyone',
       message: 'Message deleted successfully'
     });
 
@@ -685,6 +704,90 @@ const deleteMessage = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete message',
+      error: error.message
+    });
+  }
+};
+
+// Edit a message (sender only)
+const editMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { message, e2ee } = req.body;
+    const userId = req.user.userId;
+
+    const existing = await Message.findById(messageId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Message not found'
+      });
+    }
+
+    if (existing.senderId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the sender can edit this message'
+      });
+    }
+
+    if (!isE2eeV2(e2ee) && (!message || !String(message).trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Edited message text is required'
+      });
+    }
+
+    if (isE2eeV2(e2ee)) {
+      const envelopeError = validateDmEnvelope(e2ee, userId, existing.receiverId);
+      if (envelopeError) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid e2ee envelope',
+          code: envelopeError
+        });
+      }
+      existing.message = '';
+      existing.e2ee = { v: 2, envelope: e2ee.envelope };
+    } else if (e2eeEnforced()) {
+      return res.status(400).json({
+        success: false,
+        message: 'End-to-end encryption is required for direct messages',
+        code: 'E2EE_REQUIRED'
+      });
+    } else {
+      existing.message = String(message).trim();
+    }
+
+    existing.editedAt = new Date();
+    const updatedMessage = await existing.save();
+
+    try {
+      broadcastToUser(existing.receiverId, 'message:edited', {
+        _id: updatedMessage._id,
+        messageId: String(updatedMessage._id),
+        senderId: updatedMessage.senderId,
+        receiverId: updatedMessage.receiverId,
+        message: updatedMessage.message,
+        messageType: updatedMessage.messageType,
+        timestamp: updatedMessage.timestamp,
+        editedAt: updatedMessage.editedAt,
+        e2ee: updatedMessage.e2ee || { enabled: false }
+      });
+    } catch (socketError) {
+      console.error('❌ Error broadcasting message edit:', socketError);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: updatedMessage,
+      message: 'Message edited successfully'
+    });
+  } catch (error) {
+    console.error('❌ Error editing message:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to edit message',
       error: error.message
     });
   }
@@ -1764,6 +1867,7 @@ module.exports = {
   getUnreadCount,
   getAllUnreadCounts,
   deleteMessage,
+  editMessage,
   toggleReaction,
   searchMessages,
   sendReply,

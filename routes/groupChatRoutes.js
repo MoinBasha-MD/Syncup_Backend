@@ -17,6 +17,8 @@ const {
   updateMemberRole,
   getGroupMessages,
   sendGroupMessage,
+  editGroupMessage,
+  deleteGroupMessage,
   getGroupsHealth,
   toggleGroupMessageReaction,
   searchGroupMessages,
@@ -102,6 +104,10 @@ router.route('/:groupId/members/:memberId/role')
 // Advanced Features Routes
 router.route('/:groupId/messages/search')
   .get(searchGroupMessages);  // GET /api/group-chats/:groupId/messages/search - Search messages
+
+router.route('/:groupId/messages/:messageId')
+  .put(editGroupMessage)
+  .delete(deleteGroupMessage);
 
 router.route('/:groupId/messages/:messageId/reactions')
   .post(toggleGroupMessageReaction); // POST /api/group-chats/:groupId/messages/:messageId/reactions - Toggle reaction

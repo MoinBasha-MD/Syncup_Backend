@@ -267,7 +267,7 @@ const getGroupChatDetails = asyncHandler(async (req, res) => {
     // Transform group image to full URL
     const groupObj = groupChat.toObject();
     if (groupObj.groupImage && !groupObj.groupImage.startsWith('http')) {
-      groupObj.groupImage = `${baseUrl}${groupObj.groupImage}`;
+      groupObj.groupImage = `${imageBaseUrl}${groupObj.groupImage}`;
     }
 
     res.status(200).json({
@@ -388,11 +388,11 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
       }),
       replyTo: replyTo ? (
         isE2eeV2(e2ee)
-          ? { messageId: replyTo.messageId } // client resolves the snippet locally
+          ? { messageId: typeof replyTo === 'string' ? replyTo : replyTo.messageId } // client resolves the snippet locally
           : {
-              messageId: replyTo.messageId,
-              message: replyTo.message,
-              senderName: replyTo.senderName
+              messageId: typeof replyTo === 'string' ? replyTo : replyTo.messageId,
+              message: typeof replyTo === 'object' ? replyTo.message : undefined,
+              senderName: typeof replyTo === 'object' ? replyTo.senderName : undefined
             }
       ) : undefined
     });
@@ -422,6 +422,10 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
         receiverId: groupId, // Group ID as receiver for group messages
         message: groupMessage.message,
         messageType: groupMessage.messageType,
+        imageUrl: groupMessage.imageUrl,
+        voiceMetadata: groupMessage.voiceMetadata,
+        fileMetadata: groupMessage.fileMetadata,
+        replyTo: groupMessage.replyTo,
         timestamp: groupMessage.createdAt,
         status: 'delivered',
         groupId: groupId,
@@ -529,7 +533,8 @@ const getGroupMessages = asyncHandler(async (req, res) => {
     const messages = await GroupMessage.findGroupMessages(
       groupId, 
       parseInt(page), 
-      parseInt(limit)
+      parseInt(limit),
+      userId
     );
 
     // Only update lastSeenAt, NOT lastSeenMessageId
@@ -1016,7 +1021,7 @@ const updateGroupChat = asyncHandler(async (req, res) => {
   } catch (error) {
     console.error('❌ [GROUP UPDATE] Error updating group:', error);
     res.status(500);
-    throw new Error('Failed to search messages');
+    throw new Error('Failed to update group information');
   }
 });
 
@@ -1154,6 +1159,158 @@ const toggleGroupMessageReaction = asyncHandler(async (req, res) => {
     res.status(500);
     throw new Error('Failed to toggle reaction');
   }
+});
+
+/**
+ * @desc    Edit a group message (sender only)
+ * @route   PUT /api/group-chats/:groupId/messages/:messageId
+ * @access  Private
+ */
+const editGroupMessage = asyncHandler(async (req, res) => {
+  const { groupId, messageId } = req.params;
+  const { message, e2ee } = req.body;
+  const userId = req.user.userId;
+
+  if (!mongoose.Types.ObjectId.isValid(groupId) || !mongoose.Types.ObjectId.isValid(messageId)) {
+    res.status(400);
+    throw new Error('Invalid group or message ID');
+  }
+
+  const membership = await GroupMember.findOne({ groupId, userId, isActive: true });
+  if (!membership) {
+    res.status(403);
+    throw new Error('You are not a member of this group');
+  }
+
+  const groupMessage = await GroupMessage.findOne({ _id: messageId, groupId, deletedAt: null });
+  if (!groupMessage) {
+    res.status(404);
+    throw new Error('Message not found');
+  }
+
+  if (groupMessage.senderId !== userId) {
+    res.status(403);
+    throw new Error('Only the sender can edit this message');
+  }
+
+  const allActiveMembers = await GroupMember.find({ groupId, isActive: true });
+
+  if (isE2eeV2(e2ee)) {
+    const envelopeError = validateEnvelope(e2ee, {
+      senderId: userId,
+      expectedCtx: `group:${groupId}`,
+      allowedUserIds: new Set(allActiveMembers.map((m) => m.userId)),
+      maxKeys: MAX_GROUP_KEY_ENTRIES,
+      maxBytes: MAX_GROUP_ENVELOPE_BYTES,
+    });
+    if (envelopeError) {
+      const code = envelopeError === 'INVALID_KEYS' ? 'E2EE_STALE_MEMBERS' : envelopeError;
+      return res.status(400).json({ success: false, message: 'Invalid e2ee envelope', code });
+    }
+    groupMessage.message = '';
+    groupMessage.e2ee = { v: 2, envelope: e2ee.envelope };
+    groupMessage.editedAt = new Date();
+  } else if (e2eeGroupEnforced()) {
+    res.status(400);
+    throw new Error('E2EE_REQUIRED');
+  } else {
+    if (!message || !String(message).trim()) {
+      res.status(400);
+      throw new Error('Edited message text is required');
+    }
+    groupMessage.editMessage(String(message).trim());
+  }
+
+  await groupMessage.save();
+
+  for (const member of allActiveMembers) {
+    if (member.userId !== userId) {
+      broadcastToUser(member.userId, 'message:edited', {
+        _id: groupMessage._id,
+        messageId: String(groupMessage._id),
+        groupId: String(groupId),
+        isGroupMessage: true,
+        senderId: groupMessage.senderId,
+        receiverId: String(groupId),
+        message: groupMessage.message,
+        messageType: groupMessage.messageType,
+        timestamp: groupMessage.createdAt,
+        editedAt: groupMessage.editedAt,
+        ...(groupMessage.e2ee && groupMessage.e2ee.v === 2 ? { e2ee: groupMessage.e2ee } : {})
+      });
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    data: groupMessage,
+    message: 'Group message edited successfully'
+  });
+});
+
+/**
+ * @desc    Delete a group message ('me' or 'everyone')
+ * @route   DELETE /api/group-chats/:groupId/messages/:messageId
+ * @access  Private
+ */
+const deleteGroupMessage = asyncHandler(async (req, res) => {
+  const { groupId, messageId } = req.params;
+  const deleteFor = (req.query?.deleteFor || req.body?.deleteFor || 'everyone').toString();
+  const userId = req.user.userId;
+
+  if (!mongoose.Types.ObjectId.isValid(groupId) || !mongoose.Types.ObjectId.isValid(messageId)) {
+    res.status(400);
+    throw new Error('Invalid group or message ID');
+  }
+
+  const membership = await GroupMember.findOne({ groupId, userId, isActive: true });
+  if (!membership) {
+    res.status(403);
+    throw new Error('You are not a member of this group');
+  }
+
+  const groupMessage = await GroupMessage.findOne({ _id: messageId, groupId, deletedAt: null });
+  if (!groupMessage) {
+    res.status(404);
+    throw new Error('Message not found');
+  }
+
+  if (deleteFor === 'me' || (groupMessage.senderId !== userId && membership.role !== 'admin')) {
+    if (deleteFor === 'everyone' && groupMessage.senderId !== userId && membership.role !== 'admin') {
+      res.status(403);
+      throw new Error('Only the sender or a group admin can delete a message for everyone');
+    }
+    await GroupMessage.updateOne(
+      { _id: messageId },
+      { $addToSet: { deletedForUsers: userId } }
+    );
+    return res.status(200).json({
+      success: true,
+      deleteFor: 'me',
+      message: 'Message deleted for you'
+    });
+  }
+
+  groupMessage.deleteMessage(userId, 'everyone');
+  await groupMessage.save();
+
+  const allActiveMembers = await GroupMember.find({ groupId, isActive: true });
+  for (const member of allActiveMembers) {
+    if (member.userId !== userId) {
+      broadcastToUser(member.userId, 'message:deleted', {
+        messageId: String(messageId),
+        groupId: String(groupId),
+        isGroupMessage: true,
+        deleteFor: 'everyone'
+      });
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    deleteFor: 'everyone',
+    message: 'Group message deleted successfully'
+  });
 });
 
 /**
@@ -1414,6 +1571,8 @@ module.exports = {
   updateMemberRole,
   getGroupMessages,
   sendGroupMessage,
+  editGroupMessage,
+  deleteGroupMessage,
   muteGroupNotifications,
   leaveGroup,
   getGroupsHealth,

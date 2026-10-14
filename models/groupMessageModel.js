@@ -168,6 +168,9 @@ const groupMessageSchema = mongoose.Schema(
       enum: ['sender', 'everyone'],
       default: null
     },
+    deletedForUsers: [{
+      type: String
+    }],
     // Disappearing message
     expiresAt: {
       type: Date,
@@ -257,12 +260,14 @@ groupMessageSchema.methods.setExpiration = function(durationInSeconds) {
 };
 
 // Static methods
-groupMessageSchema.statics.findGroupMessages = function(groupId, page = 1, limit = 50) {
+groupMessageSchema.statics.findGroupMessages = function(groupId, page = 1, limit = 50, userId = null) {
   const skip = (page - 1) * limit;
-  return this.find({ 
+  const filter = {
     groupId,
-    deletedAt: null 
-  })
+    deletedAt: null,
+    ...(userId ? { deletedForUsers: { $ne: userId } } : {})
+  };
+  return this.find(filter)
   .sort({ createdAt: 1 }) // ✅ FIX: Sort ASCENDING (oldest first) for inverted FlatList
   .skip(skip)
   .limit(limit);

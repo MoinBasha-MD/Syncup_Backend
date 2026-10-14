@@ -9,6 +9,7 @@ const {
   getUnreadCount,
   getAllUnreadCounts,
   deleteMessage,
+  editMessage,
   toggleReaction,
   searchMessages,
   sendReply,
@@ -48,6 +49,9 @@ router.get('/unread', getAllUnreadCounts);
 
 // Delete a message
 router.delete('/message/:messageId', deleteMessage);
+
+// Edit a message
+router.put('/message/:messageId', editMessage);
 
 // Toggle message reaction
 router.post('/message/:messageId/reaction', toggleReaction);

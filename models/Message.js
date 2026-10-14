@@ -349,6 +349,10 @@ const messageSchema = new mongoose.Schema({
     type: String, // Original sender userId
     default: null
   },
+  editedAt: {
+    type: Date,
+    default: null
+  },
   // Search optimization
   searchText: {
     type: String,
