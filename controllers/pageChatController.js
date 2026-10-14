@@ -1,6 +1,7 @@
 const PageChat = require('../models/PageChat');
 const PageMessage = require('../models/PageMessage');
 const Page = require('../models/Page');
+const User = require('../models/userModel');
 const { broadcastToUser } = require('../socketManager');
 const { constructImageUrl } = require('../middleware/pageImageHandler');
 
@@ -10,6 +11,7 @@ const { constructImageUrl } = require('../middleware/pageImageHandler');
 const getOrCreateChat = async (req, res) => {
   try {
     const { pageId } = req.params;
+    const requestedTargetUserId = req.body?.targetUserId || req.query?.targetUserId;
     const userId = req.user.userId;
 
     const page = await Page.findById(pageId).select('name username profileImage owner');
@@ -17,13 +19,13 @@ const getOrCreateChat = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Page not found' });
     }
 
-    // Don't allow owner to message their own page
     const isOwner = page.isOwner(req.user._id);
-    if (isOwner) {
-      return res.status(400).json({ success: false, message: 'Cannot message your own page' });
+    if (isOwner && !requestedTargetUserId) {
+      return res.status(400).json({ success: false, message: 'Cannot message your own page without specifying a target user' });
     }
 
-    const chat = await PageChat.findOrCreate(pageId, userId);
+    const conversationUserId = isOwner && requestedTargetUserId ? String(requestedTargetUserId) : userId;
+    const chat = await PageChat.findOrCreate(pageId, conversationUserId);
 
     res.json({
       success: true,
@@ -48,7 +50,7 @@ const getOrCreateChat = async (req, res) => {
 const sendMessage = async (req, res) => {
   try {
     const { pageId } = req.params;
-    const { message, messageType = 'text', imageUrl = null } = req.body;
+    const { message, messageType = 'text', imageUrl = null, targetUserId } = req.body;
     const userId = req.user.userId;
 
     if (!message && !imageUrl) {
@@ -60,10 +62,13 @@ const sendMessage = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Page not found' });
     }
 
-    // Don't allow owner to send as user to their own page
     const isOwner = page.isOwner(req.user._id);
+    if (isOwner && !targetUserId) {
+      return res.status(400).json({ success: false, message: 'targetUserId is required when replying as page owner' });
+    }
 
-    const chat = await PageChat.findOrCreate(pageId, userId);
+    const conversationUserId = isOwner && targetUserId ? String(targetUserId) : userId;
+    const chat = await PageChat.findOrCreate(pageId, conversationUserId);
 
     // Determine sender type
     const senderType = isOwner ? 'page' : 'user';
@@ -89,13 +94,24 @@ const sendMessage = async (req, res) => {
     }
     await chat.save();
 
-    // Broadcast to page owner for real-time delivery
-    const ownerId = page.owner ? (typeof page.owner === 'object' ? page.owner._id : page.owner).toString() : null;
-    if (ownerId) {
+    // Resolve recipient userId for real-time WebSocket delivery
+    let recipientUserId = null;
+    if (senderType === 'user') {
+      const ownerObjectId = page.owner ? (typeof page.owner === 'object' ? page.owner._id : page.owner) : null;
+      if (ownerObjectId) {
+        const ownerDoc = await User.findById(ownerObjectId).select('userId').lean();
+        recipientUserId = ownerDoc?.userId || ownerObjectId.toString();
+      }
+    } else {
+      recipientUserId = conversationUserId;
+    }
+
+    if (recipientUserId) {
       const messageData = {
         messageId: newMessage._id,
         chatId: chat._id,
         pageId,
+        targetUserId: conversationUserId,
         pageName: page.name,
         pageProfileImage: page.profileImage ? constructImageUrl(page.profileImage) : '',
         senderId: userId,
@@ -105,7 +121,7 @@ const sendMessage = async (req, res) => {
         imageUrl: newMessage.imageUrl,
         timestamp: newMessage.timestamp
       };
-      broadcastToUser(ownerId, 'page-message:new', messageData);
+      broadcastToUser(recipientUserId, 'page-message:new', messageData);
     }
 
     // Also broadcast back to sender (for multi-device sync)
@@ -113,6 +129,9 @@ const sendMessage = async (req, res) => {
       messageId: newMessage._id,
       chatId: chat._id,
       pageId,
+      targetUserId: conversationUserId,
+      senderId: userId,
+      senderType,
       message: newMessage.message,
       messageType: newMessage.messageType,
       imageUrl: newMessage.imageUrl,
@@ -145,10 +164,14 @@ const sendMessage = async (req, res) => {
 const getMessages = async (req, res) => {
   try {
     const { pageId } = req.params;
-    const { skip = 0, limit = 50 } = req.query;
+    const { skip = 0, limit = 50, targetUserId } = req.query;
     const userId = req.user.userId;
 
-    const chat = await PageChat.findOne({ pageId, userId });
+    const page = await Page.findById(pageId).select('owner');
+    const isOwner = page && page.isOwner(req.user._id);
+    const conversationUserId = isOwner && targetUserId ? String(targetUserId) : userId;
+
+    const chat = await PageChat.findOne({ pageId, userId: conversationUserId });
     if (!chat) {
       return res.json({ success: true, messages: [] });
     }
@@ -159,9 +182,6 @@ const getMessages = async (req, res) => {
       parseInt(limit)
     );
 
-    // Mark messages as read
-    const page = await Page.findById(pageId).select('owner');
-    const isOwner = page && page.isOwner(req.user._id);
     const readerType = isOwner ? 'page' : 'user';
 
     await PageMessage.markAsRead(chat._id, readerType);
@@ -235,16 +255,16 @@ const getOwnerConversations = async (req, res) => {
       parseInt(limit)
     );
 
-    // Populate user info for each conversation
-    const User = require('../models/userModel');
-    const userIds = conversations.map(c => c.userId);
-    const users = await User.find({ _id: { $in: userIds } })
-      .select('name username profileImage')
+    // Populate user info for each conversation (PageChat.userId stores the app string userId)
+    const userIds = conversations.map(c => c.userId).filter(Boolean);
+    const users = await User.find({ userId: { $in: userIds } })
+      .select('userId name username profileImage')
       .lean();
 
     const userMap = {};
     users.forEach(u => {
-      userMap[u._id.toString()] = u;
+      userMap[u.userId] = u;
+      if (u._id) userMap[u._id.toString()] = u;
     });
 
     // Process image URLs and attach user info
@@ -259,6 +279,7 @@ const getOwnerConversations = async (req, res) => {
       if (userInfo) {
         conv.user = {
           _id: userInfo._id,
+          userId: userInfo.userId,
           name: userInfo.name,
           username: userInfo.username,
           profileImage: userInfo.profileImage,
