@@ -20,6 +20,11 @@ const {
 } = require('../services/openNetworkVisibility');
 const {
   YOURS_FEED_TABS,
+  getYoursFeedClause,
+  getFeedSortField,
+} = require('../services/openNetworkFeed');
+const {
+  YOURS_FEED_TABS,
   FOR_YOU_FEED_TABS,
   getYoursFeedClause,
   getForYouFeedClause,
@@ -575,6 +580,12 @@ const getFeed = asyncHandler(async (req, res) => {
     err.code = 'BAD_YOURS_TAB';
     throw err;
   }
+  const yoursTab = String(req.query.yoursTab || '').toLowerCase();
+  if (section === 'yours' && yoursTab && !YOURS_FEED_TABS.includes(yoursTab)) {
+    const err = new BadRequestError(`yoursTab must be one of: ${YOURS_FEED_TABS.join(', ')}`);
+    err.code = 'BAD_YOURS_TAB';
+    throw err;
+  }
   const forYouTab = String(req.query.forYouTab || 'combined').toLowerCase();
   if (section === 'forYou' && !FOR_YOU_FEED_TABS.includes(forYouTab)) {
     const err = new BadRequestError(`forYouTab must be one of: ${FOR_YOU_FEED_TABS.join(', ')}`);
@@ -654,7 +665,10 @@ const getFeed = asyncHandler(async (req, res) => {
       clauses.push({ hostUserId: userId });
       const yoursClause = getYoursFeedClause(yoursTab);
       if (yoursClause) clauses.push(yoursClause);
+      const yoursClause = getYoursFeedClause(yoursTab);
+      if (yoursClause) clauses.push(yoursClause);
       break;
+    }
     }
     case 'invited': {
       const rows = await Rippler.find({ userId, status: 'invited' })

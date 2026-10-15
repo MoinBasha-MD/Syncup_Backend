@@ -1,4 +1,24 @@
 const YOURS_FEED_TABS = ['shorts', 'ripples', 'live'];
+
+const getYoursFeedClause = (tab) => {
+  switch (tab) {
+    case 'shorts':
+      return { kind: 'short' };
+    case 'ripples':
+      return { kind: { $ne: 'short' }, lifecycle: { $nin: ['active', 'wrapping'] } };
+    case 'live':
+      return { kind: { $ne: 'short' }, lifecycle: { $in: ['active', 'wrapping'] } };
+    default:
+      return null;
+  }
+};
+
+const getFeedSortField = (section) =>
+  section === 'forYou' || section === 'yours' ? 'updatedAt' : 'createdAt';
+
+module.exports = { YOURS_FEED_TABS, getYoursFeedClause, getFeedSortField };
+
+const YOURS_FEED_TABS = ['shorts', 'ripples', 'live'];
 const FOR_YOU_FEED_TABS = ['combined', 'own', 'friends'];
 
 const getYoursFeedClause = (tab) => {
