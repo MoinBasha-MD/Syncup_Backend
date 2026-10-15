@@ -223,6 +223,7 @@ rippleSchema.index({ location: '2dsphere' });
 rippleSchema.index({ lng: 1, lat: 1 });
 rippleSchema.index({ lifecycle: 1, discoverability: 1, visibility: 1 });
 rippleSchema.index({ hostUserId: 1, createdAt: -1 });
+rippleSchema.index({ hostUserId: 1, updatedAt: -1 });
 rippleSchema.index({ 'place.countryCode': 1, lifecycle: 1 });
 rippleSchema.index({ 'place.cityKey': 1, lifecycle: 1 });
 rippleSchema.index({ 'counts.interactors': -1, _id: -1 });

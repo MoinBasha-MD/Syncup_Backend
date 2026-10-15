@@ -18,6 +18,13 @@ const {
   getViewerContext,
   buildVisibilityFilter,
 } = require('../services/openNetworkVisibility');
+const {
+  YOURS_FEED_TABS,
+  FOR_YOU_FEED_TABS,
+  getYoursFeedClause,
+  getForYouFeedClause,
+  getFeedSortField,
+} = require('../services/openNetworkFeed');
 
 const DISCOVERABLE_LIFECYCLES = ['active', 'wrapping', 'scheduled'];
 const RIPPLE_TYPES = ['activity', 'question', 'request', 'plan', 'event', 'interest', 'alert', 'project'];
@@ -562,6 +569,18 @@ const getFeed = asyncHandler(async (req, res) => {
     throw err;
   }
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+  const yoursTab = String(req.query.yoursTab || '').toLowerCase();
+  if (section === 'yours' && yoursTab && !YOURS_FEED_TABS.includes(yoursTab)) {
+    const err = new BadRequestError(`yoursTab must be one of: ${YOURS_FEED_TABS.join(', ')}`);
+    err.code = 'BAD_YOURS_TAB';
+    throw err;
+  }
+  const forYouTab = String(req.query.forYouTab || 'combined').toLowerCase();
+  if (section === 'forYou' && !FOR_YOU_FEED_TABS.includes(forYouTab)) {
+    const err = new BadRequestError(`forYouTab must be one of: ${FOR_YOU_FEED_TABS.join(', ')}`);
+    err.code = 'BAD_FOR_YOU_TAB';
+    throw err;
+  }
   const trendingDays = req.query.days == null ? 7 : Number(req.query.days);
   if (section === 'trending' && ![1, 7, 30].includes(trendingDays)) {
     const err = new BadRequestError('days must be 1, 7, or 30 for trending');
@@ -572,6 +591,17 @@ const getFeed = asyncHandler(async (req, res) => {
 
   const ctx = await getViewerContext(userId, req.user._id);
   const visibility = buildVisibilityFilter(userId, ctx);
+  const latestOwnRipple =
+    section === 'forYou' && forYouTab !== 'friends'
+      ? await Ripple.findOne({
+          hostUserId: userId,
+          kind: { $ne: 'short' },
+          lifecycle: { $in: DISCOVERABLE_LIFECYCLES },
+        })
+          .sort({ createdAt: -1, _id: -1 })
+          .select('_id')
+          .lean()
+      : null;
 
   const clauses = [];
 
@@ -594,7 +624,7 @@ const getFeed = asyncHandler(async (req, res) => {
   // sortField doubles as the cursor field. Either an ISO-date field
   // (createdAt/startAt) or a numeric field (counts.interactors for trending) —
   // `numericSort` picks how the cursor value is parsed/encoded below.
-  let sortField = 'createdAt';
+  let sortField = getFeedSortField(section);
   let sortDir = -1;
   let numericSort = false;
 
@@ -620,9 +650,12 @@ const getFeed = asyncHandler(async (req, res) => {
     case 'memories':
       clauses.push(visibility, { lifecycle: 'memory' });
       break;
-    case 'yours':
+    case 'yours': {
       clauses.push({ hostUserId: userId });
+      const yoursClause = getYoursFeedClause(yoursTab);
+      if (yoursClause) clauses.push(yoursClause);
       break;
+    }
     case 'invited': {
       const rows = await Rippler.find({ userId, status: 'invited' })
         .select('rippleId')
@@ -630,18 +663,20 @@ const getFeed = asyncHandler(async (req, res) => {
       clauses.push({ _id: { $in: rows.map((r) => r.rippleId) }, lifecycle: { $in: ['active', 'scheduled'] } });
       break;
     }
-    // Friends' Ripples plus your own — this used to be the same broad
-    // discoverable set as Explore below, which made the two sections
-    // indistinguishable. Own Ripples pass `visibility` via the filter's
-    // hostUserId clause, so a 'friends'/'invite' Ripple of yours still shows.
+    // Ripple's Combined tab includes the latest own Ripple and friends;
+    // Own and Friends narrow that same feed without admitting Shorts.
     case 'forYou':
-      clauses.push(visibility, {
-        lifecycle: { $in: DISCOVERABLE_LIFECYCLES },
-        $or: [
-          { hostUserId: { $in: [...ctx.friendIds, userId] } },
-          { visibility: 'page_followers', hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
-        ],
-      });
+      clauses.push(
+        visibility,
+        { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
+        getForYouFeedClause(
+          forYouTab,
+          userId,
+          ctx.friendIds,
+          ctx.pageIds ?? [],
+          latestOwnRipple?._id,
+        ),
+      );
       break;
     // Explore is explicitly public/listed; friends and followed pages have
     // separate scopes. Keep the shared visibility gates for blocks/moderation.
