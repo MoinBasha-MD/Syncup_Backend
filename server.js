@@ -745,13 +745,21 @@ app.use('/uploads', mediaCacheControl, express.static(path.join(__dirname, 'uplo
 
 // Serve static files from public directory (for JS, CSS, images)
 
-app.use(express.static(path.join(__dirname, 'public')));
+// index: false — don't auto-serve index.html at '/', so the root route can
+// content-negotiate: browsers get the landing page, API clients get JSON.
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 
 
-// API status and health check route
+// Root route — web page for browsers, JSON status for API clients
 
 app.get('/', (req, res) => {
+
+  if (req.accepts(['html', 'json']) === 'html') {
+
+    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+
+  }
 
   res.json({ 
 

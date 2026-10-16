@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>crackmind.in — Syncup API</title>
+<meta name="description" content="Syncup backend service — the engine behind the Syncup app.">
+<meta property="og:title" content="crackmind.in — Syncup API">
+<meta property="og:description" content="The engine behind the Syncup app.">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --brand-1: #8B5CF6;
+    --brand-2: #6D28D9;
+    --ink: #17142B;
+    --muted: #6B6685;
+    --line: #EDE9FE;
+    --bg: #FAFAFF;
+    --ok: #16A34A;
+    --bad: #DC2626;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--ink); min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .wrap { max-width: 440px; width: 100%; text-align: center; }
+  .logo {
+    width: 88px; height: 88px; margin: 0 auto 22px; border-radius: 26px;
+    background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 14px 40px rgba(109, 40, 217, 0.25);
+  }
+  h1 { font-size: 30px; line-height: 1.2; letter-spacing: -0.02em; }
+  h1 .domain { color: var(--brand-2); }
+  .tagline { font-size: 15px; color: var(--muted); margin: 10px 0 26px; line-height: 1.55; }
+
+  .status-card {
+    background: #FFFFFF; border: 1px solid var(--line); border-radius: 20px;
+    padding: 20px 22px; text-align: left;
+    box-shadow: 0 12px 40px rgba(109, 40, 217, 0.08);
+  }
+  .status-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .status-title { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 13px; font-weight: 700; padding: 5px 12px; border-radius: 999px;
+    background: #F0FDF4; color: var(--ok); border: 1px solid #BBF7D0;
+  }
+  .pill.down { background: #FEF2F2; color: var(--bad); border-color: #FECACA; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .row {
+    display: flex; justify-content: space-between; padding: 9px 0;
+    border-top: 1px solid #F4F1FE; font-size: 14px;
+  }
+  .row:first-of-type { border-top: none; }
+  .row .k { color: var(--muted); font-weight: 500; }
+  .row .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .v.up { color: var(--ok); }
+  .v.down { color: var(--bad); }
+
+  .links { display: flex; gap: 10px; margin-top: 22px; }
+  .links a {
+    flex: 1; display: block; text-decoration: none; font-size: 14px; font-weight: 600;
+    padding: 12px 10px; border-radius: 14px; border: 1px solid var(--line);
+    background: #FFFFFF; color: var(--brand-2);
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .links a:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(109, 40, 217, 0.12); }
+  .links a.primary {
+    background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+    color: #FFF; border-color: transparent;
+  }
+
+  footer { margin-top: 26px; font-size: 12px; color: #9B96B8; }
+  footer b { color: var(--brand-2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo" aria-hidden="true">
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round">
+      <path d="M17 3.5a4 4 0 1 1-3.6 5.72L9.6 10.9a4 4 0 0 1 0 2.2l3.8 1.68A4 4 0 1 1 12.6 17"/>
+      <circle cx="17" cy="7.5" r="4" fill="none"/>
+    </svg>
+  </div>
+
+  <h1>Welcome to <span class="domain">crackmind.in</span></h1>
+  <p class="tagline">This is the Syncup API service — the engine that powers<br>the Syncup app, Open Network and Social Space.</p>
+
+  <div class="status-card">
+    <div class="status-head">
+      <span class="status-title">Service status</span>
+      <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">Checking…</span></span>
+    </div>
+    <div class="row"><span class="k">API</span><span class="v" id="apiStatus">—</span></div>
+    <div class="row"><span class="k">Database</span><span class="v" id="dbStatus">—</span></div>
+    <div class="row"><span class="k">Uptime</span><span class="v" id="uptime">—</span></div>
+    <div class="row"><span class="k">Version</span><span class="v" id="version">—</span></div>
+    <div class="row"><span class="k">Checked</span><span class="v" id="checkedAt">—</span></div>
+  </div>
+
+  <div class="links">
+    <a class="primary" href="/api">API directory</a>
+    <a href="/health">Health (JSON)</a>
+  </div>
+
+  <footer><b>Syncup</b> · api.crackmind.in</footer>
+</div>
+
+<script>
+(function () {
+  var els = {
+    pill: document.getElementById('statusPill'),
+    statusText: document.getElementById('statusText'),
+    api: document.getElementById('apiStatus'),
+    db: document.getElementById('dbStatus'),
+    uptime: document.getElementById('uptime'),
+    version: document.getElementById('version'),
+    checkedAt: document.getElementById('checkedAt')
+  };
+
+  function fmtUptime(s) {
+    if (typeof s !== 'number') return '—';
+    var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm ' + Math.floor(s % 60) + 's';
+  }
+
+  function setStatus(up) {
+    els.statusText.textContent = up ? 'Operational' : 'Degraded';
+    els.pill.classList.toggle('down', !up);
+  }
+
+  function check() {
+    fetch('/api/health', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (h) {
+        var up = h.status === 'UP';
+        setStatus(up);
+        els.api.textContent = h.status || '—';
+        els.api.className = 'v ' + (up ? 'up' : 'down');
+        var db = h.checks && h.checks.database;
+        els.db.textContent = db ? (db.state + (db.ping ? ' · ' + db.ping : '')) : '—';
+        els.db.className = 'v ' + (db && db.status === 'UP' ? 'up' : 'down');
+        els.uptime.textContent = fmtUptime(h.uptime);
+        els.version.textContent = h.version || '—';
+        els.checkedAt.textContent = new Date().toLocaleTimeString();
+      })
+      .catch(function () {
+        setStatus(false);
+        els.api.textContent = 'Unreachable';
+        els.api.className = 'v down';
+        els.checkedAt.textContent = new Date().toLocaleTimeString();
+      });
+  }
+
+  check();
+  setInterval(check, 30000);
+})();
+</script>
+</body>
+</html>
