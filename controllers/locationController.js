@@ -74,7 +74,7 @@ exports.getNearbyFriends = async (req, res) => {
       userId: { $in: friendUserIds },
       'currentLocation.latitude': { $exists: true, $ne: null },
       'currentLocation.longitude': { $exists: true, $ne: null }
-    }).select('userId name profileImage currentLocation lastSeen');
+    }).select('userId name username profileImage currentLocation lastSeen');
 
     console.log(`📍 [LOCATION] Found ${friendUsers.length} friends with location data`);
 
@@ -125,6 +125,7 @@ exports.getNearbyFriends = async (req, res) => {
       nearbyFriends.push({
         userId: friendUser.userId, // Return UUID string for frontend
         name: friendUser.name,
+        username: friendUser.username,
         profileImage: friendUser.profileImage,
         location: {
           latitude: friendLat,
@@ -247,7 +248,7 @@ exports.getAllFriendsLocations = async (req, res) => {
       userId: { $in: friendUserIds },
       'currentLocation.latitude': { $exists: true, $ne: null },
       'currentLocation.longitude': { $exists: true, $ne: null }
-    }).select('userId name profileImage currentLocation lastSeen');
+    }).select('userId name username profileImage currentLocation lastSeen');
 
     console.log(`📍 [LOCATION] Found ${friendUsers.length} friends with location data`);
 
@@ -299,6 +300,7 @@ exports.getAllFriendsLocations = async (req, res) => {
       allFriendsWithLocations.push({
         userId: friendUser.userId, // Return UUID string for frontend
         name: friendUser.name,
+        username: friendUser.username,
         profileImage: friendUser.profileImage,
         location: {
           latitude: friendLat,
