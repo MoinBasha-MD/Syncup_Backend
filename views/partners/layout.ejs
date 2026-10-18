@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= title ? title + ' · ' : '' %>Sync Space Partners</title>
+<link rel="stylesheet" href="/partners/assets/portal.css">
+<script src="/partners/assets/portal.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <a class="brand" href="/partners">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Sync Space <b>Partners</b></span>
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">
+      <span class="nav-toggle-bar"></span><span class="nav-toggle-bar"></span><span class="nav-toggle-bar"></span>
+      <span class="sr-only">Menu</span>
+    </button>
+  </header>
+  <nav class="sidebar" id="primary-nav" aria-label="Portal">
+    <a class="brand brand-side" href="/partners">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Sync Space <b>Partners</b></span>
+    </a>
+    <% if (partner) { %>
+      <span class="nav-section">Workspace</span>
+      <a class="nav-link" href="/partners/dashboard" data-nav="overview">Overview</a>
+      <a class="nav-link" href="/partners/apps/new" data-nav="integrations">Integrations</a>
+      <a class="nav-link" href="/partners/review" data-nav="golive">Go live</a>
+      <form method="post" action="/partners/logout" class="nav-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="nav-link nav-signout" type="submit">Sign out</button>
+      </form>
+      <span class="nav-user"><%= partner.businessName %></span>
+    <% } else { %>
+      <a class="nav-link" href="/partners/login">Sign in</a>
+      <a class="nav-link" href="/partners/register">Create account</a>
+    <% } %>
+    <a class="nav-link muted" href="/partners-admin/login">Admin</a>
+  </nav>
+  <main class="content">
+    <%- body %>
+  </main>
+</div>
+</body>
+</html>

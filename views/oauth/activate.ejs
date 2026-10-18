@@ -1,0 +1,13 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title">Activate Sync Space</h1>
+  <p class="page-sub">Sync Space is your private identity for signing in to apps and businesses — free, one tap, no extra documents.</p>
+  <ul class="muted" style="padding-left:18px; margin: 12px 0 22px;">
+    <li>One Sync ID for every app</li>
+    <li>You approve exactly what each app can see</li>
+    <li>Apps get a private per-app identifier — never your phone</li>
+  </ul>
+  <form method="post" action="/oauth/activate" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <button class="btn btn-primary" type="submit">Activate &amp; continue</button>
+  </form>
+</section>

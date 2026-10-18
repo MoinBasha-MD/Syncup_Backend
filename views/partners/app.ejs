@@ -1,0 +1,347 @@
+<% if (mode === 'new') { %>
+<section class="page-head reveal">
+  <div>
+    <h1 class="page-title">New integration</h1>
+    <p class="page-sub">A sandbox integration gives you API credentials immediately.</p>
+  </div>
+</section>
+<section class="panel reveal">
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <form method="post" action="/partners/apps" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label class="field">
+      <span>Name</span>
+      <input type="text" name="name" required maxlength="100" value="<%= values.name || '' %>">
+    </label>
+    <div class="field-row">
+      <label class="field">
+        <span>Kind</span>
+        <select name="kind">
+          <option value="app" <%= values.kind === 'app' ? 'selected' : '' %>>App</option>
+          <option value="business" <%= values.kind === 'business' ? 'selected' : '' %>>Business</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Client type</span>
+        <select name="applicationType">
+          <option value="web" <%= values.applicationType === 'web' ? 'selected' : '' %>>Web (server-side secret)</option>
+          <option value="native" <%= values.applicationType === 'native' ? 'selected' : '' %>>Native / mobile</option>
+          <option value="service" <%= values.applicationType === 'service' ? 'selected' : '' %>>Service (no OAuth)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Environment</span>
+        <select name="environment">
+          <option value="sandbox" <%= values.environment !== 'live' ? 'selected' : '' %>>Sandbox</option>
+          <option value="live" <%= values.environment === 'live' ? 'selected' : '' %>>Live (approved accounts)</option>
+        </select>
+      </label>
+    </div>
+    <label class="field">
+      <span>Website <em>(optional, HTTPS)</em></span>
+      <input type="url" name="website" maxlength="500" placeholder="https://example.com" value="<%= values.website || '' %>">
+    </label>
+    <fieldset class="field">
+      <span class="field-label">Requested scopes</span>
+      <div class="check-grid">
+        <% scopes.forEach(function (scope) { %>
+          <label class="check">
+            <input type="checkbox" name="requestedScopes" value="<%= scope %>">
+            <span><%= scope %></span>
+          </label>
+        <% }); %>
+      </div>
+    </fieldset>
+    <label class="field">
+      <span>Redirect URIs <em>(one per line — web/native only)</em></span>
+      <textarea name="redirectUris" rows="4" placeholder="https://example.com/callback"><%= values.redirectUris || '' %></textarea>
+    </label>
+    <button class="btn btn-primary" type="submit">Create integration</button>
+  </form>
+</section>
+<% } else { %>
+<section class="page-head reveal">
+  <div>
+    <h1 class="page-title"><%= app.name %></h1>
+    <p class="page-sub"><code><%= app.appId %></code> · <%= app.applicationType %> · secret v<%= app.secretVersion %></p>
+  </div>
+  <div class="pill-row">
+    <span class="pill pill-env-<%= app.environment %>"><%= app.environment %></span>
+    <span class="pill pill-<%= app.status === 'active' ? 'approved' : 'rejected' %>"><%= app.status %></span>
+  </div>
+</section>
+
+<nav class="subnav" aria-label="Integration sections">
+  <a href="#overview">Overview</a>
+  <a href="#keys">Keys</a>
+  <a href="#customers">Customers</a>
+  <a href="/partners/apps/<%= app.appId %>/connect">Connect</a>
+  <a href="#webhooks">Webhooks</a>
+  <a href="#signin">Sign in with Syncup</a>
+  <a href="#quickstart">Quickstart</a>
+</nav>
+
+<section class="panel reveal" id="overview">
+  <h2 class="panel-title">Overview</h2>
+  <dl class="kv">
+    <dt>App ID</dt><dd><code><%= app.appId %></code></dd>
+    <dt>Type</dt><dd><%= app.applicationType %> · <%= app.kind %></dd>
+    <dt>Environment</dt><dd><%= app.environment %></dd>
+  </dl>
+</section>
+
+<section class="panel reveal" id="keys">
+  <h2 class="panel-title">API credentials</h2>
+  <p class="muted">Keys are shown once at creation. Store them server-side; they expire after 90 days.</p>
+  <% if (keys.length === 0) { %>
+    <p class="muted">No keys yet.</p>
+  <% } else { %>
+    <table class="table">
+      <thead><tr><th>Key ID</th><th>Name</th><th>Scopes</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        <% keys.forEach(function (key) { %>
+          <tr>
+            <td><code><%= key.keyId %></code></td>
+            <td><%= key.name %></td>
+            <td><%= key.scopes.join(', ') %></td>
+            <td><%= key.expiresAt ? new Date(key.expiresAt).toISOString().slice(0, 10) : '' %></td>
+            <td><%= key.revokedAt ? 'revoked' : 'active' %></td>
+            <td>
+              <% if (!key.revokedAt) { %>
+                <form method="post" action="/partners/apps/<%= app.appId %>/keys/<%= key.keyId %>/revoke" data-confirm="Revoke this key? It will stop working immediately.">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                  <button class="btn btn-danger btn-sm" type="submit">Revoke</button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+  <% if (app.status === 'active') { %>
+    <form method="post" action="/partners/apps/<%= app.appId %>/keys" class="form-inline">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="text" name="name" maxlength="80" placeholder="Key name" class="input-inline">
+      <button class="btn btn-primary btn-sm" type="submit">Create API key</button>
+    </form>
+  <% } %>
+</section>
+
+<section class="panel reveal">
+  <h2 class="panel-title">OAuth client</h2>
+  <% if (app.applicationType === 'web') { %>
+    <p class="muted">A confidential client secret is stored encrypted. Rotate it if it may be exposed — the new secret is shown exactly once.</p>
+    <form method="post" action="/partners/apps/<%= app.appId %>/client-secret" class="form-inline" data-confirm="Rotate the client secret? The old secret stops working immediately.">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="btn btn-ghost" type="submit" <%= app.status !== 'active' ? 'disabled' : '' %>>Rotate client secret</button>
+    </form>
+  <% } else if (app.applicationType === 'native') { %>
+    <p class="muted">Native integrations are public clients — no client secret is issued.</p>
+  <% } else { %>
+    <p class="muted">Service integrations do not carry OAuth credentials.</p>
+  <% } %>
+</section>
+
+<% if (app.kind === 'app') { %>
+<section class="panel reveal">
+  <h2 class="panel-title" id="signin">Sign in with Syncup</h2>
+  <p class="muted">Authorization-code flow with PKCE (S256 required for every client). Users authenticate with their Syncup account and you receive a pairwise <code>sub</code> — the same identifier your API connection uses.</p>
+  <table class="table">
+    <tbody>
+      <tr><td>Issuer</td><td><code class="small">https://api.crackman.in/oauth</code></td></tr>
+      <tr><td>Discovery</td><td><code class="small">https://api.crackman.in/oauth/.well-known/openid-configuration</code></td></tr>
+      <tr><td>Client ID</td><td><code class="small"><%= app.appId %></code></td></tr>
+      <tr><td>Auth method</td><td><code class="small"><%= app.applicationType === 'web' ? 'client_secret_basic / client_secret_post' : 'none (public client)' %></code></td></tr>
+      <tr><td>Redirect URIs</td><td><code class="small"><%= app.redirectUris.join('<br>') %></code></td></tr>
+    </tbody>
+  </table>
+  <pre class="code-block">// 1) authorize URL — always send PKCE + state
+const verifier = crypto.randomBytes(32).toString('base64url');
+const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+const url = new URL('https://api.crackman.in/oauth/authorize');
+url.search = new URLSearchParams({
+  response_type: 'code', client_id: '<%= app.appId %>',
+  redirect_uri: '<%= app.redirectUris[0] || 'https://app.example.com/cb' %>',
+  scope: 'openid profile', state, nonce,
+  code_challenge: challenge, code_challenge_method: 'S256',
+});</pre>
+  <pre class="code-block"># 2) exchange the code
+curl -X POST https://api.crackman.in/oauth/token \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -d "grant_type=authorization_code&code=$CODE&redirect_uri=$REDIRECT&code_verifier=$VERIFIER"</pre>
+  <p class="muted small">3) Verify the ID token: ES256 signature via <code>/oauth/jwks</code>, plus <code>iss</code>, <code>aud</code>, <code>exp</code> and the <code>nonce</code> you sent. <code>sub</code> is per-app.</p>
+  <p class="muted small">Brand buttons:</p>
+  <div class="btn-row">
+    <img src="/partners/assets/sign-in-with-syncup.svg" alt="Sign in with Syncup" height="40">
+    <img src="/partners/assets/sign-in-with-syncup-dark.svg" alt="Sign in with Syncup" height="40">
+  </div>
+  <pre class="code-block">&lt;img src="https://api.crackman.in/partners/assets/sign-in-with-syncup.svg" alt="Sign in with Syncup" height="40"&gt;</pre>
+</section>
+<% } %>
+
+<% if (app.environment === 'sandbox') { %>
+<section class="panel reveal">
+  <h2 class="panel-title">Test users</h2>
+  <p class="muted">Only Sync Space accounts on this list can connect to a sandbox integration. Add testers by their Sync ID — we never show you their user ID or contact details.</p>
+  <% if (testers.length === 0) { %>
+    <p class="muted">No testers yet.</p>
+  <% } else { %>
+    <ul class="history">
+      <% testers.forEach(function (syncId) { %>
+        <li>
+          <code><%= syncId %></code>
+          <form method="post" action="/partners/apps/<%= app.appId %>/testers/remove" class="form-inline" data-confirm="Remove this tester?">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <input type="hidden" name="syncId" value="<%= syncId %>">
+            <button class="btn btn-danger btn-sm" type="submit">Remove</button>
+          </form>
+        </li>
+      <% }); %>
+    </ul>
+  <% } %>
+  <form method="post" action="/partners/apps/<%= app.appId %>/testers" class="form-inline">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="text" name="syncId" class="input-inline" placeholder="SYNC-XXXX-XXXX-XXXX-XXXX-XXXX" maxlength="29" required>
+    <button class="btn btn-primary btn-sm" type="submit">Add tester</button>
+  </form>
+</section>
+<% } %>
+
+<section class="panel reveal">
+  <h2 class="panel-title" id="quickstart">Quickstart</h2>
+  <p class="muted">Create an API key above, then call the partner API with it:</p>
+  <pre class="code-block">curl https://api.crackman.in/api/partner/v1/ping \
+  -H "Authorization: Bearer $SYNC_SPACE_API_KEY"</pre>
+  <pre class="code-block">curl -X POST https://api.crackman.in/api/partner/v1/connect-sessions \
+  -H "Authorization: Bearer $SYNC_SPACE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"scopes":["space.messages"]}'</pre>
+  <pre class="code-block">curl -X POST https://api.crackman.in/api/partner/v1/messages \
+  -H "Authorization: Bearer $SYNC_SPACE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: order-42" \
+  -d '{"subject":"sub_…","type":"message","title":"Hello"}'</pre>
+  <pre class="code-block">curl -X POST https://api.crackman.in/api/partner/v1/messages \
+  -H "Authorization: Bearer $SYNC_SPACE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: receipt-9" \
+  -d '{"subject":"sub_…","type":"receipt","title":"Order #42","receipt":{"amount":9.99,"currency":"USD","storeName":"Cafe A","tax":0.60,"total":10.59,"orderedAt":"2026-01-02T12:00:00Z","items":[{"name":"Latte","quantity":1,"amount":9.99}]}}'</pre>
+  <p class="muted small">Send the returned <code>connectUrl</code> to your user; once they approve, poll <code>GET /connect-sessions/{sessionId}</code> for their <code>subject</code>. You can also pair in person from <a href="/partners/apps/<%= app.appId %>/connect">Connect a customer</a>.</p>
+  <p class="muted small">Webhook subscribers get <code>connection.created</code> / <code>connection.revoked</code> pushes — always verify <code>Syncup-Signature</code> and keep polling <code>GET /connections/{subject}</code> as the fallback:</p>
+  <pre class="code-block">const crypto = require('crypto');
+function verifySignature(rawBody, header, secret) {
+  const { t, v1 } = Object.fromEntries(header.split(',').map(p => p.split('=')));
+  const expect = crypto.createHmac('sha256', secret).update(`${t}.${rawBody}`).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expect));
+}</pre>
+</section>
+
+<section class="panel reveal">
+  <h2 class="panel-title" id="webhooks">Webhooks</h2>
+  <form method="post" action="/partners/apps/<%= app.appId %>/webhook" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label class="field">
+      <span>Endpoint URL <em>(https, public, port 443)</em></span>
+      <input type="url" name="webhookUrl" maxlength="500" placeholder="https://example.com/syncup/webhook" value="<%= app.webhookUrl || '' %>">
+    </label>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm" type="submit"><%= app.webhookUrl ? 'Update URL' : 'Set URL' %></button>
+      <% if (app.webhookUrl) { %>
+        <button class="btn btn-ghost btn-sm" type="submit" name="webhookUrl" value="">Clear</button>
+      <% } %>
+    </div>
+  </form>
+  <form method="post" action="/partners/apps/<%= app.appId %>/webhook-secret" data-confirm="<%= app.hasWebhookSecret ? 'Rotate the webhook signing secret? Existing signatures stop verifying.' : 'Generate a webhook signing secret?' %>">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <button class="btn btn-ghost btn-sm" type="submit"><%= app.hasWebhookSecret ? 'Rotate signing secret' : 'Generate signing secret' %></button>
+    <span class="muted small"><%= app.hasWebhookSecret ? 'Secret configured — shown only at creation.' : 'No secret yet — required before events are sent.' %></span>
+  </form>
+  <% if (deliveries && deliveries.length) { %>
+    <table class="table">
+      <thead><tr><th>Event</th><th>Status</th><th>Attempts</th><th>Error</th><th>Queued</th></tr></thead>
+      <tbody>
+        <% deliveries.forEach(function (d) { %>
+          <tr>
+            <td><%= d.event %></td>
+            <td><span class="pill pill-<%= d.status === 'delivered' ? 'approved' : d.status === 'pending' ? 'pending' : 'rejected' %>"><%= d.status %></span></td>
+            <td><%= d.attempts %></td>
+            <td class="muted small"><%= d.lastError || '—' %></td>
+            <td class="muted small"><%= new Date(d.createdAt).toISOString().slice(0, 16).replace('T', ' ') %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } else { %>
+    <p class="muted small">No deliveries yet — events are queued when customers connect or disconnect.</p>
+  <% } %>
+</section>
+
+<section class="panel reveal">
+  <h2 class="panel-title" id="customers">Customers <span class="muted small">(<%= customers.activeCount %> active)</span></h2>
+  <% if (customers.items.length === 0) { %>
+    <p class="muted">No connected customers yet.</p>
+  <% } else { %>
+    <table class="table">
+      <thead><tr><th>Subject</th><th>Scopes</th><th>Status</th><th>Connected</th><th>Revoked</th></tr></thead>
+      <tbody>
+        <% customers.items.forEach(function (c) { %>
+          <tr>
+            <td>
+              <code class="small" id="sub-<%= c.cursor %>"><%= c.subject.slice(0, 12) %>…</code>
+              <button class="btn btn-ghost btn-sm" type="button" data-subject="<%= c.subject %>">Copy</button>
+            </td>
+            <td class="muted small"><%= c.scopes.join(', ') %></td>
+            <td><span class="pill pill-<%= c.status === 'active' ? 'approved' : 'rejected' %>"><%= c.status %></span></td>
+            <td class="muted small"><%= c.connectedAt ? new Date(c.connectedAt).toISOString().slice(0, 10) : '—' %></td>
+            <td class="muted small"><%= c.revokedAt ? new Date(c.revokedAt).toISOString().slice(0, 10) : '—' %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <% if (customers.nextCursor) { %>
+      <a class="btn btn-ghost btn-sm" href="/partners/apps/<%= app.appId %>?cursor=<%= customers.nextCursor %>">Next page</a>
+    <% } %>
+  <% } %>
+</section>
+
+<section class="panel reveal">
+  <h2 class="panel-title">Settings</h2>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <form method="post" action="/partners/apps/<%= app.appId %>/update" class="form">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label class="field">
+      <span>Name</span>
+      <input type="text" name="name" required maxlength="100" value="<%= app.name %>">
+    </label>
+    <label class="field">
+      <span>Website <em>(HTTPS)</em></span>
+      <input type="url" name="website" maxlength="500" value="<%= app.website || '' %>">
+    </label>
+    <fieldset class="field">
+      <span class="field-label">Requested scopes</span>
+      <div class="check-grid">
+        <% scopes.forEach(function (scope) { %>
+          <label class="check">
+            <input type="checkbox" name="requestedScopes" value="<%= scope %>" <%= app.requestedScopes.includes(scope) ? 'checked' : '' %>>
+            <span><%= scope %></span>
+          </label>
+        <% }); %>
+      </div>
+    </fieldset>
+    <label class="field">
+      <span>Redirect URIs <em>(one per line)</em></span>
+      <textarea name="redirectUris" rows="4"><%= app.redirectUris.join('\n') %></textarea>
+    </label>
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Save changes</button>
+    </div>
+  </form>
+  <% if (app.status === 'active') { %>
+    <form method="post" action="/partners/apps/<%= app.appId %>/disable" data-confirm="Disable this integration? Its keys and client secret stop working.">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="btn btn-danger" type="submit">Disable integration</button>
+    </form>
+  <% } %>
+</section>
+<% } %>

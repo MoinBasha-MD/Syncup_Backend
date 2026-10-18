@@ -1,0 +1,18 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title">Sign in</h1>
+  <p class="page-sub">Use your Syncup account to continue</p>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <% if (prompt === 'login') { %><p class="muted small">This app asked for a fresh sign-in.</p><% } %>
+  <form method="post" action="/oauth/login" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label class="field">
+      <span>Phone number</span>
+      <input type="tel" name="phoneNumber" required autocomplete="username" inputmode="tel">
+    </label>
+    <label class="field">
+      <span>Password</span>
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button class="btn btn-primary" type="submit">Continue</button>
+  </form>
+</section>

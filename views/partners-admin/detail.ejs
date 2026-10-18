@@ -1,0 +1,103 @@
+<section class="page-head reveal">
+  <div>
+    <h1 class="page-title"><%= detail.partner.businessName %></h1>
+    <p class="page-sub"><%= detail.partner.email %> · joined <%= detail.partner.createdAt ? new Date(detail.partner.createdAt).toISOString().slice(0, 10) : '—' %></p>
+  </div>
+  <span class="pill pill-<%= detail.partner.approvalStatus %>"><%= detail.partner.approvalStatus %></span>
+</section>
+
+<div class="split">
+  <section class="panel reveal">
+    <h2 class="panel-title">Account</h2>
+    <dl class="kv">
+      <dt>Partner ID</dt><dd><code><%= detail.partner.partnerId %></code></dd>
+      <dt>Email</dt><dd><%= detail.partner.email %> (<%= detail.partner.emailVerified ? 'verified' : 'unverified' %>)</dd>
+      <dt>Website</dt><dd><%= detail.partner.website || '—' %></dd>
+      <dt>Review version</dt><dd><%= detail.partner.reviewVersion %></dd>
+      <% if (detail.partner.reviewReason) { %>
+        <dt>Last decision reason</dt><dd><%= detail.partner.reviewReason %></dd>
+      <% } %>
+    </dl>
+    <% if (detail.partner.useCase || detail.partner.privacyPolicyUrl) { %>
+      <h2 class="panel-title">Production request</h2>
+      <dl class="kv">
+        <dt>Requested</dt><dd><%= detail.partner.requestedAt ? new Date(detail.partner.requestedAt).toISOString() : '—' %></dd>
+        <dt>Use case</dt><dd class="pre-wrap"><%= detail.partner.useCase %></dd>
+        <dt>Privacy policy</dt><dd><%= detail.partner.privacyPolicyUrl || '—' %></dd>
+      </dl>
+    <% } %>
+  </section>
+
+  <section class="panel reveal">
+    <h2 class="panel-title">Decision</h2>
+    <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+    <% const actions = { pending: [['approve', 'Approve'], ['reject', 'Reject']], approved: [['suspend', 'Suspend']], suspended: [['restore', 'Restore']] }[detail.partner.approvalStatus] || []; %>
+    <% if (actions.length === 0) { %>
+      <p class="muted">No decisions available for status <b><%= detail.partner.approvalStatus %></b>.</p>
+    <% } %>
+    <% actions.forEach(function ([decision, label]) { %>
+      <button
+        class="btn <%= decision === 'approve' || decision === 'restore' ? 'btn-primary' : 'btn-danger' %> review-form"
+        type="button"
+        data-decision-open="<%= decision %>"
+      ><%= label %></button>
+      <dialog class="decision-dialog" id="decision-<%= decision %>">
+        <form method="post" action="/partners-admin/partners/<%= detail.partner.partnerId %>/review" class="form" data-progress>
+          <h3 class="panel-title"><%= label %> <%= detail.partner.businessName %></h3>
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input type="hidden" name="decision" value="<%= decision %>">
+          <input type="hidden" name="expectedVersion" value="<%= detail.partner.reviewVersion %>">
+          <label class="field">
+            <span>Reason <em>(required, shared with partner)</em></span>
+            <textarea name="reason" rows="4" required minlength="5" maxlength="1000" data-charcount></textarea>
+            <span class="char-count muted small" data-charcount-out>0 / 1000 · min 5</span>
+          </label>
+          <div class="btn-row">
+            <button class="btn <%= decision === 'approve' || decision === 'restore' ? 'btn-primary' : 'btn-danger' %>" type="submit" data-decision-submit disabled><%= label %></button>
+            <button class="btn btn-ghost" type="button" data-decision-close>Cancel</button>
+          </div>
+        </form>
+      </dialog>
+    <% }); %>
+  </section>
+</div>
+
+<section class="panel reveal">
+  <h2 class="panel-title">Integrations (<%= detail.apps.length %>)</h2>
+  <% if (detail.apps.length === 0) { %>
+    <p class="muted">No integrations.</p>
+  <% } else { %>
+    <table class="table">
+      <thead><tr><th>Name</th><th>Type</th><th>Env</th><th>Status</th><th>Scopes</th></tr></thead>
+      <tbody>
+        <% detail.apps.forEach(function (app) { %>
+          <tr>
+            <td><%= app.name %> <code class="small"><%= app.appId %></code></td>
+            <td><%= app.applicationType %></td>
+            <td><%= app.environment %></td>
+            <td><%= app.status %></td>
+            <td><%= app.requestedScopes.join(', ') || '—' %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</section>
+
+<section class="panel reveal">
+  <h2 class="panel-title">Review history</h2>
+  <% if (!detail.partner.reviewHistory || detail.partner.reviewHistory.length === 0) { %>
+    <p class="muted">No decisions yet.</p>
+  <% } else { %>
+    <ul class="history">
+      <% detail.partner.reviewHistory.slice().reverse().forEach(function (entry) { %>
+        <li>
+          <span class="pill pill-<%= entry.action === 'approve' || entry.action === 'restore' ? 'approved' : entry.action === 'requested' ? 'pending' : 'rejected' %>"><%= entry.action %></span>
+          <span class="muted small"><%= new Date(entry.at).toISOString() %></span>
+          <% if (entry.actorLabel) { %><span class="muted small">by <%= entry.actorLabel %></span><% } %>
+          <% if (entry.reason) { %><span class="history-reason"><%= entry.reason %></span><% } %>
+        </li>
+      <% }); %>
+    </ul>
+  <% } %>
+</section>

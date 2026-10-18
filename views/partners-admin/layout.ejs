@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= title ? title + ' · ' : '' %>Sync Space Admin</title>
+<link rel="stylesheet" href="/partners-admin/assets/portal.css">
+<script src="/partners-admin/assets/portal.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <a class="brand" href="/partners-admin">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Sync Space <b>Admin</b></span>
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">
+      <span class="nav-toggle-bar"></span><span class="nav-toggle-bar"></span><span class="nav-toggle-bar"></span>
+      <span class="sr-only">Menu</span>
+    </button>
+  </header>
+  <nav class="sidebar" id="primary-nav" aria-label="Admin">
+    <a class="brand brand-side" href="/partners-admin">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Sync Space <b>Admin</b></span>
+    </a>
+    <% if (admin) { %>
+      <span class="nav-section">Reviews</span>
+      <a class="nav-link" href="/partners-admin/dashboard">Approval queue</a>
+      <form method="post" action="/partners-admin/logout" class="nav-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="nav-link nav-signout" type="submit">Sign out</button>
+      </form>
+      <span class="nav-user"><%= admin.label %></span>
+    <% } else { %>
+      <a class="nav-link" href="/partners-admin/login">Sign in</a>
+    <% } %>
+  </nav>
+  <main class="content">
+    <%- body %>
+  </main>
+</div>
+</body>
+</html>

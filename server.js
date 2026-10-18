@@ -271,6 +271,12 @@ app.use(...performanceOptimization());
 
 // Basic middleware
 
+// Tight body cap for Sync Space surfaces — must run BEFORE the global 200mb parsers.
+app.use(
+  ['/api/partner/v1', '/api/sync-space', '/oauth', '/partners', '/partners-admin'],
+  require('./middleware/syncSpaceBodyLimit')(64 * 1024)
+);
+
 app.use(express.json({ 
 
   limit: '200mb', // Increased for video uploads
@@ -649,6 +655,16 @@ app.use('/api/intent-notifications', apiLimiter, require('./routes/intentNotific
 app.use('/api/places', apiLimiter, placesRoutes); // Places caching and nearby places (Geoapify integration)
 
 app.use('/api/open-network', apiLimiter, require('./routes/openNetworkRoutes')); // Open Network: membership, viewport, nearby, feed
+
+app.use('/api/sync-space', apiLimiter, require('./routes/syncSpaceRoutes'));
+
+app.use('/api/partner/v1', apiLimiter, require('./routes/partnerApiRoutes'));
+
+app.use('/partners', require('./routes/partnerPortalRoutes'));
+
+app.use('/oauth', require('./routes/oauthRoutes'));
+
+app.use('/partners-admin', require('./routes/partnerAdminRoutes'));
 
 app.use('/api/ripples', apiLimiter, require('./routes/rippleRoutes')); // Open Network: Ripple CRUD
 

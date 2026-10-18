@@ -1,0 +1,21 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title">Verify your email</h1>
+  <p class="page-sub">We sent a 6-digit code to your inbox. Enter it below to activate your workspace.</p>
+  <% if (resent) { %><p class="notice notice-ok">A new code is on its way.</p><% } %>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <form method="post" action="/partners/verify" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="hidden" name="challengeId" value="<%= challengeId %>">
+    <label class="field">
+      <span>Verification code</span>
+      <input type="text" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" class="code-input">
+    </label>
+    <button class="btn btn-primary" type="submit">Verify</button>
+  </form>
+  <form method="post" action="/partners/resend" class="form-inline">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="hidden" name="challengeId" value="<%= challengeId %>">
+    <button class="btn btn-ghost" type="submit">Resend code</button>
+  </form>
+  <p class="auth-alt"><a href="/partners/login">Back to sign in</a></p>
+</section>

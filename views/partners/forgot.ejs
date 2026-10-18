@@ -1,0 +1,15 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title">Reset your password</h1>
+  <p class="page-sub">Enter your account email and we'll send a reset code.</p>
+  <% if (sent) { %><p class="notice notice-ok">If an account exists for that email, a reset code is on its way.</p><% } %>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <form method="post" action="/partners/forgot" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label class="field">
+      <span>Email</span>
+      <input type="email" name="email" required autocomplete="email" maxlength="254">
+    </label>
+    <button class="btn btn-primary" type="submit">Send reset code</button>
+  </form>
+  <p class="auth-alt"><a href="/partners/login">Back to sign in</a></p>
+</section>

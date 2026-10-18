@@ -1,0 +1,83 @@
+<section class="page-head reveal">
+  <div>
+    <h1 class="page-title">Overview</h1>
+    <p class="page-sub"><%= partner.businessName %> · <%= partner.email %></p>
+  </div>
+  <span class="pill pill-<%= partner.approvalStatus %>"><%= partner.approvalStatus %></span>
+</section>
+
+<% if (partner.approvalStatus === 'approved') { %>
+  <section class="panel reveal">
+    <p class="notice notice-ok">Your business is linked with Syncup — create live apps and keys.</p>
+  </section>
+<% } else if (partner.approvalStatus === 'rejected') { %>
+  <section class="panel reveal">
+    <p class="notice notice-err">Your production request wasn't approved.<% if (partner.reviewReason) { %> Reason: <%= partner.reviewReason %><% } %></p>
+    <form method="post" action="/partners/production-request" class="form-inline">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="btn btn-primary btn-sm" type="submit">Request production again</button>
+    </form>
+  </section>
+<% } %>
+
+<% if (partner.approvalStatus === 'suspended') { %>
+  <section class="panel reveal"><p class="notice notice-err">Your partner account is suspended.<% if (partner.reviewReason) { %> Reason: <%= partner.reviewReason %><% } %> Only account status is available; credentials are disabled.</p></section>
+<% } else { %>
+
+<ol class="stepper reveal" aria-label="Go-live progress">
+  <li class="step <%= partner.emailVerified ? 'done' : 'current' %>">
+    <span class="step-dot"></span><span>Verify email</span>
+  </li>
+  <li class="step <%= apps.length > 0 ? 'done' : (partner.emailVerified ? 'current' : '') %>">
+    <span class="step-dot"></span><span>Build an integration</span>
+  </li>
+  <li class="step <%= ['pending','approved'].includes(partner.approvalStatus) ? 'done' : (apps.length > 0 ? 'current' : '') %>">
+    <span class="step-dot"></span><span>Request production</span>
+  </li>
+  <li class="step <%= partner.approvalStatus === 'approved' ? 'done' : '' %>">
+    <span class="step-dot"></span><span>Approved</span>
+  </li>
+</ol>
+
+<% if (!partner.emailVerified) { %>
+  <section class="panel reveal">
+    <h2 class="panel-title">Next step</h2>
+    <p class="muted">Verify your email address to start building integrations. Check your inbox for the 6-digit code.</p>
+    <form method="post" action="/partners/resend-verification" class="form-inline">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="btn btn-ghost" type="submit">Email me a new code</button>
+    </form>
+  </section>
+<% } %>
+
+<section class="reveal">
+  <div class="section-head">
+    <h2 class="panel-title">Integrations</h2>
+    <% if (partner.emailVerified) { %><a class="btn btn-primary btn-sm" href="/partners/apps/new">New integration</a><% } %>
+  </div>
+  <% if (apps.length === 0) { %>
+    <div class="panel empty-state">
+      <p class="muted">No integrations yet. Create a sandbox integration to get API credentials instantly.</p>
+      <% if (partner.emailVerified) { %><a class="btn btn-primary" href="/partners/apps/new">Create your first integration</a><% } %>
+    </div>
+  <% } else { %>
+    <div class="card-grid">
+      <% apps.forEach(function (app, i) { %>
+        <a class="card reveal" href="/partners/apps/<%= app.appId %>">
+          <span class="card-title"><%= app.name %></span>
+          <span class="card-meta">
+            <span class="pill pill-env-<%= app.environment %>"><%= app.environment %></span>
+            <span class="pill pill-<%= app.status === 'active' ? 'approved' : 'rejected' %>"><%= app.status %></span>
+          </span>
+          <span class="card-sub"><%= app.applicationType %> · <%= app.kind %> · <%= app.requestedScopes.length %> scopes</span>
+        </a>
+      <% }); %>
+    </div>
+  <% } %>
+</section>
+
+<section class="panel reveal">
+  <h2 class="panel-title">OAuth &amp; Sign in with Syncup</h2>
+  <p class="muted">Your integrations already carry prepared OAuth client metadata (redirect URIs, scopes, client secrets). The OIDC authorization endpoints go live in the next release — nothing to configure until then.</p>
+</section>
+<% } %>

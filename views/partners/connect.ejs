@@ -1,0 +1,74 @@
+<section class="page-head reveal">
+  <div>
+    <h1 class="page-title">Connect a customer</h1>
+    <p class="page-sub"><%= app.name %> · <span class="pill pill-<%= app.environment === 'live' ? 'approved' : 'pending' %>"><%= app.environment %></span></p>
+  </div>
+  <a class="btn btn-ghost btn-sm" href="/partners/apps/<%= app.appId %>">Back to integration</a>
+</section>
+
+<% if (result && result.ok) { %>
+<section class="panel reveal">
+  <h2 class="panel-title">Customer connected</h2>
+  <div class="secret-box">
+    <code class="secret-value" id="subject-value"><%= result.subject %></code>
+    <button class="btn btn-ghost btn-sm" type="button" data-copy="#subject-value">Copy</button>
+  </div>
+  <p class="muted small">Granted scopes: <%= result.scopes.join(', ') %></p>
+  <p class="muted small">Connected <%= new Date(result.connectedAt).toISOString() %> · customers only ever see this private subject.</p>
+</section>
+<% } %>
+
+<% if (unusable) { %>
+<section class="panel reveal">
+  <p class="notice notice-err"><%= unusable %></p>
+</section>
+<% } else { %>
+
+<% if (result && !result.ok) { %>
+  <p class="notice notice-err reveal"><%= result.message %></p>
+<% } %>
+
+<section class="panel reveal" id="qr-scan-root">
+  <h2 class="panel-title">Scan a Sync Space QR</h2>
+  <p class="muted small">The customer opens Sync Space → QR and shows the code. Scanning connects them instantly.</p>
+  <form method="post" action="/partners/apps/<%= app.appId %>/connect/scan" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div class="qr-camera" data-qr-camera hidden>
+      <video data-qr-video playsinline muted></video>
+      <p class="muted small" data-qr-status>Point the camera at the customer's QR…</p>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-qr-start hidden>Use camera</button>
+    <label class="field">
+      <span>Or paste the QR payload</span>
+      <textarea name="qrPayload" rows="3" maxlength="200" required placeholder="syncspace:pair:…" data-qr-input><%= values.qrPayload || '' %></textarea>
+    </label>
+    <button class="btn btn-primary" type="submit">Connect</button>
+  </form>
+</section>
+
+<section class="panel reveal">
+  <h2 class="panel-title">Or connect with a code</h2>
+  <p class="muted small">The customer sees a 6-digit code in their Sync Space — ask them for it and enter it here.</p>
+  <% if (!otpStep) { %>
+    <form method="post" action="/partners/apps/<%= app.appId %>/connect/otp" class="form" data-progress>
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <label class="field">
+        <span>Customer's Sync ID or Syncup username</span>
+        <input type="text" name="identifier" required maxlength="60" placeholder="SYNC-XXXX-XXXX-XXXX-XXXX-XXXX">
+      </label>
+      <button class="btn btn-primary" type="submit">Request code</button>
+    </form>
+  <% } else { %>
+    <p class="notice">A pairing request was sent. It expires <%= otpStep.expiresAt ? 'at ' + new Date(otpStep.expiresAt).toISOString().slice(11, 19) + ' UTC' : 'soon' %>.</p>
+    <form method="post" action="/partners/apps/<%= app.appId %>/connect/verify" class="form" data-progress>
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="pairingId" value="<%= otpStep.pairingId %>">
+      <label class="field">
+        <span>6-digit code from the customer</span>
+        <input type="text" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off">
+      </label>
+      <button class="btn btn-primary" type="submit">Verify &amp; connect</button>
+    </form>
+  <% } %>
+</section>
+<% } %>

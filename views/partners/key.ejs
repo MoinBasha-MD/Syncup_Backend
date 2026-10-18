@@ -1,0 +1,24 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title"><%= title %></h1>
+  <% if (credential.kind === 'api-key') { %>
+    <p class="page-sub">Store this API key securely — it will not be shown again.</p>
+  <% } else { %>
+    <p class="page-sub">Store this client secret securely — it will not be shown again.</p>
+  <% } %>
+  <div class="secret-callout">
+    <strong>Copy it now</strong>
+    <p class="muted small">This is the only time the full value is shown. If you lose it, generate a new one.</p>
+    <div class="secret-box">
+      <code class="secret-value" id="secret-value"><%= credential.value %></code>
+      <button class="btn btn-ghost btn-sm" type="button" data-copy="#secret-value" data-label="Copy">Copy</button>
+    </div>
+    <label class="confirm-check">
+      <input type="checkbox" data-secret-confirm>
+      I've stored this somewhere safe
+    </label>
+  </div>
+  <% if (record) { %>
+    <p class="muted small">Expires <%= new Date(record.expiresAt).toISOString().slice(0, 10) %> · scopes: <%= record.scopes.join(', ') %></p>
+  <% } %>
+  <a class="btn btn-primary" data-secret-continue href="/partners/apps/<%= app.appId %>">Continue to integration</a>
+</section>

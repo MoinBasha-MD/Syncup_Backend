@@ -1,0 +1,55 @@
+<section class="page-head reveal">
+  <div>
+    <h1 class="page-title">Go live</h1>
+    <p class="page-sub">Request production access for <%= partner.businessName %>. Our team reviews every request.</p>
+  </div>
+  <span class="pill pill-<%= partner.approvalStatus %>"><%= partner.approvalStatus %></span>
+</section>
+
+<% if (partner.approvalStatus === 'suspended') { %>
+  <section class="panel reveal"><p class="notice notice-err">Your account is suspended. Production access is unavailable.</p></section>
+<% } else if (partner.approvalStatus === 'approved') { %>
+  <section class="panel reveal"><p class="notice notice-ok">Your account is approved for production. You can create live integrations and keys.</p></section>
+<% } else if (partner.approvalStatus === 'pending') { %>
+  <section class="panel reveal">
+    <p class="notice">Your production request is under review. We will update this page when a decision is made.</p>
+  </section>
+<% } else { %>
+  <section class="panel reveal">
+    <% if (partner.approvalStatus === 'rejected' && partner.reviewReason) { %>
+      <p class="notice notice-err">Previous request was not approved: <%= partner.reviewReason %></p>
+    <% } %>
+    <% if (!partner.emailVerified) { %>
+      <p class="notice notice-err">Verify your email before requesting production access.</p>
+    <% } else { %>
+      <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+      <form method="post" action="/partners/production-request" class="form" data-progress>
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <label class="field">
+          <span>Use case <em>(what will you build?)</em></span>
+          <textarea name="useCase" rows="5" required minlength="5" maxlength="2000"><%= values.useCase || '' %></textarea>
+        </label>
+        <label class="field">
+          <span>Privacy policy URL <em>(HTTPS)</em></span>
+          <input type="url" name="privacyPolicyUrl" required maxlength="500" placeholder="https://example.com/privacy" value="<%= values.privacyPolicyUrl || '' %>">
+        </label>
+        <button class="btn btn-primary" type="submit">Submit for review</button>
+      </form>
+    <% } %>
+  </section>
+<% } %>
+
+<% if (partner.reviewHistory && partner.reviewHistory.length > 0) { %>
+  <section class="panel reveal">
+    <h2 class="panel-title">Review history</h2>
+    <ul class="history">
+      <% partner.reviewHistory.slice().reverse().forEach(function (entry) { %>
+        <li>
+          <span class="pill pill-<%= entry.action === 'approve' || entry.action === 'restore' ? 'approved' : entry.action === 'requested' ? 'pending' : 'rejected' %>"><%= entry.action %></span>
+          <span class="muted small"><%= new Date(entry.at).toISOString().slice(0, 10) %></span>
+          <% if (entry.reason) { %><span class="history-reason"><%= entry.reason %></span><% } %>
+        </li>
+      <% }); %>
+    </ul>
+  </section>
+<% } %>

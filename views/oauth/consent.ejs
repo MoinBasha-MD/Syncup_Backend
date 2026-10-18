@@ -1,0 +1,42 @@
+<section class="panel auth-panel reveal">
+  <div class="oauth-avatar" aria-hidden="true"><%= (appDoc.name || '?').charAt(0).toUpperCase() %></div>
+  <h1 class="page-title">Allow <%= appDoc.name %>?</h1>
+  <p class="page-sub">
+    <%= partner && partner.businessName ? partner.businessName : 'This app' %>
+    <% if (domain) { %>· <%= domain %><% } %>
+    <span class="pill pill-env-<%= appDoc.environment %>"><%= appDoc.environment %></span>
+  </p>
+  <% if (appDoc.environment === 'sandbox') { %>
+    <p class="notice notice-err">This app is in testing — sign-in works only for invited testers.</p>
+  <% } %>
+  <p class="muted small">Redirecting to <code><%= redirectHost %></code></p>
+  <div class="field" style="margin-top:14px;">
+    <span class="field-label"><%= appDoc.name %> will be able to:</span>
+    <% var icons = { openid: '✓', profile: '👤', email: '✉', phone: '☎', sync_id: '#', offline_access: '∞', 'space.messages': '✉', 'space.codes': '⌗', 'space.receipts': '🧾', 'space.promotions': '★' }; %>
+    <% scopes.forEach(function (scope) { %>
+      <div class="scope-row">
+        <span class="scope-icon" aria-hidden="true"><%= icons[scope] || '•' %></span>
+        <span><strong><%= {
+          'openid': "Confirm it's you",
+          'profile': 'See your name and username',
+          'email': 'See your email address',
+          'phone': 'See your phone number',
+          'sync_id': 'See your Sync ID',
+          'offline_access': `Stay signed in to ${appDoc.name}`,
+          'space.messages': 'Send you messages',
+          'space.codes': 'Send verification codes',
+          'space.receipts': 'Send receipts',
+          'space.promotions': 'Send offers',
+        }[scope] || scope %></strong></span>
+      </div>
+    <% }); %>
+  </div>
+  <p class="muted small">Signed in to Syncup<% if (userId) { %> — not you? <a href="/oauth/login?switch=1">Switch account</a><% } %></p>
+  <form method="post" action="/oauth/consent" class="form oauth-actions" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit" name="decision" value="approve">Allow</button>
+      <button class="btn btn-ghost" type="submit" name="decision" value="deny" formnovalidate>Not now</button>
+    </div>
+  </form>
+</section>

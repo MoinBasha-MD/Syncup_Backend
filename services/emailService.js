@@ -71,6 +71,14 @@ class EmailService {
         subject: 'Verify Your New Email - Syncup',
         html: this.getEmailChangeTemplate(otp),
       },
+      partner_verification: {
+        subject: 'Verify Your Partner Account - Syncup Partners',
+        html: this.getPartnerVerificationTemplate(otp),
+      },
+      partner_password_reset: {
+        subject: 'Partner Password Reset Code - Syncup Partners',
+        html: this.getPartnerPasswordResetTemplate(otp),
+      },
     };
 
     const template = templates[type] || templates.registration;
@@ -335,6 +343,156 @@ class EmailService {
       </body>
       </html>
     `;
+  }
+
+  getPartnerTemplate(otp, { heading, intro, expiryText }) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f5f5f5; }
+          .container { max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+          .header { background: linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%); color: white; padding: 40px 30px; text-align: center; }
+          .header h1 { margin: 0; font-size: 26px; font-weight: 700; }
+          .header .brand { margin: 8px 0 0 0; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.85; }
+          .content { padding: 40px 30px; }
+          .otp-box { background: #f8f9fa; border: 2px solid #7C3AED; border-radius: 12px; padding: 30px; text-align: center; margin: 30px 0; }
+          .otp-label { margin: 0 0 10px 0; font-size: 14px; color: #666; font-weight: 500; }
+          .otp-code { font-size: 36px; font-weight: 700; color: #7C3AED; letter-spacing: 10px; margin: 10px 0; }
+          .otp-expiry { margin: 10px 0 0 0; font-size: 13px; color: #999; }
+          .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 16px; margin: 25px 0; border-radius: 4px; }
+          .warning strong { color: #856404; }
+          .footer { text-align: center; padding: 30px; background: #f8f9fa; color: #666; font-size: 13px; border-top: 1px solid #e9ecef; }
+          .footer p { margin: 5px 0; }
+          p { margin: 15px 0; color: #555; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>${heading}</h1>
+            <p class="brand">Syncup Partners</p>
+          </div>
+          <div class="content">
+            <p>${intro}</p>
+            <div class="otp-box">
+              <p class="otp-label">Your Verification Code</p>
+              <div class="otp-code">${otp}</div>
+              <p class="otp-expiry">⏱️ ${expiryText}</p>
+            </div>
+            <div class="warning">
+              <strong>⚠️ Security Notice:</strong> Never share this code with anyone. Syncup will never ask for your verification code via phone, email, or any other method.
+            </div>
+            <p>If you didn't request this code, please ignore this email.</p>
+            <p style="margin-top: 30px;">Best regards,<br><strong>The Syncup Partners Team</strong></p>
+          </div>
+          <div class="footer">
+            <p><strong>Syncup Partners</strong></p>
+            <p>This is an automated message. Please do not reply.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  async sendPartnerDecision(email, { businessName, decision, reason }) {
+    if (!this.initialized) {
+      this.initialize();
+    }
+    const safeName = this.escapeHtml(businessName || 'your business');
+    const safeReason = this.escapeHtml(reason || '');
+    const portalUrl = process.env.SYNC_SPACE_PORTAL_ORIGIN
+      ? `${process.env.SYNC_SPACE_PORTAL_ORIGIN}/partners`
+      : 'https://api.crackman.in/partners';
+    const blocks = {
+      approve: {
+        subject: "You're approved — production access is live · Syncup Partners",
+        heading: "You're approved",
+        body: `<p><strong>${safeName}</strong> is now linked with Syncup. Your production access is live — create live integrations, issue API keys, and start connecting customers.</p>
+          <p><a href="${portalUrl}" style="color:#7C3AED;">Open the partner portal</a></p>`,
+      },
+      reject: {
+        subject: 'Your Syncup Partners application needs changes',
+        heading: 'Application not approved',
+        body: `<p><strong>${safeName}</strong> wasn't approved this time. Reason: <em>${safeReason}</em></p>
+          <p>You can update your details and request production access again from the partner portal.</p>`,
+      },
+      suspend: {
+        subject: 'Your Syncup Partners account was suspended',
+        heading: 'Account suspended',
+        body: `<p><strong>${safeName}</strong> was suspended. Reason: <em>${safeReason}</em></p>
+          <p>Contact support if you believe this is a mistake.</p>`,
+      },
+      restore: {
+        subject: 'Your Syncup Partners account was restored',
+        heading: 'Account restored',
+        body: `<p><strong>${safeName}</strong> is active again. Reason: <em>${safeReason}</em></p>
+          <p><a href="${portalUrl}" style="color:#7C3AED;">Open the partner portal</a></p>`,
+      },
+    };
+    const block = blocks[decision] || blocks.restore;
+    const html = `
+      <!DOCTYPE html>
+      <html><head><meta charset="UTF-8"></head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; margin: 0; padding: 0;">
+        <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+          <div style="background: linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%); color: white; padding: 40px 30px; text-align: center;">
+            <h1 style="margin: 0; font-size: 26px;">${block.heading}</h1>
+            <p style="margin: 8px 0 0 0; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.85;">Syncup Partners</p>
+          </div>
+          <div style="padding: 40px 30px;">
+            ${block.body}
+            <p style="margin-top: 30px; color: #555;">Best regards,<br><strong>The Syncup Partners Team</strong></p>
+          </div>
+          <div style="text-align: center; padding: 30px; background: #f8f9fa; color: #666; font-size: 13px; border-top: 1px solid #e9ecef;">
+            <p style="margin: 5px 0;"><strong>Syncup Partners</strong></p>
+            <p style="margin: 5px 0;">This is an automated message. Please do not reply.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+    try {
+      const info = await this.transporter.sendMail({
+        from: `"Syncup" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: block.subject,
+        html,
+      });
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('❌ [EMAIL SERVICE] Partner decision email failed:', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  getPartnerVerificationTemplate(otp) {
+    return this.getPartnerTemplate(otp, {
+      heading: 'Verify your partner account',
+      intro: 'Thanks for creating a Syncup Partners account. Enter this code to verify your business email and unlock your sandbox:',
+      expiryText: 'This code will expire in 10 minutes',
+    });
+  }
+
+  getPartnerPasswordResetTemplate(otp) {
+    return this.getPartnerTemplate(otp, {
+      heading: 'Reset your partner password',
+      intro: 'We received a request to reset the password on your Syncup Partners account. Use this code to continue:',
+      expiryText: 'This code will expire in 10 minutes',
+    });
   }
 
   getEmailChangeTemplate(otp) {

@@ -1,0 +1,13 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title">Admin sign in</h1>
+  <p class="page-sub">Sync Space partner review console.</p>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <form method="post" action="/partners-admin/login" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label class="field">
+      <span>Admin access key</span>
+      <input type="password" name="key" required autocomplete="off" maxlength="32">
+    </label>
+    <button class="btn btn-primary" type="submit">Sign in</button>
+  </form>
+</section>

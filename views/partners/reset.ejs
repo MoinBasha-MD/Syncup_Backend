@@ -1,0 +1,19 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title">Choose a new password</h1>
+  <p class="page-sub">Enter the reset code from your email and a new password.</p>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <form method="post" action="/partners/reset" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="hidden" name="challengeId" value="<%= challengeId %>">
+    <label class="field">
+      <span>Reset code</span>
+      <input type="text" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" class="code-input">
+    </label>
+    <label class="field">
+      <span>New password <em>(12+ characters)</em></span>
+      <input type="password" name="password" required autocomplete="new-password" minlength="12" maxlength="128">
+    </label>
+    <button class="btn btn-primary" type="submit">Update password</button>
+  </form>
+  <p class="auth-alt"><a href="/partners/login">Back to sign in</a></p>
+</section>

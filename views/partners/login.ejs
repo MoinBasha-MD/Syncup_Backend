@@ -1,0 +1,23 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title">Sign in</h1>
+  <p class="page-sub">Access your Sync Space partner workspace.</p>
+  <% if (notice) { %><p class="notice notice-ok"><%= notice %></p><% } %>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <form method="post" action="/partners/login" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label class="field">
+      <span>Email</span>
+      <input type="email" name="email" required autocomplete="email" maxlength="254" value="<%= values.email || '' %>">
+    </label>
+    <label class="field">
+      <span>Password</span>
+      <input type="password" name="password" required autocomplete="current-password" maxlength="128">
+    </label>
+    <button class="btn btn-primary" type="submit">Sign in</button>
+  </form>
+  <p class="auth-alt">
+    <a href="/partners/forgot">Forgot password?</a>
+    <span aria-hidden="true"> · </span>
+    <a href="/partners/register">Create an account</a>
+  </p>
+</section>

@@ -1,0 +1,26 @@
+<section class="panel auth-panel reveal">
+  <h1 class="page-title">Create your partner account</h1>
+  <p class="page-sub">Sandbox access starts immediately after email verification. Production access is reviewed by our team.</p>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
+  <form method="post" action="/partners/register" class="form" data-progress>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label class="field">
+      <span>Business or project name</span>
+      <input type="text" name="businessName" required maxlength="120" value="<%= values.businessName || '' %>">
+    </label>
+    <label class="field">
+      <span>Work email</span>
+      <input type="email" name="email" required autocomplete="email" maxlength="254" value="<%= values.email || '' %>">
+    </label>
+    <label class="field">
+      <span>Website <em>(optional, HTTPS)</em></span>
+      <input type="url" name="website" maxlength="500" placeholder="https://example.com" value="<%= values.website || '' %>">
+    </label>
+    <label class="field">
+      <span>Password <em>(12+ characters)</em></span>
+      <input type="password" name="password" required autocomplete="new-password" minlength="12" maxlength="128">
+    </label>
+    <button class="btn btn-primary" type="submit">Create account</button>
+  </form>
+  <p class="auth-alt"><a href="/partners/login">Already have an account?</a></p>
+</section>

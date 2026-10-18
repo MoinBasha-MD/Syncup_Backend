@@ -36,7 +36,8 @@ class MasterScheduler {
           this.runLocationSharingCleanup(),
           this.runStatusExpiration(),
           this.runRippleLifecycle(),
-          this.runMeetupExpiry()
+          this.runMeetupExpiry(),
+          this.runPartnerWebhookDeliveries()
         ]);
         
         const duration = Date.now() - startTime;
@@ -169,6 +170,20 @@ class MasterScheduler {
       await rippleLifecycleService.runRippleLifecycle();
     } catch (error) {
       console.error('❌ [RIPPLE LIFECYCLE] Error:', error.message);
+    }
+  }
+
+  /**
+   * Sync Space: deliver queued partner webhooks. No-op when the feature
+   * flag is off; failures are retried by the worker's own backoff.
+   */
+  async runPartnerWebhookDeliveries() {
+    if (process.env.SYNC_SPACE_ENABLED === 'false') return;
+    try {
+      const { runWebhookDeliveries } = require('./partnerWebhookWorker');
+      await runWebhookDeliveries({ limit: 50 });
+    } catch (error) {
+      console.error('❌ [PARTNER WEBHOOKS] Error:', error.message);
     }
   }
 

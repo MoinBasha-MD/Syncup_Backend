@@ -1,0 +1,58 @@
+<section class="page-head reveal">
+  <div>
+    <h1 class="page-title">Partner approvals</h1>
+    <p class="page-sub">Review production requests from Sync Space partners.</p>
+  </div>
+</section>
+
+<section class="panel reveal">
+  <div class="filter-row" role="tablist" aria-label="Status filter">
+    <% var c = result.counts || {}; var allCount = ['pending','sandbox','approved','rejected','suspended'].reduce(function (n, k) { return n + (c[k] || 0); }, 0); %>
+    <% ['pending', 'sandbox', 'approved', 'rejected', 'suspended', 'all'].forEach(function (s) { %>
+      <a class="chip <%= status === s ? 'chip-active' : '' %>" href="/partners-admin/dashboard?status=<%= s %>&q=<%= encodeURIComponent(result.q || '') %>&sort=<%= result.sort %>"><%= s %> <span class="chip-count"><%= s === 'all' ? allCount : (c[s] || 0) %></span></a>
+    <% }); %>
+  </div>
+
+  <form class="form-inline" method="get" action="/partners-admin/dashboard" role="search">
+    <input type="hidden" name="status" value="<%= status %>">
+    <input type="hidden" name="sort" value="<%= result.sort %>">
+    <input class="input-inline search-box" type="search" name="q" value="<%= result.q || '' %>" placeholder="Search business or email…" aria-label="Search partners">
+    <button class="btn btn-ghost btn-sm" type="submit">Search</button>
+  </form>
+
+  <% if (result.items.length === 0) { %>
+    <div class="empty-state">
+      <p class="muted"><%= result.q ? 'No partners match that search.' : 'No partner accounts in this state.' %></p>
+      <% if (result.q) { %><a class="btn btn-ghost btn-sm" href="/partners-admin/dashboard?status=<%= status %>">Clear search</a><% } %>
+    </div>
+  <% } else { %>
+    <table class="table">
+      <thead><tr>
+        <th>Business</th><th>Email</th><th>Status</th>
+        <th><a class="sort-link" href="/partners-admin/dashboard?status=<%= status %>&q=<%= encodeURIComponent(result.q || '') %>&sort=<%= result.sort === 'oldest' ? 'newest' : 'oldest' %>">Requested <%= result.sort === 'oldest' ? '↑' : '↓' %></a></th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        <% result.items.forEach(function (p) { %>
+          <tr>
+            <td><%= p.businessName %></td>
+            <td><%= p.email %></td>
+            <td><span class="pill pill-<%= p.approvalStatus %>"><%= p.approvalStatus %></span></td>
+            <td><%= p.requestedAt ? new Date(p.requestedAt).toISOString().slice(0, 10) : '—' %></td>
+            <td><a class="btn btn-ghost btn-sm" href="/partners-admin/partners/<%= p.partnerId %>">Review</a></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <div class="pager">
+      <% var qs = '&q=' + encodeURIComponent(result.q || '') + '&sort=' + result.sort; %>
+      <% if (result.page > 1) { %>
+        <a class="btn btn-ghost btn-sm" href="/partners-admin/dashboard?status=<%= status %><%= qs %>&page=<%= result.page - 1 %>">Previous</a>
+      <% } %>
+      <span class="muted small">Page <%= result.page %> of <%= result.pages %></span>
+      <% if (result.page < result.pages) { %>
+        <a class="btn btn-ghost btn-sm" href="/partners-admin/dashboard?status=<%= status %><%= qs %>&page=<%= result.page + 1 %>">Next</a>
+      <% } %>
+    </div>
+  <% } %>
+</section>
