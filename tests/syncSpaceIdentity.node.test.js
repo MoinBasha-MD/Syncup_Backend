@@ -159,6 +159,13 @@ test('profileDto exposes only public identity fields, never internals', () => {
     status: 'suspended',
     activatedAt: '2026-01-02T03:04:05.000Z',
     allowPromotions: true,
+    sharingPolicy: {
+      phone: 'ask',
+      sync_id: 'ask',
+      picture: 'allow',
+      birthdate: 'ask',
+      gender: 'ask',
+    },
   });
 });
 
@@ -337,7 +344,7 @@ test('a suspended race winner stays suspended', async () => {
   );
 });
 
-test('updateSettings accepts only exactly { allowPromotions: boolean }', async () => {
+test('updateSettings validates allowPromotions and sharingPolicy strictly', async () => {
   let queries = 0;
   const service = loadService({
     findOne: () => leanResult(null),
@@ -357,6 +364,12 @@ test('updateSettings accepts only exactly { allowPromotions: boolean }', async (
     { allowPromotions: true, status: 'suspended' },
     { allowPromotions: true, syncId: 'SYNC-AAAA-BBBB-CCCC-DDDD-EEEE' },
     { other: true },
+    { sharingPolicy: 'allow' },
+    { sharingPolicy: [] },
+    { sharingPolicy: { name: 'allow' } },
+    { sharingPolicy: { email: 'never' } },
+    { sharingPolicy: { phone: 'sometimes' } },
+    { sharingPolicy: { phone: 'allow' }, hacked: true },
   ]) {
     await assert.rejects(
       service.updateSettings('user-1', body),
@@ -365,6 +378,32 @@ test('updateSettings accepts only exactly { allowPromotions: boolean }', async (
     );
   }
   assert.equal(queries, 0);
+});
+
+test('updateSettings accepts partial sharingPolicy and writes dotted $set paths', async () => {
+  const captured = [];
+  const service = loadService({
+    findOne: () => leanResult(null),
+    findOneAndUpdate: (query, update, options) => {
+      captured.push({ query, update, options });
+      return leanResult(activeProfile({ sharingPolicy: { phone: 'never' } }));
+    },
+  });
+  await service.updateSettings('user-1', { sharingPolicy: { phone: 'never' } });
+  assert.equal(captured.length, 1);
+  assert.deepEqual(captured[0].update, { $set: { 'sharingPolicy.phone': 'never' } });
+  // both fields in one call
+  await service.updateSettings('user-1', {
+    allowPromotions: true,
+    sharingPolicy: { picture: 'never', gender: 'allow' },
+  });
+  assert.deepEqual(captured[1].update, {
+    $set: {
+      allowPromotions: true,
+      'sharingPolicy.picture': 'never',
+      'sharingPolicy.gender': 'allow',
+    },
+  });
 });
 
 test('updateSettings writes atomically and never upserts', async () => {
@@ -431,6 +470,7 @@ test('GET /me shows suspended status without leaking internal fields', async () 
   assert.deepEqual(Object.keys(res.body.profile).sort(), [
     'activatedAt',
     'allowPromotions',
+    'sharingPolicy',
     'status',
     'syncId',
   ]);

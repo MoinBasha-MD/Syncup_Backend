@@ -17,7 +17,7 @@ const identity = require('../services/syncSpaceIdentity');
 const connections = require('../services/syncSpaceConnections');
 const sec = require('../middleware/partnerPortalSecurity');
 const { normalizePhoneNumber, isValidPhoneNumber } = require('../utils/phoneUtils');
-const { IDENTITY_SCOPES } = require('../services/syncSpacePermissions');
+const { MANDATORY_IDENTITY_SCOPES } = require('../services/syncSpacePermissions');
 
 const app = express();
 app.disable('x-powered-by');
@@ -132,14 +132,20 @@ const redirectWithError = (res, oauthReq, error, description) => {
   res.redirect(`${oauthReq.redirectUri}${sep}${params}`);
 };
 
-const issueCodeAndRedirect = async (req, res, oauthReq, appDoc, userId) => {
+const issueCodeAndRedirect = async (req, res, oauthReq, appDoc, userId, grantedScopes, requiredScopes) => {
   const connection = await connections.upsertConnection({
     userId,
     app: appDoc,
-    scopes: oauthReq.scopes,
+    scopes: grantedScopes || oauthReq.scopes,
+    requiredScopes,
     merge: true,
   });
-  const { code } = await oidc.issueAuthorizationCode({ oauthRequest: oauthReq, userId, connection });
+  const { code } = await oidc.issueAuthorizationCode({
+    oauthRequest: oauthReq,
+    userId,
+    connection,
+    grantedScopes: connection.scopes,
+  });
   delete req.session.oauthRequest;
   const params = new URLSearchParams({ code });
   if (oauthReq.state) params.set('state', oauthReq.state);
@@ -147,6 +153,65 @@ const issueCodeAndRedirect = async (req, res, oauthReq, appDoc, userId) => {
   const sep = oauthReq.redirectUri.includes('?') ? '&' : '?';
   res.redirect(`${oauthReq.redirectUri}${sep}${params}`);
 };
+
+// Field-level consent view model: mandatory scopes are always granted; extra
+// fields are split required/optional by the app's identityFields config; each
+// carries the user's sharing policy. Fields already granted on an existing
+// connection show as a summary instead of new choices.
+const consentViewModel = (appDoc, oauthReq, connection, profile) => {
+  const policy = identity.sharingPolicyOf(profile);
+  const { required, optional } = oidc.consentFields(appDoc, oauthReq.scopes);
+  const granted = new Set(connection ? connection.scopes : []);
+  return {
+    policy,
+    required: required
+      .filter((s) => !granted.has(s))
+      .map((scope) => ({ scope, policy: policy[scope] || 'ask' })),
+    optional: optional
+      .filter((s) => !granted.has(s))
+      .map((scope) => ({ scope, policy: policy[scope] || 'ask' })),
+    alreadyShared: [...required, ...optional].filter((s) => granted.has(s)),
+  };
+};
+
+const FIELD_LABELS = {
+  phone: 'your phone number',
+  sync_id: 'your Sync ID',
+  picture: 'your profile photo',
+  birthdate: 'your date of birth',
+  gender: 'your gender',
+};
+
+const consentPayload = async (oauthReq, appDoc, userId) => {
+  const [profile, connection, partner, user] = await Promise.all([
+    SyncSpaceProfile.findOne({ userId }).lean(),
+    SpaceConnection.findOne({ userId, appId: appDoc.appId, status: 'active' }).lean(),
+    PartnerAccount.findOne({ partnerId: appDoc.partnerId }).lean(),
+    User.findOne({ userId }).lean(),
+  ]);
+  let domain = '';
+  let redirectHost = '';
+  try {
+    domain = appDoc.website ? new URL(appDoc.website).hostname : '';
+    redirectHost = new URL(oauthReq.redirectUri).hostname;
+  } catch { /* empty */ }
+  return {
+    title: `Allow ${appDoc.name}?`,
+    appDoc,
+    partner,
+    domain,
+    redirectHost,
+    fields: consentViewModel(appDoc, oauthReq, connection, profile),
+    labels: FIELD_LABELS,
+    offlineAccess: oauthReq.scopes.includes('offline_access'),
+    noEmail: !user || !user.email,
+    requestId: oauthReq.requestId,
+    userId,
+  };
+};
+
+const renderConsent = async (res, oauthReq, appDoc, userId, error = null) =>
+  res.render('consent', { ...(await consentPayload(oauthReq, appDoc, userId)), error });
 
 // Everything after a successful login: usability → profile → consent → code.
 const continueAuthorize = async (req, res) => {
@@ -175,30 +240,17 @@ const continueAuthorize = async (req, res) => {
   }
   // Skip consent when an active connection already covers the scopes.
   const connection = await SpaceConnection.findOne({ userId, appId: appDoc.appId, status: 'active' }).lean();
-  const granted = connection ? oauthReq.scopes.every((s) => connection.scopes.includes(s)) : false;
+  // Mandatory scopes always granted; the connection must also already cover
+  // every requested extra for consent to be skipped.
+  const wantScopes = [...new Set([...oauthReq.scopes, ...MANDATORY_IDENTITY_SCOPES])];
+  const granted = connection ? wantScopes.every((s) => connection.scopes.includes(s)) : false;
   if (granted && oauthReq.prompt !== 'consent') {
-    return issueCodeAndRedirect(req, res, oauthReq, appDoc, userId);
+    return issueCodeAndRedirect(req, res, oauthReq, appDoc, userId, connection.scopes);
   }
   if (oauthReq.prompt === 'none') {
     return redirectWithError(res, oauthReq, 'consent_required', 'User consent is required');
   }
-  const partner = await PartnerAccount.findOne({ partnerId: appDoc.partnerId }).lean();
-  let domain = '';
-  let redirectHost = '';
-  try {
-    domain = appDoc.website ? new URL(appDoc.website).hostname : '';
-    redirectHost = new URL(oauthReq.redirectUri).hostname;
-  } catch { /* empty */ }
-  return res.render('consent', {
-    title: `Allow ${appDoc.name}?`,
-    appDoc,
-    partner,
-    domain,
-    redirectHost,
-    scopes: oauthReq.scopes,
-    requestId: oauthReq.requestId,
-    userId,
-  });
+  return renderConsent(res, oauthReq, appDoc, userId);
 };
 
 const loginIpLimiter = rateLimit({
@@ -266,6 +318,9 @@ app.get('/authorize', page(async (req, res) => {
   const scopes = String(q.scope || '').split(' ').filter(Boolean);
   if (!scopes.includes('openid') || !oidc.oauthScopes(scopes, appDoc.requestedScopes)) {
     return redirectWithError(res, oauthReq, 'invalid_scope', 'Requested scopes are not allowed');
+  }
+  if (!oidc.extraScopesAllowed(appDoc, scopes)) {
+    return redirectWithError(res, oauthReq, 'invalid_scope', 'The app does not request that data');
   }
   oauthReq.scopes = scopes;
   if (typeof q.code_challenge !== 'string' || !oidc.PKCE_CHALLENGE.test(q.code_challenge) ||
@@ -358,7 +413,8 @@ app.post('/consent', requireOauthRequest, sec.requireCsrf, page(async (req, res)
   const oauthReq = req.session.oauthRequest;
   const userId = req.session.oauthUserId;
   if (!userId) return res.redirect('/oauth/login');
-  if ((req.body || {}).decision !== 'approve') {
+  const body = req.body || {};
+  if (body.decision !== 'approve') {
     const out = redirectWithError(res, oauthReq, 'access_denied', 'The user denied access');
     delete req.session.oauthRequest;
     return out;
@@ -370,11 +426,48 @@ app.post('/consent', requireOauthRequest, sec.requireCsrf, page(async (req, res)
   if (appDoc.environment === 'sandbox' && !(appDoc.sandboxUserIds || []).includes(userId)) {
     return renderError(res, 'Testing only', 'This app is in testing and only invited testers can sign in.', 403);
   }
-  const profile = await SyncSpaceProfile.findOne({ userId }).lean();
+  const [profile, user] = await Promise.all([
+    SyncSpaceProfile.findOne({ userId }).lean(),
+    User.findOne({ userId }).lean(),
+  ]);
   if (!profile || profile.status === 'suspended') {
     return renderError(res, 'Sync Space unavailable', 'Sync Space is not available for this account.', 403);
   }
-  return issueCodeAndRedirect(req, res, oauthReq, appDoc, userId);
+  if (!user || !user.email) {
+    return res.status(400).render('error', {
+      title: 'Email required',
+      message: 'Add an email to your Syncup account to sign in to apps.',
+    });
+  }
+
+  // Recompute the grant server-side — never trust submitted field names.
+  const { required, optional } = oidc.consentFields(appDoc, oauthReq.scopes);
+  const policy = identity.sharingPolicyOf(profile);
+  const chosen = new Set(
+    [].concat(body.fields || []).filter((s) => typeof s === 'string' && optional.includes(s)),
+  );
+  // Required fields whose global policy is 'never' need the explicit
+  // share-once override checkbox.
+  const gated = required.filter((s) => policy[s] === 'never');
+  const missing = gated.filter(
+    (s) => body[`share_once_${s}`] !== 'on' && body[`share_once_${s}`] !== s,
+  );
+  if (missing.length > 0) {
+    return res.status(400).render('consent', {
+      ...(await consentPayload(oauthReq, appDoc, userId)),
+      error: `${appDoc.name} needs ${missing.map((s) => FIELD_LABELS[s] || s).join(', ')} — check "Share once" to continue.`,
+    });
+  }
+  // Non-extra identity scopes (offline_access) are granted unchanged.
+  const extras = new Set(['phone', 'sync_id', 'picture', 'birthdate', 'gender']);
+  const otherIdentity = oauthReq.scopes.filter(
+    (s) => !extras.has(s) && !MANDATORY_IDENTITY_SCOPES.includes(s),
+  );
+  const granted = [
+    ...new Set([...MANDATORY_IDENTITY_SCOPES, ...required, ...chosen, ...otherIdentity]),
+  ];
+  const requiredSnapshot = [...new Set([...MANDATORY_IDENTITY_SCOPES, ...required])];
+  return issueCodeAndRedirect(req, res, oauthReq, appDoc, userId, granted, requiredSnapshot);
 }));
 
 // ---------- token / userinfo / revoke (JSON) ---------------------------------

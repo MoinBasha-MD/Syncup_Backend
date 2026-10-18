@@ -171,6 +171,39 @@ curl -X POST https://api.crackman.in/oauth/token \
   -u "$CLIENT_ID:$CLIENT_SECRET" \
   -d "grant_type=authorization_code&code=$CODE&redirect_uri=$REDIRECT&code_verifier=$VERIFIER"</pre>
   <p class="muted small">3) Verify the ID token: ES256 signature via <code>/oauth/jwks</code>, plus <code>iss</code>, <code>aud</code>, <code>exp</code> and the <code>nonce</code> you sent. <code>sub</code> is per-app.</p>
+  <hr style="border:none;border-top:1px solid var(--line);margin:16px 0;">
+  <h3 class="label" style="margin-bottom:8px;">Data the app can request</h3>
+  <p class="muted small">Name, email and your pairwise ID are always shared. Pick extra fields below — <em>Required</em> fields must be accepted for sign-in to continue; <em>Optional</em> fields show as unchecked checkboxes on the consent screen. Request them as scopes: <code>phone</code>, <code>sync_id</code>, <code>picture</code>, <code>birthdate</code>, <code>gender</code> (also check them under "Permissions" above so authorize accepts them).</p>
+  <form method="post" action="/partners/apps/<%= app.appId %>/identity-fields" class="form">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <%
+      var FIELD_META = [
+        ['phone', 'Phone number'],
+        ['sync_id', 'Sync ID'],
+        ['picture', 'Profile photo'],
+        ['birthdate', 'Date of birth'],
+        ['gender', 'Gender'],
+      ];
+      var configured = {};
+      (app.identityFields || []).forEach(function (f) { configured[f.scope] = f.required ? 'required' : 'optional'; });
+    %>
+    <% FIELD_META.forEach(function (meta) { %>
+      <div class="scope-row">
+        <span class="scope-icon" aria-hidden="true">•</span>
+        <span><strong><%= meta[1] %></strong> <code class="small"><%= meta[0] %></code></span>
+        <span class="share-once">
+          <select name="field_<%= meta[0] %>" class="field-input" style="width:auto;padding:6px 10px;">
+            <option value="off" <%= !configured[meta[0]] ? 'selected' : '' %>>Not used</option>
+            <option value="optional" <%= configured[meta[0]] === 'optional' ? 'selected' : '' %>>Optional</option>
+            <option value="required" <%= configured[meta[0]] === 'required' ? 'selected' : '' %>>Required</option>
+          </select>
+        </span>
+      </div>
+    <% }); %>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn btn-primary" type="submit">Save fields</button>
+    </div>
+  </form>
   <p class="muted small">Brand buttons:</p>
   <div class="btn-row">
     <img src="/partners/assets/sign-in-with-syncup.svg" alt="Sign in with Syncup" height="40">

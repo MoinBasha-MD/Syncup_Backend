@@ -475,6 +475,27 @@ app.post('/apps/:appId/update', sec.requirePartner(), sec.requireCsrf, page(asyn
   res.redirect(`/partners/apps/${req.params.appId}`);
 }));
 
+app.post('/apps/:appId/identity-fields', sec.requirePartner(), sec.requireCsrf, async (req, res, next) => {
+  try {
+    // field_0_scope=phone&field_0_mode=required → [{ scope, required }]
+    const body = req.body || {};
+    const fields = ['phone', 'sync_id', 'picture', 'birthdate', 'gender']
+      .filter((scope) => typeof body[`field_${scope}`] === 'string' && body[`field_${scope}`] !== 'off')
+      .map((scope) => ({ scope, required: body[`field_${scope}`] === 'required' }));
+    await partnerService.setIdentityFields(req.partner.partnerId, req.params.appId, fields);
+    res.redirect(`/partners/apps/${req.params.appId}#signin`);
+  } catch (error) {
+    if (error.statusCode && error.statusCode < 500) {
+      try {
+        return await renderAppDetail(req, res, error.message);
+      } catch (inner) {
+        return next(inner);
+      }
+    }
+    return next(error);
+  }
+});
+
 app.post('/apps/:appId/disable', sec.requirePartner(), sec.requireCsrf, page(async (req, res) => {
   await partnerService.disableApp(req.partner.partnerId, req.params.appId);
   res.redirect(`/partners/apps/${req.params.appId}`);

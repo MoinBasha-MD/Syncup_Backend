@@ -34,6 +34,15 @@ const revokeConnection = asyncHandler(async (req, res) => {
   res.json({ success: true, connection });
 });
 
+const updateConnectionScopes = asyncHandler(async (req, res) => {
+  const connection = await connections.updateConnectionScopes(
+    req.user.userId,
+    req.params.connectionId,
+    req.body && req.body.scopes
+  );
+  res.json({ success: true, connection });
+});
+
 const listMessages = asyncHandler(async (req, res) => {
   const result = await connections.listMessages(req.user.userId, {
     type: req.query.type,
@@ -106,6 +115,7 @@ module.exports = {
   declinePairingRequest,
   listConnections,
   revokeConnection,
+  updateConnectionScopes,
   listMessages,
   listEverspace,
   listEverspaceReceipts,

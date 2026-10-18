@@ -33,6 +33,7 @@ router.post('/connect/approve', connect.requireActive, connect.approve);
 router.post('/connect/decline', connect.requireActive, connect.decline);
 router.get('/connections', connect.requireActive, connect.listConnections);
 router.delete('/connections/:connectionId', connect.requireActive, connect.revokeConnection);
+router.patch('/connections/:connectionId/scopes', connect.requireActive, connect.updateConnectionScopes);
 router.get('/everspace', connect.requireActive, connect.listEverspace);
 router.get('/everspace/:connectionId/receipts', connect.requireActive, connect.listEverspaceReceipts);
 router.get('/messages', connect.requireActive, connect.listMessages);

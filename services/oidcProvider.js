@@ -8,7 +8,11 @@ const OAuthRefreshToken = require('../models/OAuthRefreshToken');
 const User = require('../models/userModel');
 const SyncSpaceProfile = require('../models/SyncSpaceProfile');
 const { pairwiseSubject, digestSecret, decryptSecret } = require('../utils/syncSpaceCrypto');
-const { IDENTITY_SCOPES } = require('./syncSpacePermissions');
+const {
+  IDENTITY_SCOPES,
+  MANDATORY_IDENTITY_SCOPES,
+  EXTRA_IDENTITY_SCOPES,
+} = require('./syncSpacePermissions');
 const { ServiceUnavailableError, BadRequestError } = require('../utils/errorClasses');
 
 const CODE_TTL_MS = 60 * 1000;
@@ -76,6 +80,7 @@ const discovery = () => {
     claims_supported: [
       'sub', 'iss', 'aud', 'azp', 'exp', 'iat', 'auth_time', 'nonce',
       'name', 'preferred_username', 'email', 'email_verified', 'phone_number', 'sync_id',
+      'picture', 'birthdate', 'gender',
     ],
   };
 };
@@ -101,7 +106,51 @@ const claimsFor = (user, profile, scopes, subject) => {
   if (scopes.includes('sync_id') && profile) {
     claims.sync_id = profile.syncId;
   }
+  // picture: only plain public URLs — an encrypted profile image is never
+  // decrypted or served to partners.
+  if (
+    scopes.includes('picture') &&
+    typeof user.profileImage === 'string' &&
+    user.profileImageEncrypted !== true &&
+    /^https?:\/\//.test(user.profileImage)
+  ) {
+    claims.picture = user.profileImage;
+  }
+  if (scopes.includes('birthdate') && user.dateOfBirth) {
+    const dob = new Date(user.dateOfBirth);
+    if (!Number.isNaN(dob.getTime())) claims.birthdate = dob.toISOString().slice(0, 10);
+  }
+  if (scopes.includes('gender') && user.gender) {
+    claims.gender = user.gender;
+  }
   return claims;
+};
+
+// Consent-screen model: which extra fields an app may ask for, split into
+// required (from app identityFields config) vs optional — legacy apps with no
+// config treat every requested extra as optional.
+const consentFields = (appDoc, requestedScopes) => {
+  const extras = requestedScopes.filter((s) => EXTRA_IDENTITY_SCOPES.includes(s));
+  const configured = Array.isArray(appDoc.identityFields) ? appDoc.identityFields : [];
+  const requiredSet = new Set(
+    configured.filter((f) => f && f.required === true).map((f) => f.scope),
+  );
+  return {
+    extras,
+    required: extras.filter((s) => requiredSet.has(s)),
+    optional: extras.filter((s) => !requiredSet.has(s)),
+  };
+};
+
+// At authorize time an app may only request extras it configured — unless it
+// has no identityFields at all (legacy apps: everything optional).
+const extraScopesAllowed = (appDoc, requestedScopes) => {
+  const configured = Array.isArray(appDoc.identityFields) ? appDoc.identityFields : [];
+  if (configured.length === 0) return true;
+  const allowed = new Set(configured.map((f) => f && f.scope));
+  return requestedScopes
+    .filter((s) => EXTRA_IDENTITY_SCOPES.includes(s))
+    .every((s) => allowed.has(s));
 };
 
 const signIdToken = ({ user, profile, scopes, appId, nonce, authTime }) => {
@@ -139,7 +188,7 @@ const appUsable = async (app) => {
   return null;
 };
 
-const issueAuthorizationCode = async ({ oauthRequest, userId, connection }) => {
+const issueAuthorizationCode = async ({ oauthRequest, userId, connection, grantedScopes }) => {
   const code = `occ_${crypto.randomBytes(32).toString('base64url')}`;
   const authTime = new Date();
   await OAuthAuthorizationCode.create({
@@ -149,7 +198,7 @@ const issueAuthorizationCode = async ({ oauthRequest, userId, connection }) => {
     connectionId: connection.connectionId,
     consentVersion: connection.consentVersion,
     redirectUri: oauthRequest.redirectUri,
-    scopes: oauthRequest.scopes,
+    scopes: grantedScopes || oauthRequest.scopes,
     nonce: oauthRequest.nonce || null,
     codeChallenge: oauthRequest.codeChallenge,
     authTime,
@@ -501,6 +550,8 @@ module.exports = {
   claimsFor,
   signIdToken,
   oauthScopes,
+  consentFields,
+  extraScopesAllowed,
   appUsable,
   issueAuthorizationCode,
   authenticateClient,

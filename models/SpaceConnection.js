@@ -15,6 +15,8 @@ const schema = new mongoose.Schema({
   environment: { type: String, enum: ['sandbox', 'live'], required: true, immutable: true },
   subject: { type: String, required: true },
   scopes: { type: [String], default: [] },
+  // Mandatory + app-required scopes at consent time — never removable via PATCH.
+  requiredScopes: { type: [String], default: [] },
   status: { type: String, enum: ['active', 'revoked'], default: 'active', required: true },
   consentVersion: { type: Number, default: 1, min: 1 },
   connectedAt: { type: Date, default: Date.now },

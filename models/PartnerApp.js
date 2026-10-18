@@ -16,6 +16,15 @@ const schema = new mongoose.Schema({
   environment: { type: String, enum: ['sandbox', 'live'], default: 'sandbox', required: true },
   website: { type: String, default: '', trim: true, maxlength: 500 },
   requestedScopes: { type: [String], default: [] },
+  // Sign in with Syncup: extra identity fields the app wants, each required|optional.
+  identityFields: {
+    type: [{
+      _id: false,
+      scope: { type: String, enum: ['phone', 'sync_id', 'picture', 'birthdate', 'gender'] },
+      required: { type: Boolean, default: false },
+    }],
+    default: [],
+  },
   redirectUris: { type: [String], default: [] },
   status: { type: String, enum: ['active', 'disabled'], default: 'active', required: true },
   clientSecretEncrypted: { type: String, select: false },

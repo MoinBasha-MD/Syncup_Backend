@@ -8,7 +8,7 @@ const PartnerWebhookDelivery = require('../models/PartnerWebhookDelivery');
 const SpaceConnection = require('../models/SpaceConnection');
 const emailService = require('./emailService');
 const SyncSpaceProfile = require('../models/SyncSpaceProfile');
-const { ALL_SCOPES, BUSINESS_SCOPES } = require('./syncSpacePermissions');
+const { ALL_SCOPES, BUSINESS_SCOPES, EXTRA_IDENTITY_SCOPES } = require('./syncSpacePermissions');
 const { encryptSecret, digestSecret } = require('../utils/syncSpaceCrypto');
 const { validateWebhookUrl, generateWebhookSecret } = require('./partnerWebhooks');
 const {
@@ -195,6 +195,10 @@ const appDto = (app) => {
     environment: app.environment,
     website: app.website,
     requestedScopes: app.requestedScopes,
+    identityFields: (app.identityFields || []).map((f) => ({
+      scope: f.scope,
+      required: f.required === true,
+    })),
     redirectUris: app.redirectUris,
     status: app.status,
     secretVersion: app.secretVersion,
@@ -518,6 +522,34 @@ const getApp = async (partnerId, appId) => {
   const partner = await PartnerAccount.findOne({ partnerId });
   if (!partner) throw new NotFoundError('Partner account not found');
   return appDto(await requireOwnedApp(partner, appId, { selectWebhook: true }));
+};
+
+// Sign in with Syncup — which extra fields the app wants (required|optional).
+// `fields` is [{ scope, required }] validated against the extra-scope set.
+const setIdentityFields = async (partnerId, appId, fields) => {
+  if (!Array.isArray(fields)) {
+    throw new BadRequestError('identityFields must be an array');
+  }
+  const seen = new Set();
+  const clean = fields.map((field) => {
+    if (field === null || typeof field !== 'object' ||
+        !EXTRA_IDENTITY_SCOPES.includes(field.scope) ||
+        typeof field.required !== 'boolean') {
+      throw new BadRequestError('Each field needs a valid scope and a required flag');
+    }
+    if (seen.has(field.scope)) throw new BadRequestError('Duplicate field');
+    seen.add(field.scope);
+    return { scope: field.scope, required: field.required };
+  });
+  const partner = requireVerifiedPartner(await PartnerAccount.findOne({ partnerId }));
+  await requireOwnedApp(partner, appId);
+  const updated = await PartnerApp.findOneAndUpdate(
+    { appId, partnerId: partner.partnerId },
+    { $set: { identityFields: clean } },
+    { new: true, runValidators: true }
+  );
+  if (!updated) throw new NotFoundError('App not found');
+  return appDto(updated);
 };
 
 const getPartnerPortalDetail = async (partnerId) => {
@@ -979,6 +1011,7 @@ module.exports = {
   getPartner,
   createApp,
   updateApp,
+  setIdentityFields,
   getApp,
   getPartnerPortalDetail,
   listApps,

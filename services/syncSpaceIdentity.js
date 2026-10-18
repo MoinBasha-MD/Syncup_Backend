@@ -8,6 +8,21 @@ const {
 
 const MAX_ACTIVATION_ATTEMPTS = 5;
 
+const { EXTRA_IDENTITY_SCOPES, SHARING_POLICIES } = require('./syncSpacePermissions');
+
+const DEFAULT_SHARING_POLICY = {
+  phone: 'ask',
+  sync_id: 'ask',
+  picture: 'allow',
+  birthdate: 'ask',
+  gender: 'ask',
+};
+
+const sharingPolicyOf = (profile) => ({
+  ...DEFAULT_SHARING_POLICY,
+  ...(profile && profile.sharingPolicy ? profile.sharingPolicy : {}),
+});
+
 const generateSyncId = () =>
   `SYNC-${crypto.randomBytes(10).toString('hex').toUpperCase().match(/.{4}/g).join('-')}`;
 
@@ -18,6 +33,7 @@ const profileDto = (profile) => {
     status: profile.status,
     activatedAt: new Date(profile.activatedAt).toISOString(),
     allowPromotions: profile.allowPromotions === true,
+    sharingPolicy: sharingPolicyOf(profile),
   };
 };
 
@@ -86,14 +102,36 @@ const updateSettings = async (userId, body) => {
     body === null ||
     typeof body !== 'object' ||
     Array.isArray(body) ||
-    Object.keys(body).length !== 1 ||
-    typeof body.allowPromotions !== 'boolean'
+    Object.keys(body).length === 0 ||
+    !Object.keys(body).every((k) => ['allowPromotions', 'sharingPolicy'].includes(k))
   ) {
-    throw new BadRequestError('Settings must be exactly { allowPromotions: boolean }');
+    throw new BadRequestError('Settings accept allowPromotions and/or sharingPolicy');
+  }
+  const update = {};
+  if (Object.hasOwn(body, 'allowPromotions')) {
+    if (typeof body.allowPromotions !== 'boolean') {
+      throw new BadRequestError('allowPromotions must be a boolean');
+    }
+    update.allowPromotions = body.allowPromotions;
+  }
+  if (Object.hasOwn(body, 'sharingPolicy')) {
+    const policy = body.sharingPolicy;
+    if (policy === null || typeof policy !== 'object' || Array.isArray(policy)) {
+      throw new BadRequestError('sharingPolicy must be an object');
+    }
+    for (const [field, value] of Object.entries(policy)) {
+      if (!EXTRA_IDENTITY_SCOPES.includes(field)) {
+        throw new BadRequestError(`Unknown sharing field: ${field}`);
+      }
+      if (!SHARING_POLICIES.includes(value)) {
+        throw new BadRequestError('sharingPolicy values must be allow, ask or never');
+      }
+      update[`sharingPolicy.${field}`] = value;
+    }
   }
   const updated = await SyncSpaceProfile.findOneAndUpdate(
     { userId, status: 'active' },
-    { $set: { allowPromotions: body.allowPromotions } },
+    { $set: update },
     { new: true, runValidators: true }
   ).lean();
   if (updated) return updated;
@@ -110,4 +148,6 @@ module.exports = {
   getProfile,
   activateProfile,
   updateSettings,
+  DEFAULT_SHARING_POLICY,
+  sharingPolicyOf,
 };

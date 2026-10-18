@@ -35,7 +35,7 @@ const chain = (result) => {
   return query;
 };
 
-const loadService = ({ SpaceConnectSession = {}, SpaceConnection = {}, SpaceMessage = {}, SyncSpaceProfile = {}, PartnerApp = {}, PartnerAccount = {}, SpacePairingCode = {} } = {}) =>
+const loadService = ({ SpaceConnectSession = {}, SpaceConnection = {}, SpaceMessage = {}, SyncSpaceProfile = {}, PartnerApp = {}, PartnerAccount = {}, SpacePairingCode = {}, OAuthAccessToken = {}, OAuthRefreshToken = {} } = {}) =>
   loadWithMocks('../services/syncSpaceConnections', {
     '../models/SpaceConnectSession': SpaceConnectSession,
     '../models/SpaceConnection': SpaceConnection,
@@ -44,6 +44,8 @@ const loadService = ({ SpaceConnectSession = {}, SpaceConnection = {}, SpaceMess
     '../models/PartnerApp': PartnerApp,
     '../models/PartnerAccount': PartnerAccount,
     '../models/SpacePairingCode': SpacePairingCode,
+    '../models/OAuthAccessToken': OAuthAccessToken,
+    '../models/OAuthRefreshToken': OAuthRefreshToken,
   });
 
 const profileDoc = (overrides = {}) => ({
@@ -704,4 +706,76 @@ test('unreadCount and markAllRead respect ownership and the type filter', async 
   await service.markAllRead('user-1', { type: 'code' });
   assert.deepEqual(queries[2], { userId: 'user-1', readAt: null, type: 'code' });
   await assert.rejects(service.markAllRead('user-1', { type: 'bogus' }), { statusCode: 400 });
+});
+
+// ---------- per-app scope narrowing (field-level sharing) ----------
+
+const connScopeService = (conn) => {
+  const docs = [conn];
+  const access = [{ tokenId: 't1', userId: 'user-1', appId: conn.appId, revokedAt: null }];
+  const refresh = [{ tokenId: 'r1', userId: 'user-1', appId: conn.appId, revokedAt: null }];
+  const service = loadService({
+    SpaceConnection: {
+      findOne: (q) => chain(docs.find((d) => d.connectionId === q.connectionId && d.userId === q.userId) || null),
+      findOneAndUpdate: (q, update) => {
+        const d = docs.find((x) => x.connectionId === q.connectionId && x.userId === q.userId && x.status === 'active');
+        if (!d) return chain(null);
+        Object.assign(d, update.$set);
+        d.consentVersion += update.$inc.consentVersion;
+        return chain(d);
+      },
+    },
+    PartnerApp: { findOne: () => chain(appDoc()) },
+    PartnerAccount: { findOne: () => chain(partnerDoc()) },
+    OAuthAccessToken: {
+      updateMany: async (q, u) => access.forEach((t) => {
+        if (t.userId === q.userId && t.appId === q.appId && t.revokedAt === null) t.revokedAt = u.$set.revokedAt;
+      }),
+    },
+    OAuthRefreshToken: {
+      updateMany: async (q, u) => refresh.forEach((t) => {
+        if (t.userId === q.userId && t.appId === q.appId && t.revokedAt === null) t.revokedAt = u.$set.revokedAt;
+      }),
+    },
+  });
+  return { service, conn, access, refresh };
+};
+
+const connWithScopes = (overrides = {}) => ({
+  connectionId: 'conn_1', userId: 'user-1', appId: 'sp_1', partnerId: 'p-1',
+  scopes: ['openid', 'profile', 'email', 'phone', 'picture'],
+  requiredScopes: ['openid', 'profile', 'email', 'phone'],
+  status: 'active', consentVersion: 2, environment: 'sandbox', subject: 's',
+  connectedAt: new Date(), revokedAt: null,
+  ...overrides,
+});
+
+test('updateConnectionScopes removes an optional extra and revokes OAuth tokens', async () => {
+  const { service, conn, access, refresh } = connScopeService(connWithScopes());
+  const dto = await service.updateConnectionScopes('user-1', 'conn_1',
+    ['openid', 'profile', 'email', 'phone']);
+  assert.deepEqual(dto.scopes.sort(), ['email', 'openid', 'phone', 'profile'].sort());
+  assert.equal(dto.requiredScopes.length, 4);
+  assert.equal(conn.consentVersion, 3);
+  assert.ok(access[0].revokedAt && refresh[0].revokedAt);
+});
+
+test('updateConnectionScopes rejects removing required/mandatory or adding scopes', async () => {
+  const { service } = connScopeService(connWithScopes());
+  await assert.rejects(
+    service.updateConnectionScopes('user-1', 'conn_1', ['openid', 'profile', 'email', 'picture']),
+    { statusCode: 400 }); // phone is required
+  await assert.rejects(
+    service.updateConnectionScopes('user-1', 'conn_1', ['openid', 'profile', 'phone', 'picture']),
+    { statusCode: 400 }); // email is mandatory
+  await assert.rejects(
+    service.updateConnectionScopes('user-1', 'conn_1',
+      ['openid', 'profile', 'email', 'phone', 'picture', 'gender']),
+    { statusCode: 400 }); // cannot add
+  await assert.rejects(
+    service.updateConnectionScopes('user-1', 'conn_1', 'nope'),
+    { statusCode: 400 });
+  await assert.rejects(
+    service.updateConnectionScopes('user-1', 'conn_missing', ['openid']),
+    { statusCode: 404 });
 });

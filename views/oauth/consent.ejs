@@ -1,3 +1,14 @@
+<% if (noEmail) { %>
+<section class="panel auth-panel reveal">
+  <div class="oauth-avatar" aria-hidden="true"><%= (appDoc.name || '?').charAt(0).toUpperCase() %></div>
+  <h1 class="page-title">Email needed</h1>
+  <p class="page-sub">Add an email to your Syncup account to sign in to apps.</p>
+  <form method="post" action="/oauth/consent" class="form oauth-actions">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <button class="btn btn-ghost" type="submit" name="decision" value="deny" formnovalidate>Cancel</button>
+  </form>
+</section>
+<% } else { %>
 <section class="panel auth-panel reveal">
   <div class="oauth-avatar" aria-hidden="true"><%= (appDoc.name || '?').charAt(0).toUpperCase() %></div>
   <h1 class="page-title">Allow <%= appDoc.name %>?</h1>
@@ -9,34 +20,91 @@
   <% if (appDoc.environment === 'sandbox') { %>
     <p class="notice notice-err">This app is in testing — sign-in works only for invited testers.</p>
   <% } %>
+  <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
   <p class="muted small">Redirecting to <code><%= redirectHost %></code></p>
-  <div class="field" style="margin-top:14px;">
-    <span class="field-label"><%= appDoc.name %> will be able to:</span>
-    <% var icons = { openid: '✓', profile: '👤', email: '✉', phone: '☎', sync_id: '#', offline_access: '∞', 'space.messages': '✉', 'space.codes': '⌗', 'space.receipts': '🧾', 'space.promotions': '★' }; %>
-    <% scopes.forEach(function (scope) { %>
-      <div class="scope-row">
-        <span class="scope-icon" aria-hidden="true"><%= icons[scope] || '•' %></span>
-        <span><strong><%= {
-          'openid': "Confirm it's you",
-          'profile': 'See your name and username',
-          'email': 'See your email address',
-          'phone': 'See your phone number',
-          'sync_id': 'See your Sync ID',
-          'offline_access': `Stay signed in to ${appDoc.name}`,
-          'space.messages': 'Send you messages',
-          'space.codes': 'Send verification codes',
-          'space.receipts': 'Send receipts',
-          'space.promotions': 'Send offers',
-        }[scope] || scope %></strong></span>
-      </div>
-    <% }); %>
-  </div>
-  <p class="muted small">Signed in to Syncup<% if (userId) { %> — not you? <a href="/oauth/login?switch=1">Switch account</a><% } %></p>
-  <form method="post" action="/oauth/consent" class="form oauth-actions" data-progress>
+
+  <form method="post" action="/oauth/consent" class="form" id="consent-form">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <div class="btn-row">
-      <button class="btn btn-primary" type="submit" name="decision" value="approve">Allow</button>
-      <button class="btn btn-ghost" type="submit" name="decision" value="deny" formnovalidate>Not now</button>
+
+    <div class="field" style="margin-top:10px;">
+      <span class="field-label">Always shared</span>
+      <div class="scope-row scope-locked">
+        <span class="scope-icon" aria-hidden="true">🔒</span>
+        <span><strong>Your name and username</strong></span>
+      </div>
+      <div class="scope-row scope-locked">
+        <span class="scope-icon" aria-hidden="true">🔒</span>
+        <span><strong>Your email address</strong></span>
+      </div>
+      <% if (offlineAccess) { %>
+        <div class="scope-row scope-locked">
+          <span class="scope-icon" aria-hidden="true">∞</span>
+          <span><strong>Stay signed in to <%= appDoc.name %></strong></span>
+        </div>
+      <% } %>
+    </div>
+
+    <% if (fields.required.length > 0) { %>
+      <div class="field">
+        <span class="field-label">Required by <%= appDoc.name %></span>
+        <% fields.required.forEach(function (row) { %>
+          <% if (row.policy === 'never') { %>
+            <div class="scope-row">
+              <span class="scope-icon" aria-hidden="true">⚠</span>
+              <span>
+                <strong><%= labels[row.scope] || row.scope %></strong><br>
+                <span class="muted small">You chose never to share this.</span>
+              </span>
+              <label class="share-once">
+                <input type="checkbox" name="share_once_<%= row.scope %>" value="<%= row.scope %>" data-required-once>
+                Share once with <%= appDoc.name %>
+              </label>
+            </div>
+          <% } else { %>
+            <div class="scope-row scope-locked">
+              <span class="scope-icon" aria-hidden="true">🔒</span>
+              <span><strong><%= labels[row.scope] || row.scope %></strong></span>
+            </div>
+          <% } %>
+        <% }); %>
+      </div>
+    <% } %>
+
+    <% if (fields.optional.length > 0) { %>
+      <div class="field">
+        <span class="field-label">Optional</span>
+        <% fields.optional.forEach(function (row) { %>
+          <div class="scope-row">
+            <span class="scope-icon" aria-hidden="true">•</span>
+            <span><strong><%= labels[row.scope] || row.scope %></strong></span>
+            <label class="share-once">
+              <input
+                type="checkbox"
+                name="fields"
+                value="<%= row.scope %>"
+                <%= row.policy === 'allow' ? 'checked' : '' %>
+              >
+              <%= row.policy === 'never' ? 'Share once' : row.policy === 'allow' ? 'Shared' : 'Share' %>
+            </label>
+          </div>
+        <% }); %>
+      </div>
+    <% } %>
+
+    <% if (fields.alreadyShared.length > 0) { %>
+      <p class="muted small">
+        Already shared with <%= appDoc.name %>:
+        <%= fields.alreadyShared.map(function (s) { return labels[s] || s; }).join(', ') %>.
+      </p>
+    <% } %>
+
+    <p class="muted small">Signed in to Syncup<% if (userId) { %> — not you? <a href="/oauth/login?switch=1">Switch account</a><% } %></p>
+    <div class="oauth-actions">
+      <div class="btn-row">
+        <button class="btn btn-primary" type="submit" name="decision" value="approve" id="consent-allow">Allow</button>
+        <button class="btn btn-ghost" type="submit" name="decision" value="deny" formnovalidate>Not now</button>
+      </div>
     </div>
   </form>
 </section>
+<% } %>

@@ -426,3 +426,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     padding: 14px 0 4px;
   }
 }
+
+/* Consent: locked rows + share-once overrides */
+.scope-locked { background: #FBFAFF; }
+.share-once {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; color: var(--violet-deep);
+  cursor: pointer; white-space: nowrap;
+}
+.share-once input { accent-color: var(--violet); }

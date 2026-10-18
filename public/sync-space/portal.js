@@ -114,6 +114,21 @@
     });
   });
 
+  // OAuth consent: Allow stays disabled while a required 'never' field lacks
+  // its share-once override (server re-checks on POST regardless).
+  var consentForm = document.getElementById('consent-form');
+  if (consentForm) {
+    var allowButton = document.getElementById('consent-allow');
+    var gates = consentForm.querySelectorAll('[data-required-once]');
+    var syncConsent = function () {
+      var ready = true;
+      gates.forEach(function (gate) { if (!gate.checked) ready = false; });
+      if (allowButton) allowButton.disabled = !ready;
+    };
+    gates.forEach(function (gate) { gate.addEventListener('change', syncConsent); });
+    syncConsent();
+  }
+
   // "I've stored it" checkbox gates continuing past a one-time secret page.
   var stored = document.querySelector('[data-secret-confirm]');
   if (stored) {

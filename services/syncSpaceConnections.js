@@ -6,8 +6,11 @@ const SpacePairingCode = require('../models/SpacePairingCode');
 const SyncSpaceProfile = require('../models/SyncSpaceProfile');
 const PartnerApp = require('../models/PartnerApp');
 const PartnerAccount = require('../models/PartnerAccount');
+const OAuthAccessToken = require('../models/OAuthAccessToken');
+const OAuthRefreshToken = require('../models/OAuthRefreshToken');
 const { decryptSecret, digestSecret, encryptSecret, pairwiseSubject } = require('../utils/syncSpaceCrypto');
 const { enqueueConnectionEvent } = require('./partnerWebhooks');
+const { MANDATORY_IDENTITY_SCOPES } = require('./syncSpacePermissions');
 const {
   ApiError,
   BadRequestError,
@@ -64,6 +67,7 @@ const connectionDto = (connection, app, partner) => ({
     environment: connection.environment,
   },
   scopes: connection.scopes,
+  requiredScopes: connection.requiredScopes || [],
   status: connection.status,
   appState:
     app && app.status === 'active' &&
@@ -128,13 +132,17 @@ const tryEnqueueConnectionEvent = async (appId, connection, event) => {
 // Shared connection upsert: new connection → consentVersion 1; re-consent → $inc + clears revocation.
 // merge: union the granted scopes with any already-granted ones (OAuth consent
 // must not drop business scopes the app earned through pairing).
-const upsertConnection = async ({ userId, app, scopes, merge = false }) => {
+const upsertConnection = async ({ userId, app, scopes, merge = false, requiredScopes }) => {
   const now = new Date();
   const subject = pairwiseSubject(app.appId, userId);
   if (merge) {
     const existing = await SpaceConnection.findOne({ userId, appId: app.appId }).lean();
     if (existing && Array.isArray(existing.scopes)) {
       scopes = [...new Set([...existing.scopes, ...scopes])];
+    }
+    // Re-consent widens the required snapshot only when the app asks for it.
+    if (requiredScopes && existing && Array.isArray(existing.requiredScopes)) {
+      requiredScopes = [...new Set([...existing.requiredScopes, ...requiredScopes])];
     }
   }
   const applyUpdate = {
@@ -144,6 +152,7 @@ const upsertConnection = async ({ userId, app, scopes, merge = false }) => {
       subject,
       connectedAt: now,
       revokedAt: null,
+      ...(requiredScopes ? { requiredScopes } : {}),
     },
     $inc: { consentVersion: 1 },
   };
@@ -162,6 +171,7 @@ const upsertConnection = async ({ userId, app, scopes, merge = false }) => {
         environment: app.environment,
         subject,
         scopes,
+        requiredScopes: requiredScopes || [],
         status: 'active',
         consentVersion: 1,
         connectedAt: now,
@@ -262,6 +272,61 @@ const revokeConnection = async (userId, connectionId) => {
   );
   if (!updated) throw new NotFoundError('Connection not found');
   await tryEnqueueConnectionEvent(updated.appId, updated, 'connection.revoked');
+  return connectionDto(updated, app, partner);
+};
+
+// Per-app scope narrowing: the user may only remove OPTIONAL extra scopes —
+// never mandatory sign-in scopes or scopes the app marked required, and no
+// additions. Any change bumps consentVersion and revokes the app's OAuth
+// tokens for this user.
+const updateConnectionScopes = async (userId, connectionId, scopes) => {
+  if (!Array.isArray(scopes) || scopes.length === 0 ||
+      !scopes.every((s) => typeof s === 'string')) {
+    throw new BadRequestError('scopes must be a non-empty array of strings');
+  }
+  const connection = await SpaceConnection.findOne({ connectionId, userId });
+  if (!connection || connection.status !== 'active') {
+    throw new NotFoundError('Connection not found');
+  }
+  const current = new Set(connection.scopes);
+  const removableFloor = new Set([
+    ...MANDATORY_IDENTITY_SCOPES,
+    ...(connection.requiredScopes || []),
+  ]);
+  const requested = new Set(scopes);
+  for (const scope of requested) {
+    if (!current.has(scope)) throw new BadRequestError('Scopes can only be removed, not added');
+  }
+  for (const scope of current) {
+    if (!requested.has(scope) && removableFloor.has(scope)) {
+      throw new BadRequestError('This scope is required by the app');
+    }
+  }
+  if (requested.size === current.size && [...requested].every((s) => current.has(s))) {
+    const appNow = await PartnerApp.findOne({ appId: connection.appId }).lean();
+    const partnerNow = await PartnerAccount.findOne({ partnerId: connection.partnerId }).lean();
+    return connectionDto(connection, appNow, partnerNow);
+  }
+  const updated = await SpaceConnection.findOneAndUpdate(
+    { connectionId, userId, status: 'active' },
+    { $set: { scopes: scopes.filter((s, i) => scopes.indexOf(s) === i) }, $inc: { consentVersion: 1 } },
+    { new: true }
+  );
+  if (!updated) throw new NotFoundError('Connection not found');
+  // Revoke every OAuth token this app holds for the user.
+  const revokedAt = new Date();
+  await Promise.all([
+    OAuthAccessToken.updateMany(
+      { userId, appId: connection.appId, revokedAt: null },
+      { $set: { revokedAt } }
+    ),
+    OAuthRefreshToken.updateMany(
+      { userId, appId: connection.appId, revokedAt: null },
+      { $set: { revokedAt } }
+    ),
+  ]);
+  const app = await PartnerApp.findOne({ appId: connection.appId }).lean();
+  const partner = await PartnerAccount.findOne({ partnerId: connection.partnerId }).lean();
   return connectionDto(updated, app, partner);
 };
 
@@ -606,6 +671,7 @@ module.exports = {
   declineConnect,
   listConnections,
   revokeConnection,
+  updateConnectionScopes,
   listMessages,
   unreadCount,
   markAllRead,

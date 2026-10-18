@@ -205,7 +205,13 @@ const buildApp = () => {
       '../models/OAuthAccessToken': stores.OAuthAccessToken,
       '../models/OAuthRefreshToken': stores.OAuthRefreshToken,
       './partnerWebhooks': { enqueueConnectionEvent: async () => null },
-      '../services/syncSpaceIdentity': { activateProfile: async (uid) => ({ userId: uid, status: 'active', syncId: 'SYNC-AAAA-BBBB-CCCC-DDDD-EEEE' }) },
+      '../services/syncSpaceIdentity': {
+        activateProfile: async (uid) => ({ userId: uid, status: 'active', syncId: 'SYNC-AAAA-BBBB-CCCC-DDDD-EEEE' }),
+        sharingPolicyOf: (profile) => ({
+          phone: 'ask', sync_id: 'ask', picture: 'allow', birthdate: 'ask', gender: 'ask',
+          ...((profile && profile.sharingPolicy) || {}),
+        }),
+      },
     });
   } finally {
     if (cachedSec) require.cache[secPath] = cachedSec;
@@ -354,7 +360,8 @@ test('authorize happy path stores the request and redirects to login; login issu
   assert.match(html, /Allow Acme Orders/);
   assert.match(html, /orders\.acme\.com/);
   assert.match(html, /app\.acme\.com/);
-  assert.match(html, /See your name and username/);
+  assert.match(html, /Your name and username/);
+  assert.match(html, /Always shared/);
 });
 
 test('login is rate limited per IP and fails generically', async () => {
@@ -405,17 +412,24 @@ test('consent approve issues a code and merges scopes into the connection', asyn
   assert.equal(url.searchParams.get('iss'), 'https://api.test/oauth');
   const conn = stores.SpaceConnection.docs[0];
   assert.equal(conn.status, 'active');
-  assert.deepEqual(conn.scopes.sort(), ['openid', 'profile'].sort());
+  // openid/profile/email are always granted — even when not requested.
+  assert.deepEqual(conn.scopes.sort(), ['email', 'openid', 'profile'].sort());
+  assert.deepEqual(conn.requiredScopes.sort(), ['email', 'openid', 'profile'].sort());
   assert.equal(conn.consentVersion, 1);
   assert.equal(sessionState.oauthRequest, undefined);
 
-  // second consent adds an identity scope while keeping merged scopes
+  // second consent adds an optional extra scope while keeping merged scopes
+  stores.PartnerApp.docs[0].requestedScopes = ['openid', 'profile', 'email', 'phone'];
   sessionState = { oauthUserId: USER_ID };
-  await get(authorizePath({ scope: 'openid profile email' }));
-  const c2 = await post('/consent', { _csrf: sessionState.csrfToken, decision: 'approve' });
+  await get(authorizePath({ scope: 'openid profile phone' }));
+  const c2 = await post('/consent', {
+    _csrf: sessionState.csrfToken,
+    decision: 'approve',
+    fields: 'phone',
+  });
   assert.equal(c2.status, 302);
   const merged = stores.SpaceConnection.docs[0];
-  assert.deepEqual(merged.scopes.sort(), ['email', 'openid', 'profile'].sort());
+  assert.deepEqual(merged.scopes.sort(), ['email', 'openid', 'phone', 'profile'].sort());
   assert.equal(merged.consentVersion, 2);
 });
 
@@ -423,7 +437,7 @@ test('consent is skipped when the connection already covers the scopes', async (
   resetStores();
   stores.SpaceConnection.docs.push({
     connectionId: 'conn_1', userId: USER_ID, appId: APP_ID, partnerId: 'p-1',
-    status: 'active', consentVersion: 3, scopes: ['openid', 'profile', 'space.messages'],
+    status: 'active', consentVersion: 3, scopes: ['openid', 'profile', 'email', 'space.messages'],
     subject: 'sub_x', environment: 'live', connectedAt: new Date(),
   });
   sessionState = { oauthUserId: USER_ID };
@@ -431,7 +445,7 @@ test('consent is skipped when the connection already covers the scopes', async (
   assert.equal(res.status, 302); // skipped straight to redirect with code
   assert.match(res.headers.get('location'), /^https:\/\/app\.acme\.com\/cb\?code=/);
   // merge preserved the business scope
-  assert.deepEqual(stores.SpaceConnection.docs[0].scopes.sort(), ['openid', 'profile', 'space.messages'].sort());
+  assert.deepEqual(stores.SpaceConnection.docs[0].scopes.sort(), ['openid', 'profile', 'email', 'space.messages'].sort());
 });
 
 test('deny redirects access_denied; prompt=consent forces the page; prompt=none redirects errors', async () => {
@@ -449,7 +463,7 @@ test('deny redirects access_denied; prompt=consent forces the page; prompt=none 
   // prompt=consent with an already-covering connection still shows the page
   stores.SpaceConnection.docs.push({
     connectionId: 'conn_1', userId: USER_ID, appId: APP_ID, partnerId: 'p-1',
-    status: 'active', consentVersion: 1, scopes: ['openid', 'profile'],
+    status: 'active', consentVersion: 1, scopes: ['openid', 'profile', 'email'],
     subject: 's', environment: 'live', connectedAt: new Date(),
   });
   sessionState = { oauthUserId: USER_ID };
@@ -779,6 +793,43 @@ test('redirect URI registration enforces scheme, fragment and count rules', asyn
   await assert.rejects(update(tooMany), { statusCode: 400 });
 });
 
+// ---------- portal identity-field configuration ----------
+
+test('setIdentityFields validates scopes, uniqueness and the required flag', async () => {
+  const mk = (app) => loadWithMocks('../services/partnerService', {
+    '../models/PartnerAccount': { findOne: () => chain({ partnerId: 'p-1', approvalStatus: 'sandbox', emailVerifiedAt: new Date() }) },
+    '../models/PartnerApp': {
+      findOne: () => chain(app),
+      findOneAndUpdate: (q, u) => chain({ ...app, ...(u.$set || {}) }),
+    },
+    '../models/PartnerApiKey': {},
+    '../models/PartnerEmailChallenge': {},
+    '../models/PartnerWebhookDelivery': {},
+    '../models/SpaceConnection': {},
+    '../models/SyncSpaceProfile': {},
+    './emailService': {},
+    './partnerWebhooks': {},
+    bcryptjs: { hash: async () => 'h', compare: async () => false },
+  });
+  const app = { ...webApp, environment: 'sandbox' };
+  const svc = mk(app);
+
+  await assert.rejects(svc.setIdentityFields('p-1', app.appId, 'phone'), { statusCode: 400 });
+  await assert.rejects(svc.setIdentityFields('p-1', app.appId, [{ scope: 'email', required: true }]), { statusCode: 400 });
+  await assert.rejects(svc.setIdentityFields('p-1', app.appId, [{ scope: 'phone' }]), { statusCode: 400 });
+  await assert.rejects(svc.setIdentityFields('p-1', app.appId, [
+    { scope: 'phone', required: true }, { scope: 'phone', required: false },
+  ]), { statusCode: 400 });
+  const saved = await svc.setIdentityFields('p-1', app.appId, [
+    { scope: 'phone', required: true },
+    { scope: 'picture', required: false },
+  ]);
+  assert.deepEqual(saved.identityFields, [
+    { scope: 'phone', required: true },
+    { scope: 'picture', required: false },
+  ]);
+});
+
 // ---------- refresh tokens & late-usability gates ----------
 
 const seedWebSecret = () => {
@@ -937,4 +988,142 @@ test('revoking a refresh token kills the whole family', async () => {
   assert.equal(res.status, 200);
   assert.ok(stores.OAuthRefreshToken.docs.every((d) => d.revokedAt));
   assert.ok(stores.OAuthAccessToken.docs.every((d) => d.revokedAt));
+});
+
+// ---------- field-level sharing ----------
+
+test('authorize rejects extra scopes the app did not configure; configured ones pass', async () => {
+  resetStores();
+  sessionState = {};
+  stores.PartnerApp.docs[0].requestedScopes = ['openid', 'profile', 'email', 'phone', 'picture'];
+  stores.PartnerApp.docs[0].identityFields = [{ scope: 'phone', required: true }];
+  // 'picture' is in requestedScopes but NOT configured → invalid_scope
+  let res = await get(authorizePath({ scope: 'openid picture' }));
+  assert.equal(res.status, 302);
+  const loc = new URL(res.headers.get('location'));
+  assert.equal(loc.searchParams.get('error'), 'invalid_scope');
+  // configured extra → passes on to login
+  res = await get(authorizePath({ scope: 'openid phone' }));
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/oauth/login');
+  // legacy app with no identityFields config → any extra is optional
+  stores.PartnerApp.docs[0].identityFields = [];
+  res = await get(authorizePath({ scope: 'openid picture' }));
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/oauth/login');
+});
+
+test('consent shows locked/required/optional sections and policy defaults', async () => {
+  resetStores();
+  stores.PartnerApp.docs[0].requestedScopes = ['openid', 'profile', 'email', 'phone', 'birthdate', 'sync_id'];
+  stores.PartnerApp.docs[0].identityFields = [
+    { scope: 'phone', required: true },
+    { scope: 'birthdate', required: false },
+    { scope: 'sync_id', required: false },
+  ];
+  // phone policy 'never' (required → needs override), birthdate 'allow' (checked),
+  // sync_id 'ask' (unchecked)
+  stores.SyncSpaceProfile.docs[0].sharingPolicy = { phone: 'never', birthdate: 'allow', sync_id: 'ask' };
+  sessionState = { oauthUserId: USER_ID };
+  const res = await get(authorizePath({ scope: 'openid profile phone birthdate sync_id' }));
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /Always shared/);
+  assert.match(html, /Required by Acme Orders/);
+  assert.match(html, /You chose never to share this/);
+  assert.match(html, /name="share_once_phone"/);
+  assert.match(html, /value="birthdate"\s*checked/);        // allow → checked
+  assert.match(html, /value="sync_id"(?!\s*checked)/);      // ask → unchecked
+});
+
+test('required field under a never policy needs the share-once override; policy unchanged', async () => {
+  resetStores();
+  stores.PartnerApp.docs[0].requestedScopes = ['openid', 'profile', 'email', 'phone'];
+  stores.PartnerApp.docs[0].identityFields = [{ scope: 'phone', required: true }];
+  stores.SyncSpaceProfile.docs[0].sharingPolicy = { phone: 'never' };
+  sessionState = { oauthUserId: USER_ID };
+  await get(authorizePath({ scope: 'openid profile phone' }));
+  // approve without the override → 400 re-render
+  const bad = await post('/consent', { _csrf: sessionState.csrfToken, decision: 'approve' });
+  assert.equal(bad.status, 400);
+  assert.match(await bad.text(), /Share once/);
+  assert.equal(stores.SpaceConnection.docs.length, 0);
+  // with the override → granted, and the global policy stays 'never'
+  const ok = await post('/consent', {
+    _csrf: sessionState.csrfToken,
+    decision: 'approve',
+    share_once_phone: 'on',
+  });
+  assert.equal(ok.status, 302);
+  const conn = stores.SpaceConnection.docs[0];
+  assert.ok(conn.scopes.includes('phone'));
+  assert.deepEqual(conn.requiredScopes.sort(), ['email', 'openid', 'phone', 'profile'].sort());
+  assert.equal(stores.SyncSpaceProfile.docs[0].sharingPolicy.phone, 'never');
+});
+
+test('optional unchecked extras are not granted; mandatory always are', async () => {
+  resetStores();
+  stores.PartnerApp.docs[0].requestedScopes = ['openid', 'profile', 'email', 'gender'];
+  stores.PartnerApp.docs[0].identityFields = [{ scope: 'gender', required: false }];
+  stores.SyncSpaceProfile.docs[0].sharingPolicy = { gender: 'ask' };
+  sessionState = { oauthUserId: USER_ID };
+  await get(authorizePath({ scope: 'openid gender' }));
+  const res = await post('/consent', { _csrf: sessionState.csrfToken, decision: 'approve' });
+  assert.equal(res.status, 302);
+  const conn = stores.SpaceConnection.docs[0];
+  assert.ok(!conn.scopes.includes('gender'));           // unchecked 'ask' → not granted
+  assert.deepEqual(conn.scopes.sort(), ['email', 'openid', 'profile'].sort()); // mandatory always in
+});
+
+test('a user with no email sees the blocking notice and cannot approve', async () => {
+  resetStores();
+  stores.User.docs[0].email = '';
+  sessionState = { oauthUserId: USER_ID };
+  const res = await get(authorizePath());
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /Add an email to your Syncup account/);
+  assert.ok(!html.includes('value="approve"'));
+  // POST approve is still blocked server-side
+  const post2 = await post('/consent', { _csrf: sessionState.csrfToken, decision: 'approve' });
+  assert.equal(post2.status, 400);
+  assert.equal(stores.SpaceConnection.docs.length, 0);
+});
+
+test('claimsFor emits only granted extra claims and never decrypts profile photos', async () => {
+  const provider = require('../services/oidcProvider');
+  const user = {
+    userId: 'u1', name: 'Maya Rao', username: 'maya',
+    email: 'maya@x.com', emailVerified: true, phoneNumber: '9876543210',
+    profileImage: 'https://cdn.example.com/p.png', profileImageEncrypted: false,
+    dateOfBirth: new Date('1990-01-02T00:00:00Z'), gender: 'female',
+  };
+  const profile = { syncId: 'SYNC-AAAA-BBBB-CCCC-DDDD-EEEE' };
+  const all = provider.claimsFor(
+    user, profile, ['openid', 'profile', 'email', 'phone', 'sync_id', 'picture', 'birthdate', 'gender'], 'sub1');
+  assert.equal(all.picture, 'https://cdn.example.com/p.png');
+  assert.equal(all.birthdate, '1990-01-02');
+  assert.equal(all.gender, 'female');
+  assert.equal(all.phone_number, '9876543210');
+  assert.equal(all.sync_id, 'SYNC-AAAA-BBBB-CCCC-DDDD-EEEE');
+  const minimal = provider.claimsFor(user, profile, ['openid', 'profile', 'email'], 'sub1');
+  for (const key of ['picture', 'birthdate', 'gender', 'phone_number', 'sync_id']) {
+    assert.equal(minimal[key], undefined, key);
+  }
+  // encrypted profile image → claim omitted, never decrypted for partners
+  const enc = provider.claimsFor(
+    { ...user, profileImage: 'encblob', profileImageEncrypted: true },
+    profile, ['openid', 'picture'], 'sub1');
+  assert.equal(enc.picture, undefined);
+  // non-URL junk → omitted
+  const junk = provider.claimsFor({ ...user, profileImage: 'not-a-url' }, profile, ['picture'], 's');
+  assert.equal(junk.picture, undefined);
+});
+
+test('discovery advertises the new scopes and claims', async () => {
+  const doc = await (await get('/.well-known/openid-configuration')).json();
+  for (const s of ['picture', 'birthdate', 'gender']) {
+    assert.ok(doc.scopes_supported.includes(s), s);
+    assert.ok(doc.claims_supported.includes(s), s);
+  }
 });
