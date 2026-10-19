@@ -3,7 +3,7 @@
  * Create the initial SyncUp Command owner.
  *
  * Usage:
- *   node scripts/createOwner.js --username <u> [--email <e>] [--promote]
+ *   node createOwner.js --username <u> [--email <e>] [--promote]
  *
  * Password comes from OWNER_PASSWORD env or a hidden interactive prompt
  * (min 12 chars). Also generates:
@@ -20,9 +20,9 @@ const dotenv = require('dotenv');
 const readline = require('readline');
 
 dotenv.config();
-const Admin = require('../models/Admin');
-const { encrypt, sha256hex, base32Token, generateRecoveryCodes } = require('../utils/adminCrypto');
-const { recordAdminAction } = require('../services/adminAudit');
+const Admin = require('./models/Admin');
+const { encrypt, sha256hex, base32Token, generateRecoveryCodes } = require('./utils/adminCrypto');
+const { recordAdminAction } = require('./services/adminAudit');
 const { TOTP, NobleCryptoPlugin, ScureBase32Plugin, generateSecret, generateURI } = require('otplib');
 
 const args = process.argv.slice(2);
@@ -69,7 +69,7 @@ const main = async () => {
 
   const existingOwner = await Admin.findOne({ role: 'owner' }).lean();
   if (existingOwner) {
-    console.error(`❌ An owner already exists (${existingOwner.username}). Use scripts/ownerRecovery.js instead.`);
+    console.error(`❌ An owner already exists (${existingOwner.username}). Use ownerRecovery.js instead.`);
     process.exit(1);
   }
 

@@ -3,7 +3,7 @@
  * Owner recovery utilities.
  *
  * Usage (combine flags):
- *   node scripts/ownerRecovery.js [--reset-mfa] [--revoke-devices] \
+ *   node ownerRecovery.js [--reset-mfa] [--revoke-devices] \
  *                                 [--new-enrollment-code] [--unlock]
  *
  *   --reset-mfa            New TOTP secret (prints secret + otpauth URI once)
@@ -18,10 +18,10 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 
 dotenv.config();
-const Admin = require('../models/Admin');
-const AdminSession = require('../models/AdminSession');
-const { encrypt, sha256hex, base32Token, generateRecoveryCodes } = require('../utils/adminCrypto');
-const { recordAdminAction } = require('../services/adminAudit');
+const Admin = require('./models/Admin');
+const AdminSession = require('./models/AdminSession');
+const { encrypt, sha256hex, base32Token, generateRecoveryCodes } = require('./utils/adminCrypto');
+const { recordAdminAction } = require('./services/adminAudit');
 const { generateSecret, generateURI } = require('otplib');
 
 const args = process.argv.slice(2);
@@ -36,7 +36,7 @@ const recoveryCodes = () => generateRecoveryCodes();
 
 const main = async () => {
   if (!resetMfa && !revokeDevices && !newEnrollmentCode && !unlock) {
-    console.error('Usage: node scripts/ownerRecovery.js [--reset-mfa] [--revoke-devices] [--new-enrollment-code] [--unlock]');
+    console.error('Usage: node ownerRecovery.js [--reset-mfa] [--revoke-devices] [--new-enrollment-code] [--unlock]');
     process.exit(1);
   }
 
@@ -45,7 +45,7 @@ const main = async () => {
 
   const owner = await Admin.findOne({ role: 'owner' });
   if (!owner) {
-    console.error('❌ No owner account exists. Run scripts/createOwner.js first.');
+    console.error('❌ No owner account exists. Run createOwner.js first.');
     process.exit(1);
   }
 
