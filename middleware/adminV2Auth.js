@@ -16,49 +16,61 @@ const bearerToken = (req) => {
 };
 
 /**
+ * Shared verification core — also used by opsAgent.
+ * Returns { decoded, admin, session, device } or throws an object
+ * { status, code, message } describing the failure.
+ */
+const verifyAdminAccessToken = async (token) => {
+  if (!token) throw { status: 401, code: 'UNAUTHENTICATED', message: 'No token provided' };
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, getAdminJwtSecret(), { audience: ACCESS_AUDIENCE });
+  } catch {
+    throw { status: 401, code: 'UNAUTHENTICATED', message: 'Invalid or expired token' };
+  }
+
+  if (decoded.typ !== 'admin_access' || !decoded.sub) {
+    throw { status: 401, code: 'UNAUTHENTICATED', message: 'Invalid token type' };
+  }
+
+  const admin = await Admin.findById(decoded.sub);
+  if (!admin || !admin.isActive) {
+    throw { status: 401, code: 'UNAUTHENTICATED', message: 'Admin not found or deactivated' };
+  }
+  if ((decoded.tv || 0) < (admin.tokenVersion || 0)) {
+    throw { status: 401, code: 'TOKEN_REVOKED', message: 'Token has been revoked' };
+  }
+
+  const session = await AdminSession.findById(decoded.sid).lean();
+  if (!session || session.revokedAt || session.rotatedAt || session.expiresAt <= new Date()) {
+    throw { status: 401, code: 'SESSION_REVOKED', message: 'Session is revoked or expired' };
+  }
+
+  const device = admin.devices.find(d => d.deviceId === decoded.did);
+  if (!device || device.status !== 'approved') {
+    throw { status: 403, code: 'DEVICE_NOT_APPROVED', message: 'Device is not approved' };
+  }
+
+  return { decoded, admin, session, device };
+};
+
+/**
  * Verify an admin access token and load the admin, its session and device.
  * Sets req.admin, req.adminPermissions, req.adminDevice, req.adminSessionId.
  */
 const requireAdminV2 = async (req, res, next) => {
   try {
-    const token = bearerToken(req);
-    if (!token) return fail(res, 401, 'UNAUTHENTICATED', 'No token provided');
-
-    let decoded;
-    try {
-      decoded = jwt.verify(token, getAdminJwtSecret(), { audience: ACCESS_AUDIENCE });
-    } catch {
-      return fail(res, 401, 'UNAUTHENTICATED', 'Invalid or expired token');
-    }
-
-    if (decoded.typ !== 'admin_access' || !decoded.sub) {
-      return fail(res, 401, 'UNAUTHENTICATED', 'Invalid token type');
-    }
-
-    const admin = await Admin.findById(decoded.sub);
-    if (!admin || !admin.isActive) {
-      return fail(res, 401, 'UNAUTHENTICATED', 'Admin not found or deactivated');
-    }
-    if ((decoded.tv || 0) < (admin.tokenVersion || 0)) {
-      return fail(res, 401, 'TOKEN_REVOKED', 'Token has been revoked');
-    }
-
-    const session = await AdminSession.findById(decoded.sid).lean();
-    if (!session || session.revokedAt || session.rotatedAt || session.expiresAt <= new Date()) {
-      return fail(res, 401, 'SESSION_REVOKED', 'Session is revoked or expired');
-    }
-
-    const device = admin.devices.find(d => d.deviceId === decoded.did);
-    if (!device || device.status !== 'approved') {
-      return fail(res, 403, 'DEVICE_NOT_APPROVED', 'Device is not approved');
-    }
-
+    const { admin, session, device } = await verifyAdminAccessToken(bearerToken(req));
     req.admin = admin;
     req.adminPermissions = effectivePermissions(admin);
     req.adminDevice = device;
     req.adminSessionId = session._id;
     next();
   } catch (error) {
+    if (error && error.status) {
+      return fail(res, error.status, error.code, error.message);
+    }
     console.error('❌ [ADMIN V2 AUTH]', error);
     return fail(res, 500, 'INTERNAL_ERROR', 'Authentication failed');
   }
@@ -158,6 +170,7 @@ const ipAllowlist = () => {
 
 module.exports = {
   requireAdminV2,
+  verifyAdminAccessToken,
   requirePermission,
   requireStepUp,
   requireReason,

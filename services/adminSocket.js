@@ -18,8 +18,10 @@ const startTicker = (io) => {
   metricsTimer = setInterval(() => {
     if (!adminNs || connectedAdmins < 1) return;
     let onlineUsers = 0;
+    let sockets = 0;
     try {
       onlineUsers = require('../socketManager').getUserSockets().size;
+      sockets = io.engine.clientsCount;
     } catch { /* socket manager may not be ready */ }
     let metrics = null;
     try {
@@ -28,7 +30,7 @@ const startTicker = (io) => {
     const mem = process.memoryUsage();
     adminNs.emit('metrics:tick', {
       onlineUsers,
-      sockets: onlineUsers,
+      sockets,
       ...metrics,
       memory: { rss: mem.rss, heapUsed: mem.heapUsed },
       loadavg: os.loadavg(),

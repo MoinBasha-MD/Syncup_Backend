@@ -31,6 +31,23 @@ const listAdmins = handle(async (req, res) => {
   return ok(res, admins.map(publicAdmin));
 });
 
+const getAdmin = handle(async (req, res) => {
+  if (!isValidObjectId(req.params.id)) return fail(res, 400, 'BAD_REQUEST', 'Invalid admin id');
+  const admin = await Admin.findById(req.params.id).lean();
+  if (!admin) return fail(res, 404, 'NOT_FOUND', 'Admin not found');
+  return ok(res, {
+    ...publicAdmin(admin),
+    devices: (admin.devices || []).map(d => ({
+      deviceId: d.deviceId,
+      name: d.name,
+      status: d.status,
+      addedAt: d.addedAt,
+      lastSeenAt: d.lastSeenAt,
+      revokedAt: d.revokedAt,
+    })),
+  });
+});
+
 const createAdmin = handle(async (req, res) => {
   const { username, password, email, role, grants } = req.body || {};
 
@@ -194,6 +211,7 @@ const deviceAction = (action) => handle(async (req, res) => {
 });
 
 module.exports = {
+  getAdmin,
   listAdmins,
   createAdmin,
   patchAdmin,

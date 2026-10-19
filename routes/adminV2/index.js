@@ -60,6 +60,7 @@ router.post('/me/password', requireStepUp, audit('me.password_change', { targetT
 
 // Admins & devices
 router.get('/admins', requirePermission('admins.manage'), admins.listAdmins);
+router.get('/admins/:id', requirePermission('admins.manage'), admins.getAdmin);
 router.post('/admins', requirePermission('admins.manage'), requireStepUp,
   audit('admin.create', { targetType: 'admin', getTargetId: req => req.body?.username }), admins.createAdmin);
 router.patch('/admins/:id', requirePermission('admins.manage'), requireStepUp, requireReason,

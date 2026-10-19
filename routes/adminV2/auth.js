@@ -30,7 +30,7 @@ const sign = (payload, audience, expiresIn) =>
 
 const signAccess = (admin, session) =>
   sign(
-    { sub: String(admin._id), tv: admin.tokenVersion || 0, did: session.deviceId, sid: String(session._id), typ: 'admin_access' },
+    { sub: String(admin._id), role: admin.role, tv: admin.tokenVersion || 0, did: session.deviceId, sid: String(session._id), typ: 'admin_access' },
     ADMIN_JWT_AUDIENCE,
     ACCESS_TTL
   );

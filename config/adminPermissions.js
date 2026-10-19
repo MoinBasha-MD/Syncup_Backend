@@ -18,6 +18,10 @@ const PERMISSIONS = [
   'system.restart',
   'admins.manage',
   'audit.read',
+  'ops.read',
+  'ops.control',
+  'ops.deploy',
+  'ops.power',
 ];
 
 const PERMISSION_SET = new Set(PERMISSIONS);
@@ -30,7 +34,10 @@ const ADMIN_ALL = [
 
 const ROLE_PERMISSIONS = {
   owner: ['*'],
-  super_admin: PERMISSIONS.filter(p => p !== 'system.restart'),
+  // super_admin: everything except system.restart and the destructive ops set
+  // (it only gets ops.read).
+  super_admin: PERMISSIONS.filter(p =>
+    p !== 'system.restart' && !['ops.control', 'ops.deploy', 'ops.power'].includes(p)),
   admin: ADMIN_ALL,
   moderator: [
     'users.read', 'users.suspend',
