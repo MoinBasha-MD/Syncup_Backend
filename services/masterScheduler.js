@@ -37,7 +37,8 @@ class MasterScheduler {
           this.runStatusExpiration(),
           this.runRippleLifecycle(),
           this.runMeetupExpiry(),
-          this.runPartnerWebhookDeliveries()
+          this.runPartnerWebhookDeliveries(),
+          this.runMayaRequestExpiry()
         ]);
         
         const duration = Date.now() - startTime;
@@ -184,6 +185,19 @@ class MasterScheduler {
       await runWebhookDeliveries({ limit: 50 });
     } catch (error) {
       console.error('❌ [PARTNER WEBHOOKS] Error:', error.message);
+    }
+  }
+
+  /**
+   * Maya requests: open past expiresAt -> expired; pending/suggested
+   * recipients -> expired; sender gets a silent notification.
+   */
+  async runMayaRequestExpiry() {
+    try {
+      const mayaRequestService = require('./mayaRequestService');
+      await mayaRequestService.expireDue();
+    } catch (error) {
+      console.error('❌ [MAYA REQUESTS] Expiry error:', error.message);
     }
   }
 

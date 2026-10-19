@@ -3,6 +3,7 @@ const AIInstance = require('../models/aiInstanceModel');
 const bcrypt = require('bcryptjs');
 const otpService = require('../services/otpService');
 const { generateToken } = require('../utils/generateToken');
+const { getAccountBlock } = require('../utils/accountState');
 const { normalizePhoneNumber, isValidPhoneNumber } = require('../utils/phoneUtils');
 const LogSanitizer = require('../utils/logSanitizer');
 
@@ -271,7 +272,7 @@ const registerUser = async (req, res) => {
 
       // Generate token
       console.log('🔑 [REGISTER] Generating authentication token...');
-      const token = generateToken(user._id, user.userId);
+      const token = generateToken(user._id, user.userId, null, user.tokenVersion);
       console.log('✅ [REGISTER] Token generated successfully');
       
       const responseData = {
@@ -288,6 +289,12 @@ const registerUser = async (req, res) => {
         }
       };
       
+      try {
+        require('../services/adminSocket').emitAdminEvent('user:signup', {
+          userId: user.userId, name: user.name,
+        });
+      } catch { /* admin socket optional */ }
+
       console.log('✅ [REGISTER] Registration completed successfully, sending response');
       res.status(201).json(responseData);
     } else {
@@ -385,6 +392,19 @@ const loginUser = async (req, res) => {
 
     console.log('✅ [AUTH CONTROLLER] Password matches!');
 
+    // Refuse tokens for banned/suspended/deleted accounts
+    const accountBlock = getAccountBlock(user);
+    if (accountBlock) {
+      console.log('❌ [AUTH CONTROLLER] Blocked account login:', accountBlock.code);
+      return res.status(403).json({
+        success: false,
+        code: accountBlock.code,
+        message: accountBlock.message,
+        ...(accountBlock.until ? { until: accountBlock.until } : {}),
+        ...(accountBlock.reason ? { reason: accountBlock.reason } : {})
+      });
+    }
+
     // Check if status timer has expired
     console.log('🔄 [AUTH CONTROLLER] Checking status timer...');
     if (user.statusUntil && new Date() > new Date(user.statusUntil)) {
@@ -398,7 +418,7 @@ const loginUser = async (req, res) => {
 
     // Generate token
     console.log('🎫 [AUTH CONTROLLER] Generating token...');
-    const token = generateToken(user._id, user.userId);
+    const token = generateToken(user._id, user.userId, null, user.tokenVersion);
     console.log('✅ [AUTH CONTROLLER] Token generated');
 
     console.log('📤 [AUTH CONTROLLER] Sending success response...');

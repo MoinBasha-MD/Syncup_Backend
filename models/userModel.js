@@ -382,6 +382,24 @@ const userSchema = mongoose.Schema(
     }],
     resetPasswordToken: String,
     resetPasswordExpire: Date,
+    // Admin-managed account state (bans, suspensions, soft deletes)
+    accountStatus: {
+      state: {
+        type: String,
+        enum: ['active', 'suspended', 'banned', 'deleted'],
+        default: 'active'
+      },
+      reason: String,
+      until: Date,
+      by: String,
+      at: Date
+    },
+    // Bumped on force-logout; tokens issued earlier (lower tv) are rejected
+    tokenVersion: {
+      type: Number,
+      default: 0
+    },
+    deletedAt: Date,
     // Device tokens for push notifications and background service
     deviceTokens: [{
       token: {
@@ -496,9 +514,11 @@ userSchema.pre('save', async function hashPasswordBeforeSave(next) {
 
 // Sign JWT and return
 userSchema.methods.getSignedJwtToken = function () {
-  return jwt.sign({ id: this._id, userId: this.userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE,
-  });
+  return jwt.sign(
+    { id: this._id, userId: this.userId, tv: this.tokenVersion || 0 },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE }
+  );
 };
 
 // Match user entered password to hashed password in database
@@ -537,6 +557,8 @@ userSchema.index({ phoneNumber: 1, isActive: 1 }); // Contact sync queries
 userSchema.index({ isOnline: 1, lastSeen: -1 }); // Online status queries
 userSchema.index({ mainStatus: 1, mainEndTime: 1 }); // Status expiration checks
 userSchema.index({ subStatus: 1, subEndTime: 1 }); // Sub-status expiration checks
+userSchema.index({ 'accountStatus.state': 1 }); // Admin filtering by account state
+userSchema.index({ updatedAt: 1 }); // Delta sync for admin user directory
 
 const User = mongoose.model('User', userSchema);
 

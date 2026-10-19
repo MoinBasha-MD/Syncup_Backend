@@ -238,6 +238,17 @@ const continueAuthorize = async (req, res) => {
   if (profile.status === 'suspended') {
     return renderError(res, 'Sync Space suspended', 'Your Sync Space is suspended — sign-in is unavailable.', 403);
   }
+  // Email is mandatory on every sign-in, including the consent-skip path.
+  const user = await User.findOne({ userId }).select('email').lean();
+  if (!user || !user.email) {
+    if (oauthReq.prompt === 'none') {
+      return redirectWithError(res, oauthReq, 'access_denied', 'An email is required to sign in');
+    }
+    return res.status(400).render('error', {
+      title: 'Email required',
+      message: 'Add an email to your Syncup account to sign in to apps.',
+    });
+  }
   // Skip consent when an active connection already covers the scopes.
   const connection = await SpaceConnection.findOne({ userId, appId: appDoc.appId, status: 'active' }).lean();
   // Mandatory scopes always granted; the connection must also already cover

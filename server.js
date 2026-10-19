@@ -185,6 +185,10 @@ const placesRefreshJob = require('./jobs/placesRefreshJob');
 
 dotenv.config();
 
+// Fail fast in production when ADMIN_JWT_SECRET is missing/weak
+require('./config/adminSecrets').getAdminJwtSecret();
+require('./utils/adminCrypto').getTotpEncKey();
+
 
 
 // Setup clustering for production (must be before other initializations)
@@ -508,11 +512,17 @@ app.get('/performance', (req, res) => {
 
 
 
+// In-process request metrics for the admin dashboard (rolling 60s window)
+app.use('/api', require('./services/adminMetrics').requestCounter);
+
 // API versioning middleware
 
 const { apiVersioning } = require('./middleware/versionMiddleware');
 
 app.use('/api', apiVersioning);
+
+// Maintenance mode: 503s user-facing /api traffic when enabled (admin + health exempt)
+app.use('/api', require('./middleware/maintenanceMode').maintenanceMode);
 
 
 
@@ -547,6 +557,8 @@ app.use('/api/primary-time', apiLimiter, require('./routes/primaryTimeRoutes'));
 app.use('/api/location', apiLimiter, locationRoutes); // Location and geocoding services
 
 app.use('/api/location-sharing', apiLimiter, require('./routes/locationSharingRoutes')); // Location sharing controls
+
+app.use('/api/maya/requests', apiLimiter, require('./routes/mayaRequestRoutes')); // Maya-to-Maya requests
 
 app.use('/api/meetups', apiLimiter, meetupRoutes); // Meetup: shared destination + group live tracking
 
@@ -641,6 +653,9 @@ app.use('/api/notifications', apiLimiter, require('./routes/fcmRoutes')); // FCM
 app.use('/api/notifications', apiLimiter, require('./routes/notificationFeedRoutes')); // Notification feed (comments, replies, likes, mentions)
 
 app.use('/api/fcm-diagnostics', apiLimiter, require('./routes/fcmDiagnostics')); // FCM token diagnostics
+
+// Admin v2 API (SyncUp Command) — MUST be before every legacy /api/admin mount
+app.use('/api/admin/v2', require('./routes/adminV2'));
 
 app.use('/api/admin', apiLimiter, require('./routes/adminCleanupRoutes')); // Admin cleanup routes
 

@@ -4,6 +4,21 @@ const User = require('../models/userModel');
 const Post = require('../models/FeedPost');
 const Message = require('../models/Message');
 const Broadcast = require('../models/Broadcast');
+const { setAccountState } = require('../services/userSessionControl');
+const { recordAdminAction } = require('../services/adminAudit');
+const broadcasts = require('../controllers/adminV2/broadcastsController').legacy;
+
+const audit = (req, action, extra = {}) => {
+  recordAdminAction({
+    adminId: req.admin?._id,
+    adminUsername: req.admin?.username,
+    adminRole: req.admin?.role,
+    ip: req.ip,
+    action,
+    result: 'success',
+    ...extra
+  }).catch(error => console.error(`❌ [AUDIT] Failed to record ${action}:`, error.message));
+};
 
 // Get dashboard stats
 router.get('/dashboard/stats', async (req, res) => {
@@ -121,7 +136,7 @@ router.get('/users', async (req, res) => {
 
     const [users, total] = await Promise.all([
       User.find(filter)
-        .select('userId name email phoneNumber profileImage isOnline lastSeen createdAt isBanned')
+        .select('userId name email phoneNumber profileImage isOnline lastSeen createdAt accountStatus')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -162,24 +177,39 @@ router.get('/users/:id', async (req, res) => {
   }
 });
 
+// Fields an admin is allowed to edit on a user — anything else is dropped
+const USER_EDITABLE_FIELDS = ['name', 'bio', 'email', 'phoneNumber', 'profileImage'];
+
 // Update user
 router.put('/users/:id', async (req, res) => {
   try {
     console.log(`✏️ [ADMIN] Updating user: ${req.params.id}`);
-    
-    const { _id, ...updateData } = req.body;
-    
+
+    const updateData = {};
+    for (const field of USER_EDITABLE_FIELDS) {
+      if (req.body[field] !== undefined) updateData[field] = req.body[field];
+    }
+
+    const before = await User.findById(req.params.id).select(USER_EDITABLE_FIELDS.join(' ')).lean();
+    if (!before) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
     const user = await User.findByIdAndUpdate(
       req.params.id,
       updateData,
       { new: true, runValidators: true }
     ).lean();
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
     console.log(`✅ [ADMIN] User updated: ${user.name}`);
+
+    audit(req, 'user.update', {
+      targetType: 'user',
+      targetId: user.userId,
+      before,
+      after: updateData
+    });
+
     res.json(user);
   } catch (error) {
     console.error('❌ [ADMIN] Error updating user:', error);
@@ -192,23 +222,26 @@ router.post('/users/:id/ban', async (req, res) => {
   try {
     const { reason } = req.body;
     console.log(`🚫 [ADMIN] Banning user: ${req.params.id}, reason: ${reason}`);
-    
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { 
-        isBanned: true,
-        banReason: reason,
-        bannedAt: new Date(),
-        bannedBy: req.admin?.userId || 'admin'
-      },
-      { new: true }
-    ).lean();
 
-    if (!user) {
+    const target = await User.findById(req.params.id).select('userId name').lean();
+    if (!target) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    console.log(`✅ [ADMIN] User banned: ${user.name}`);
+    const user = await setAccountState(target.userId, {
+      state: 'banned',
+      reason,
+      by: String(req.admin?._id || 'admin')
+    });
+
+    console.log(`✅ [ADMIN] User banned: ${target.name}`);
+
+    audit(req, 'user.ban', {
+      targetType: 'user',
+      targetId: target.userId,
+      reason
+    });
+
     res.json({ success: true, user });
   } catch (error) {
     console.error('❌ [ADMIN] Error banning user:', error);
@@ -220,23 +253,24 @@ router.post('/users/:id/ban', async (req, res) => {
 router.post('/users/:id/unban', async (req, res) => {
   try {
     console.log(`✅ [ADMIN] Unbanning user: ${req.params.id}`);
-    
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { 
-        isBanned: false,
-        banReason: null,
-        bannedAt: null,
-        bannedBy: null
-      },
-      { new: true }
-    ).lean();
 
-    if (!user) {
+    const target = await User.findById(req.params.id).select('userId name').lean();
+    if (!target) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    console.log(`✅ [ADMIN] User unbanned: ${user.name}`);
+    const user = await setAccountState(target.userId, {
+      state: 'active',
+      by: String(req.admin?._id || 'admin')
+    });
+
+    console.log(`✅ [ADMIN] User unbanned: ${target.name}`);
+
+    audit(req, 'user.unban', {
+      targetType: 'user',
+      targetId: target.userId
+    });
+
     res.json({ success: true, user });
   } catch (error) {
     console.error('❌ [ADMIN] Error unbanning user:', error);
@@ -244,18 +278,31 @@ router.post('/users/:id/unban', async (req, res) => {
   }
 });
 
-// Delete user
+// Delete user (soft delete — preserves the account and its data)
 router.delete('/users/:id', async (req, res) => {
   try {
     console.log(`🗑️ [ADMIN] Deleting user: ${req.params.id}`);
-    
-    const user = await User.findByIdAndDelete(req.params.id).lean();
-    
-    if (!user) {
+
+    const target = await User.findById(req.params.id).select('userId name').lean();
+
+    if (!target) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    console.log(`✅ [ADMIN] User deleted: ${user.name}`);
+    await setAccountState(target.userId, {
+      state: 'deleted',
+      reason: req.body?.reason,
+      by: String(req.admin?._id || 'admin')
+    });
+
+    console.log(`✅ [ADMIN] User soft-deleted: ${target.name}`);
+
+    audit(req, 'user.delete', {
+      targetType: 'user',
+      targetId: target.userId,
+      reason: req.body?.reason
+    });
+
     res.json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
     console.error('❌ [ADMIN] Error deleting user:', error);
@@ -610,357 +657,17 @@ router.delete('/statuses/:userId', async (req, res) => {
 
 // ==================== BROADCAST MESSAGING ====================
 
-// Get all broadcasts
-router.get('/broadcasts', async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
-
-    console.log(`📢 [ADMIN] Fetching broadcasts - page: ${page}`);
-
-    const broadcasts = await Broadcast.find()
-      .sort({ sentAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    const total = await Broadcast.countDocuments();
-
-    console.log(`✅ [ADMIN] Found ${broadcasts.length} broadcasts (${total} total)`);
-
-    res.json({
-      broadcasts,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit)
-    });
-  } catch (error) {
-    console.error('❌ [ADMIN] Error fetching broadcasts:', error);
-    res.status(500).json({ error: 'Failed to fetch broadcasts' });
-  }
-});
-
-// Send broadcast message (enhanced with scheduling and advanced targeting)
-router.post('/broadcasts', async (req, res) => {
-  try {
-    const { 
-      title, message, type, priority, targetAudience, link, imageUrl, expiresAt,
-      scheduledFor, buttons, customTargeting, saveAsTemplate, templateName
-    } = req.body;
-
-    console.log(`📢 [ADMIN] Creating broadcast: ${title}`);
-
-    // Get recipient count based on target audience
-    let recipientCount = 0;
-    let targetQuery = {};
-    
-    switch (targetAudience) {
-      case 'all':
-        recipientCount = await User.countDocuments();
-        break;
-      case 'active':
-        targetQuery = { isOnline: true };
-        recipientCount = await User.countDocuments(targetQuery);
-        break;
-      case 'inactive':
-        targetQuery = { isOnline: false };
-        recipientCount = await User.countDocuments(targetQuery);
-        break;
-      case 'premium':
-        targetQuery = { isPremium: true };
-        recipientCount = await User.countDocuments(targetQuery);
-        break;
-      case 'new_users':
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        targetQuery = { createdAt: { $gte: thirtyDaysAgo } };
-        recipientCount = await User.countDocuments(targetQuery);
-        break;
-      case 'custom':
-        // Build custom query from customTargeting
-        if (customTargeting) {
-          if (customTargeting.userIds && customTargeting.userIds.length > 0) {
-            targetQuery.userId = { $in: customTargeting.userIds };
-          }
-          if (customTargeting.minAge || customTargeting.maxAge) {
-            const now = new Date();
-            if (customTargeting.maxAge) {
-              const minBirthDate = new Date(now.getFullYear() - customTargeting.maxAge, now.getMonth(), now.getDate());
-              targetQuery.dateOfBirth = { $gte: minBirthDate };
-            }
-            if (customTargeting.minAge) {
-              const maxBirthDate = new Date(now.getFullYear() - customTargeting.minAge, now.getMonth(), now.getDate());
-              targetQuery.dateOfBirth = { ...targetQuery.dateOfBirth, $lte: maxBirthDate };
-            }
-          }
-          if (customTargeting.lastActiveWithin) {
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - customTargeting.lastActiveWithin);
-            targetQuery.lastSeen = { $gte: cutoffDate };
-          }
-          if (customTargeting.registeredAfter) {
-            targetQuery.createdAt = { ...targetQuery.createdAt, $gte: new Date(customTargeting.registeredAfter) };
-          }
-          if (customTargeting.registeredBefore) {
-            targetQuery.createdAt = { ...targetQuery.createdAt, $lte: new Date(customTargeting.registeredBefore) };
-          }
-        }
-        recipientCount = await User.countDocuments(targetQuery);
-        break;
-    }
-
-    // Determine status based on scheduling
-    const isScheduled = scheduledFor && new Date(scheduledFor) > new Date();
-    const status = isScheduled ? 'scheduled' : 'sent';
-
-    const broadcast = await Broadcast.create({
-      title,
-      message,
-      type: type || 'announcement',
-      priority: priority || 'medium',
-      targetAudience: targetAudience || 'all',
-      customTargeting: targetAudience === 'custom' ? customTargeting : undefined,
-      sentBy: 'admin',
-      sentByName: 'System Admin',
-      recipientCount,
-      link,
-      imageUrl,
-      buttons: buttons || [],
-      expiresAt: expiresAt ? new Date(expiresAt) : null,
-      scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
-      status,
-      isTemplate: saveAsTemplate || false,
-      templateName: saveAsTemplate ? templateName : undefined,
-      sentAt: isScheduled ? null : new Date()
-    });
-
-    console.log(`✅ [ADMIN] Broadcast created: ${broadcast._id} - ${isScheduled ? 'Scheduled for' : 'Sent to'} ${recipientCount} users`);
-
-    // Only emit socket event if sending immediately (not scheduled)
-    if (!isScheduled) {
-      try {
-        const io = req.app.get('io');
-        if (io) {
-          io.emit('admin:broadcast', {
-            id: broadcast._id,
-            title: broadcast.title,
-            message: broadcast.message,
-            type: broadcast.type,
-            priority: broadcast.priority,
-            link: broadcast.link,
-            imageUrl: broadcast.imageUrl,
-            buttons: broadcast.buttons,
-            sentAt: broadcast.sentAt,
-            expiresAt: broadcast.expiresAt
-          });
-          console.log(`📢 [ADMIN] Broadcast notification sent to all connected users via socket`);
-        } else {
-          console.warn('⚠️ [ADMIN] Socket.IO instance not found, broadcast saved but not sent via socket');
-        }
-      } catch (socketError) {
-        console.error('❌ [ADMIN] Error emitting broadcast via socket:', socketError);
-      }
-    }
-
-    res.json({
-      message: isScheduled ? 'Broadcast scheduled successfully' : 'Broadcast sent successfully',
-      broadcast,
-      recipientCount,
-      scheduled: isScheduled
-    });
-  } catch (error) {
-    console.error('❌ [ADMIN] Error creating broadcast:', error);
-    res.status(500).json({ error: 'Failed to send broadcast' });
-  }
-});
-
-// Get broadcast statistics
-router.get('/broadcasts/stats', async (req, res) => {
-  try {
-    console.log(`📊 [ADMIN] Fetching broadcast statistics`);
-
-    const [totalBroadcasts, totalRecipients, totalReads, recentBroadcasts] = await Promise.all([
-      Broadcast.countDocuments(),
-      Broadcast.aggregate([{ $group: { _id: null, total: { $sum: '$recipientCount' } } }]),
-      Broadcast.aggregate([{ $group: { _id: null, total: { $sum: '$readCount' } } }]),
-      Broadcast.countDocuments({ sentAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } })
-    ]);
-
-    const stats = {
-      totalBroadcasts,
-      totalRecipients: totalRecipients[0]?.total || 0,
-      totalReads: totalReads[0]?.total || 0,
-      recentBroadcasts
-    };
-
-    console.log(`✅ [ADMIN] Broadcast stats:`, stats);
-
-    res.json(stats);
-  } catch (error) {
-    console.error('❌ [ADMIN] Error fetching broadcast stats:', error);
-    res.status(500).json({ error: 'Failed to fetch broadcast stats' });
-  }
-});
-
-// Get broadcast templates
-router.get('/broadcasts/templates', async (req, res) => {
-  try {
-    console.log(`📋 [ADMIN] Fetching broadcast templates`);
-
-    const templates = await Broadcast.find({ isTemplate: true })
-      .select('title message type priority targetAudience link imageUrl buttons templateName')
-      .sort({ createdAt: -1 })
-      .lean();
-
-    console.log(`✅ [ADMIN] Found ${templates.length} templates`);
-
-    res.json({ templates });
-  } catch (error) {
-    console.error('❌ [ADMIN] Error fetching templates:', error);
-    res.status(500).json({ error: 'Failed to fetch templates' });
-  }
-});
-
-// Get scheduled broadcasts
-router.get('/broadcasts/scheduled', async (req, res) => {
-  try {
-    console.log(`📅 [ADMIN] Fetching scheduled broadcasts`);
-
-    const scheduled = await Broadcast.find({ 
-      status: 'scheduled',
-      scheduledFor: { $gt: new Date() }
-    })
-      .sort({ scheduledFor: 1 })
-      .lean();
-
-    console.log(`✅ [ADMIN] Found ${scheduled.length} scheduled broadcasts`);
-
-    res.json({ scheduled });
-  } catch (error) {
-    console.error('❌ [ADMIN] Error fetching scheduled broadcasts:', error);
-    res.status(500).json({ error: 'Failed to fetch scheduled broadcasts' });
-  }
-});
-
-// Cancel scheduled broadcast
-router.patch('/broadcasts/:id/cancel', async (req, res) => {
-  try {
-    console.log(`❌ [ADMIN] Cancelling broadcast: ${req.params.id}`);
-
-    const broadcast = await Broadcast.findByIdAndUpdate(
-      req.params.id,
-      { status: 'cancelled' },
-      { new: true }
-    );
-
-    if (!broadcast) {
-      return res.status(404).json({ error: 'Broadcast not found' });
-    }
-
-    console.log(`✅ [ADMIN] Broadcast cancelled: ${req.params.id}`);
-
-    res.json({ message: 'Broadcast cancelled successfully', broadcast });
-  } catch (error) {
-    console.error('❌ [ADMIN] Error cancelling broadcast:', error);
-    res.status(500).json({ error: 'Failed to cancel broadcast' });
-  }
-});
-
-// Get broadcast analytics
-router.get('/broadcasts/:id/analytics', async (req, res) => {
-  try {
-    console.log(`📊 [ADMIN] Fetching analytics for broadcast: ${req.params.id}`);
-
-    const broadcast = await Broadcast.findById(req.params.id).lean();
-
-    if (!broadcast) {
-      return res.status(404).json({ error: 'Broadcast not found' });
-    }
-
-    // Calculate analytics
-    const deliveryRate = broadcast.recipientCount > 0 
-      ? ((broadcast.recipientCount - (broadcast.dismissCount || 0)) / broadcast.recipientCount * 100).toFixed(2)
-      : 0;
-    
-    const readRate = broadcast.recipientCount > 0
-      ? (broadcast.readCount / broadcast.recipientCount * 100).toFixed(2)
-      : 0;
-    
-    const clickRate = broadcast.readCount > 0
-      ? (broadcast.clickCount / broadcast.readCount * 100).toFixed(2)
-      : 0;
-
-    const analytics = {
-      ...broadcast,
-      analytics: {
-        deliveryRate: parseFloat(deliveryRate),
-        readRate: parseFloat(readRate),
-        clickRate: parseFloat(clickRate),
-        totalEngagement: broadcast.readCount + broadcast.clickCount,
-        dismissRate: broadcast.recipientCount > 0
-          ? ((broadcast.dismissCount || 0) / broadcast.recipientCount * 100).toFixed(2)
-          : 0
-      }
-    };
-
-    console.log(`✅ [ADMIN] Analytics calculated for broadcast: ${req.params.id}`);
-
-    res.json(analytics);
-  } catch (error) {
-    console.error('❌ [ADMIN] Error fetching broadcast analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch broadcast analytics' });
-  }
-});
-
-// Update broadcast (for editing drafts or scheduled)
-router.patch('/broadcasts/:id', async (req, res) => {
-  try {
-    console.log(`✏️ [ADMIN] Updating broadcast: ${req.params.id}`);
-
-    const broadcast = await Broadcast.findById(req.params.id);
-
-    if (!broadcast) {
-      return res.status(404).json({ error: 'Broadcast not found' });
-    }
-
-    // Only allow editing drafts or scheduled broadcasts
-    if (broadcast.status !== 'draft' && broadcast.status !== 'scheduled') {
-      return res.status(400).json({ error: 'Cannot edit sent broadcasts' });
-    }
-
-    const updates = req.body;
-    Object.assign(broadcast, updates);
-    await broadcast.save();
-
-    console.log(`✅ [ADMIN] Broadcast updated: ${req.params.id}`);
-
-    res.json({ message: 'Broadcast updated successfully', broadcast });
-  } catch (error) {
-    console.error('❌ [ADMIN] Error updating broadcast:', error);
-    res.status(500).json({ error: 'Failed to update broadcast' });
-  }
-});
-
-// Delete broadcast
-router.delete('/broadcasts/:id', async (req, res) => {
-  try {
-    console.log(`🗑️ [ADMIN] Deleting broadcast: ${req.params.id}`);
-
-    const broadcast = await Broadcast.findByIdAndDelete(req.params.id);
-
-    if (!broadcast) {
-      return res.status(404).json({ error: 'Broadcast not found' });
-    }
-
-    console.log(`✅ [ADMIN] Broadcast deleted: ${req.params.id}`);
-
-    res.json({ message: 'Broadcast deleted successfully' });
-  } catch (error) {
-    console.error('❌ [ADMIN] Error deleting broadcast:', error);
-    res.status(500).json({ error: 'Failed to delete broadcast' });
-  }
-});
+// Broadcast handlers live in controllers/adminV2/broadcastsController.js and
+// are shared with /api/admin/v2 — legacy response shapes are unchanged.
+router.get('/broadcasts', broadcasts.list);
+router.post('/broadcasts', broadcasts.create);
+router.get('/broadcasts/stats', broadcasts.stats);
+router.get('/broadcasts/templates', broadcasts.templates);
+router.get('/broadcasts/scheduled', broadcasts.scheduled);
+router.patch('/broadcasts/:id/cancel', broadcasts.cancel);
+router.get('/broadcasts/:id/analytics', broadcasts.analytics);
+router.patch('/broadcasts/:id', broadcasts.update);
+router.delete('/broadcasts/:id', broadcasts.delete);
 
 // ==================== HASHTAG MANAGEMENT ====================
 

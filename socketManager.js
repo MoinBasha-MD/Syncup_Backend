@@ -29,6 +29,7 @@ const {
   findAuthorizedReceipt,
   getOtherCallParticipant,
 } = require('./services/socketAuthorization');
+const { getAccountBlock, isTokenStale } = require('./utils/accountState');
 
 // Use the enhanced logging system
 const socketLogger = connectionLogger;
@@ -96,6 +97,13 @@ const initializeSocketIO = (server) => {
   const aiSocketService = new AISocketService();
   aiSocketService.initialize(io);
 
+  // Initialize the /admin namespace (live metrics + admin events)
+  try {
+    require('./services/adminSocket').initAdminSocket(io);
+  } catch (error) {
+    console.error('❌ Failed to initialize admin socket namespace:', error.message);
+  }
+
   // Enhanced authentication middleware with rate limiting
   const authAttempts = new Map();
   
@@ -146,6 +154,13 @@ const initializeSocketIO = (server) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       console.log('✅ JWT token verified for user ID:', decoded.id, 'tokenType:', decoded.tokenType);
 
+      // Impersonation tokens are REST read-only — never allow a socket
+      if (decoded.tokenType === 'impersonation') {
+        connectionStats.authFailures++;
+        console.log('❌ Impersonation token attempted socket connection');
+        return next(new Error('IMPERSONATION_NOT_ALLOWED'));
+      }
+
       // Get user from database with minimal fields
       console.log('🔍 Looking up user in database...');
       let user;
@@ -161,9 +176,9 @@ const initializeSocketIO = (server) => {
           console.log('❌ Desk session revoked:', decoded.sessionId);
           return next(new Error('Authentication error: Device session revoked'));
         }
-        user = await User.findOne({ userId: decoded.userId }).select('userId name isActive').lean();
+        user = await User.findOne({ userId: decoded.userId }).select('userId name isActive accountStatus tokenVersion deletedAt').lean();
       } else {
-        user = await User.findById(decoded.id).select('userId name isActive').lean();
+        user = await User.findById(decoded.id).select('userId name isActive accountStatus tokenVersion deletedAt').lean();
       }
       
       if (!user) {
@@ -184,6 +199,34 @@ const initializeSocketIO = (server) => {
         connectionStats.authFailures++;
         console.log('❌ User account is deactivated:', user.userId);
         return next(new Error('Authentication error: Account deactivated'));
+      }
+
+      // Admin-set account state (banned/suspended/deleted)
+      const accountBlock = getAccountBlock(user);
+      if (accountBlock) {
+        connectionStats.authFailures++;
+        console.log('❌ Blocked account socket attempt:', user.userId, accountBlock.code);
+        return next(new Error(accountBlock.code));
+      }
+
+      // Force-logged-out users: tokens issued before the last bump are dead
+      if (isTokenStale(decoded, user)) {
+        connectionStats.authFailures++;
+        console.log('❌ Stale token version for socket:', user.userId);
+        return next(new Error('TOKEN_REVOKED'));
+      }
+
+      // Maintenance mode blocks new user sockets (except allowlisted ids)
+      try {
+        const { getMaintenance, isMaintenanceActive, isAllowedUser } = require('./middleware/maintenanceMode');
+        const maintenance = await getMaintenance();
+        if (isMaintenanceActive(maintenance) && !isAllowedUser(maintenance, user.userId)) {
+          connectionStats.authFailures++;
+          return next(new Error('MAINTENANCE'));
+        }
+      } catch (maintenanceError) {
+        if (maintenanceError.message === 'MAINTENANCE') throw maintenanceError;
+        // fail open when the check itself errors
       }
       
       // Attach user to socket

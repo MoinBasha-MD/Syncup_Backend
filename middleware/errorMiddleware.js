@@ -58,7 +58,9 @@ const errorHandler = (err, req, res, next) => {
       error: err.name,
       // Passthrough: handlers may stamp a stable machine code (err.code) for
       // client-side branching. Undefined on older errors -> omitted from JSON.
-      code: err.code || undefined
+      code: err.code || undefined,
+      // Optional timestamp for account-state errors (e.g. suspension end)
+      until: err.until || undefined
     });
   }
 

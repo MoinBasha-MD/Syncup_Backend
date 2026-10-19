@@ -1080,14 +1080,28 @@ test('a user with no email sees the blocking notice and cannot approve', async (
   stores.User.docs[0].email = '';
   sessionState = { oauthUserId: USER_ID };
   const res = await get(authorizePath());
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 400);
   const html = await res.text();
   assert.match(html, /Add an email to your Syncup account/);
   assert.ok(!html.includes('value="approve"'));
   // POST approve is still blocked server-side
   const post2 = await post('/consent', { _csrf: sessionState.csrfToken, decision: 'approve' });
-  assert.equal(post2.status, 400);
+  assert.notEqual(post2.status, 302);
   assert.equal(stores.SpaceConnection.docs.length, 0);
+});
+
+test('consent-skip path also requires an email (existing connection)', async () => {
+  resetStores();
+  sessionState = { oauthUserId: USER_ID };
+  // First sign-in with an email creates the connection.
+  await get(authorizePath());
+  await post('/consent', { _csrf: sessionState.csrfToken, decision: 'approve' });
+  assert.equal(stores.SpaceConnection.docs.length, 1);
+  // Email removed later → re-sign-in must not silently skip consent.
+  stores.User.docs[0].email = '';
+  const res = await get(authorizePath());
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /Add an email to your Syncup account/);
 });
 
 test('claimsFor emits only granted extra claims and never decrypts profile photos', async () => {

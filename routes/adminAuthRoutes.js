@@ -2,29 +2,53 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/Admin');
+const { getAdminJwtSecret, ADMIN_JWT_AUDIENCE } = require('../config/adminSecrets');
+const { recordAdminAction } = require('../services/adminAudit');
 
-// JWT Secret (should be in .env file)
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
 const JWT_EXPIRES_IN = '7d'; // Token expires in 7 days
+
+const signAdminToken = (admin) => jwt.sign(
+  {
+    id: admin._id,
+    username: admin.username,
+    role: admin.role,
+    typ: 'admin',
+    tv: admin.tokenVersion || 0
+  },
+  getAdminJwtSecret(),
+  { expiresIn: JWT_EXPIRES_IN, audience: ADMIN_JWT_AUDIENCE }
+);
+
+const isElevatedRole = (role) => role === 'owner' || role === 'super_admin';
 
 // Middleware to verify JWT token
 const verifyToken = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) {
       return res.status(401).json({ message: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getAdminJwtSecret(), { audience: ADMIN_JWT_AUDIENCE });
+
+    if (decoded.typ !== 'admin') {
+      return res.status(401).json({ message: 'Invalid token type' });
+    }
+
     const admin = await Admin.findById(decoded.id).select('-password');
-    
+
     if (!admin) {
       return res.status(401).json({ message: 'Admin not found' });
     }
 
     if (!admin.isActive) {
       return res.status(403).json({ message: 'Account is deactivated' });
+    }
+
+    // Tokens issued before an admin force-logout are stale
+    if ((decoded.tv || 0) < (admin.tokenVersion || 0)) {
+      return res.status(401).json({ message: 'Token has been revoked', code: 'TOKEN_REVOKED' });
     }
 
     req.admin = admin;
@@ -38,6 +62,12 @@ const verifyToken = async (req, res, next) => {
 // Check if setup is needed (no admins exist)
 router.get('/setup/check', async (req, res) => {
   try {
+    if (process.env.ADMIN_SETUP_ENABLED !== 'true') {
+      return res.json({
+        setupRequired: false,
+        message: 'First-time setup is disabled'
+      });
+    }
     const hasAdmins = await Admin.hasAdmins();
     res.json({ 
       setupRequired: !hasAdmins,
@@ -50,7 +80,11 @@ router.get('/setup/check', async (req, res) => {
 });
 
 // First-time setup - Create initial admin
+// Gated behind ADMIN_SETUP_ENABLED — a public takeover path otherwise.
 router.post('/setup', async (req, res) => {
+  if (process.env.ADMIN_SETUP_ENABLED !== 'true') {
+    return res.status(404).json({ message: 'Not found' });
+  }
   try {
     const { username, password, email } = req.body;
 
@@ -92,11 +126,7 @@ router.post('/setup', async (req, res) => {
     await admin.save();
 
     // Generate JWT token
-    const token = jwt.sign(
-      { id: admin._id, username: admin.username, role: admin.role },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    const token = signAdminToken(admin);
 
     console.log(`✅ First admin created: ${admin.username}`);
 
@@ -171,11 +201,7 @@ router.post('/login', async (req, res) => {
     await admin.save();
 
     // Generate JWT token
-    const token = jwt.sign(
-      { id: admin._id, username: admin.username, role: admin.role },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    const token = signAdminToken(admin);
 
     console.log(`✅ Admin logged in: ${admin.username}`);
 
@@ -260,10 +286,10 @@ router.post('/change-password', verifyToken, async (req, res) => {
   }
 });
 
-// Get all admins (super_admin only)
+// Get all admins (owner / super_admin only)
 router.get('/admins', verifyToken, async (req, res) => {
   try {
-    if (req.admin.role !== 'super_admin') {
+    if (!isElevatedRole(req.admin.role)) {
       return res.status(403).json({ message: 'Access denied. Super admin only.' });
     }
 
@@ -275,14 +301,22 @@ router.get('/admins', verifyToken, async (req, res) => {
   }
 });
 
-// Create new admin (super_admin only)
+// Create new admin (owner / super_admin only)
 router.post('/admins', verifyToken, async (req, res) => {
   try {
-    if (req.admin.role !== 'super_admin') {
+    if (!isElevatedRole(req.admin.role)) {
       return res.status(403).json({ message: 'Access denied. Super admin only.' });
     }
 
     const { username, password, email, role, permissions } = req.body;
+
+    if (role === 'owner') {
+      return res.status(403).json({ message: 'The owner role cannot be assigned' });
+    }
+
+    if (role === 'super_admin' && req.admin.role !== 'owner') {
+      return res.status(403).json({ message: 'Only the owner can create super admin accounts' });
+    }
 
     if (!username || !password) {
       return res.status(400).json({ message: 'Username and password are required' });
@@ -300,6 +334,18 @@ router.post('/admins', verifyToken, async (req, res) => {
     await admin.save();
 
     console.log(`✅ New admin created: ${admin.username} by ${req.admin.username}`);
+
+    recordAdminAction({
+      adminId: req.admin._id,
+      adminUsername: req.admin.username,
+      adminRole: req.admin.role,
+      ip: req.ip,
+      action: 'admin.create',
+      targetType: 'admin',
+      targetId: admin._id,
+      after: { username: admin.username, email: admin.email, role: admin.role },
+      result: 'success'
+    }).catch(error => console.error('❌ [AUDIT] Failed to record admin.create:', error.message));
 
     res.status(201).json({
       message: 'Admin created successfully',

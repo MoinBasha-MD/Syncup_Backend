@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const AIInstance = require('../models/aiInstanceModel');
 const User = require('../models/userModel');
+const { getAccountBlock, isTokenStale } = require('../utils/accountState');
 const winston = require('winston');
 
 // Configure logger for AI Auth Middleware
@@ -159,6 +160,35 @@ class AIAuthMiddleware {
           success: false,
           error: 'User not found',
           code: 'USER_NOT_FOUND'
+        });
+      }
+
+      // Admin-set account state (banned/suspended/deleted)
+      const accountBlock = getAccountBlock(user);
+      if (accountBlock) {
+        return res.status(403).json({
+          success: false,
+          error: accountBlock.message,
+          code: accountBlock.code,
+          ...(accountBlock.until ? { until: accountBlock.until } : {})
+        });
+      }
+
+      // Force-logged-out users: tokens issued before the last bump are dead
+      if (isTokenStale(decoded, user)) {
+        return res.status(401).json({
+          success: false,
+          error: 'Token has been revoked',
+          code: 'TOKEN_REVOKED'
+        });
+      }
+
+      // Impersonation tokens are read-only
+      if (decoded.tokenType === 'impersonation' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Impersonation sessions are read-only',
+          code: 'IMPERSONATION_READ_ONLY'
         });
       }
 

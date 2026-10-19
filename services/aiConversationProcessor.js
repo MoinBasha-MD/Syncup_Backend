@@ -1,3 +1,8 @@
+/**
+ * DEPRECATED — Phase 3 retired the autonomous AI-to-AI mock. Kept for
+ * reference only; the /api/ai/conversation/complete route now returns 410
+ * MAYA_REQUESTS_MOVED. Do not wire this back into routes.
+ */
 const AIAssistant = require('../models/aiAssistantModel');
 const AIConversation = require('../models/aiConversationModel');
 const User = require('../models/userModel');

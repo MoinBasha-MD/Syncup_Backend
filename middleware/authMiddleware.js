@@ -1,7 +1,29 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
 const DeviceSession = require('../models/DeviceSession');
-const { UnauthorizedError } = require('../utils/errorClasses');
+const { UnauthorizedError, ForbiddenError } = require('../utils/errorClasses');
+const { getAccountBlock, isTokenStale } = require('../utils/accountState');
+
+const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+const blockedAccountError = (block) => {
+  const error = new ForbiddenError(block.message);
+  error.code = block.code;
+  if (block.until) error.until = block.until;
+  return error;
+};
+
+const revokedTokenError = () => {
+  const error = new UnauthorizedError('Token has been revoked');
+  error.code = 'TOKEN_REVOKED';
+  return error;
+};
+
+const impersonationWriteError = () => {
+  const error = new ForbiddenError('Impersonation sessions are read-only');
+  error.code = 'IMPERSONATION_READ_ONLY';
+  return error;
+};
 
 // Protect routes middleware
 const protect = async (req, res, next) => {
@@ -44,12 +66,26 @@ const protect = async (req, res, next) => {
         }
         user = await User.findOne({ userId: decoded.userId }).select('-password');
       } else {
+        // Covers both regular user tokens and impersonation tokens
         user = await User.findById(decoded.id).select('-password');
       }
-      
+
       if (!user) {
         console.log('❌ [AUTH MIDDLEWARE] User not found for token');
         throw new UnauthorizedError('User not found - token may be invalid');
+      }
+
+      // Admin-set account state (banned/suspended/deleted)
+      const accountBlock = getAccountBlock(user);
+      if (accountBlock) {
+        console.log('❌ [AUTH MIDDLEWARE] Blocked account:', accountBlock.code);
+        throw blockedAccountError(accountBlock);
+      }
+
+      // Force-logged-out users: tokens issued before the last bump are dead
+      if (isTokenStale(decoded, user)) {
+        console.log('❌ [AUTH MIDDLEWARE] Stale token version');
+        throw revokedTokenError();
       }
 
       // Check if user account is active (if you have such field)
@@ -57,7 +93,12 @@ const protect = async (req, res, next) => {
         console.log('❌ [AUTH MIDDLEWARE] User account is deactivated');
         throw new UnauthorizedError('Account is deactivated');
       }
-      
+
+      // Impersonation tokens are read-only
+      if (decoded.tokenType === 'impersonation' && !READ_ONLY_METHODS.has(req.method)) {
+        throw impersonationWriteError();
+      }
+
       // Attach user to request object with explicit userId for compatibility
       req.user = {
         ...user.toObject(),
@@ -68,6 +109,9 @@ const protect = async (req, res, next) => {
         deviceId: decoded.deviceId || null,
         tokenType: decoded.tokenType || 'mobile',
       };
+      if (decoded.tokenType === 'impersonation') {
+        req.user.impersonatedBy = decoded.imp;
+      }
       
       next();
     } else {
@@ -139,13 +183,22 @@ const optionalProtect = async (req, res, next) => {
         } else {
           user = await User.findById(decoded.id).select('-password');
         }
-        if (user && user.isActive !== false) {
+        if (
+          user &&
+          user.isActive !== false &&
+          !getAccountBlock(user) &&
+          !isTokenStale(decoded, user) &&
+          !(decoded.tokenType === 'impersonation' && !READ_ONLY_METHODS.has(req.method))
+        ) {
           req.user = {
             ...user.toObject(),
             id: user._id,
             userId: user.userId,
             _id: user._id
           };
+          if (decoded.tokenType === 'impersonation') {
+            req.user.impersonatedBy = decoded.imp;
+          }
         }
       }
     }

@@ -322,7 +322,7 @@ class FCMNotificationService {
    * @param {object} envelope built by notificationDispatcher.buildEnvelope
    * @param {string} accentColor hex colour for the tray icon tint
    */
-  async sendEnvelopeNotification(userId, envelope, accentColor) {
+  async sendEnvelopeNotification(userId, envelope, accentColor, opts = {}) {
     if (!this.fcmEnabled) {
       console.log('⚠️ [FCM] FCM is disabled - skipping notification');
       return { success: false, reason: 'FCM disabled' };
@@ -350,32 +350,47 @@ class FCMNotificationService {
         ...(envelope.avatar ? { avatar: withMediaToken(envelope.avatar, userId) } : {}),
       };
 
+      // Silent (data-only) push for DND/Sleeping recipients — wakes the app
+      // so the request is there when they look, without making noise now.
+      const silent = opts.silent === true;
+
       const message = {
-        notification: {
-          title: envelope.title,
-          body: envelope.body,
-          ...(pushEnvelope.image ? { imageUrl: pushEnvelope.image } : {}),
-        },
+        ...(silent
+          ? {}
+          : {
+              notification: {
+                title: envelope.title,
+                body: envelope.body,
+                ...(pushEnvelope.image ? { imageUrl: pushEnvelope.image } : {}),
+              },
+            }),
         data: toPushData(pushEnvelope),
         tokens: tokens,
         android: {
           priority: 'high',
-          notification: {
-            channelId: 'syncup-general-channel',
-            color: accentColor || '#8B5CF6',
-            ...(envelope.groupKey ? { tag: envelope.groupKey } : {}),
-            icon: 'ic_notification',
-            sound: 'default',
-            priority: 'high',
-          },
+          ...(silent
+            ? {}
+            : {
+                notification: {
+                  channelId: 'syncup-general-channel',
+                  color: accentColor || '#8B5CF6',
+                  ...(envelope.groupKey ? { tag: envelope.groupKey } : {}),
+                  icon: 'ic_notification',
+                  sound: 'default',
+                  priority: 'high',
+                },
+              }),
         },
         apns: {
+          ...(silent ? { headers: { 'apns-push-type': 'background', 'apns-priority': '5' } } : {}),
           payload: {
-            aps: {
-              sound: 'default',
-              ...(envelope.groupKey ? { 'thread-id': envelope.groupKey } : {}),
-              ...(envelope.image ? { 'mutable-content': 1 } : {}),
-            },
+            aps: silent
+              ? { 'content-available': 1 }
+              : {
+                  sound: 'default',
+                  ...(envelope.groupKey ? { 'thread-id': envelope.groupKey } : {}),
+                  ...(envelope.image ? { 'mutable-content': 1 } : {}),
+                },
           },
         },
       };

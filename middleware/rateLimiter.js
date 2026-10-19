@@ -228,6 +228,54 @@ const sensitiveVerifyLimiter = rateLimit({
   }
 });
 
+/**
+ * Admin v2 MFA endpoints — tighter than sessions, looser than login.
+ * Limit: 10 attempts per 15 minutes per IP. Every attempt counts.
+ */
+const adminMfaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    success: false,
+    message: 'Too many verification attempts. Please try again in 15 minutes.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    console.warn(`⚠️ [RATE LIMIT] Admin MFA limit exceeded for IP ${req.ip}`);
+    res.status(429).json({
+      ok: false,
+      code: 'RATE_LIMITED',
+      message: 'Too many verification attempts. Please try again later.'
+    });
+  }
+});
+
+/**
+ * Admin v2 session endpoints (refresh/logout/step-up) — generous, routine use.
+ * Limit: 120 per 15 minutes per IP.
+ */
+const adminSessionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  message: {
+    success: false,
+    message: 'Too many requests. Please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    console.warn(`⚠️ [RATE LIMIT] Admin session limit exceeded for IP ${req.ip}`);
+    res.status(429).json({
+      ok: false,
+      code: 'RATE_LIMITED',
+      message: 'Too many requests. Please try again later.'
+    });
+  }
+});
+
 module.exports = {
   postCreationLimiter,
   commentLimiter,
@@ -236,5 +284,7 @@ module.exports = {
   pageCreationLimiter,
   generalLimiter,
   authLimiter,
-  sensitiveVerifyLimiter
+  sensitiveVerifyLimiter,
+  adminMfaLimiter,
+  adminSessionLimiter
 };

@@ -3,7 +3,8 @@ const AIConversation = require('../models/aiConversationModel');
 const User = require('../models/userModel');
 const StatusService = require('../services/statusService');
 const { broadcastToUser } = require('../socketManager');
-const aiConversationProcessor = require('../services/aiConversationProcessor');
+// DEPRECATED — the autonomous AI-to-AI mock was retired; see 410 handler below.
+const aiConversationProcessor = require('../services/aiConversationProcessor'); // eslint-disable-line no-unused-vars
 
 /**
  * AI-to-AI Message Controller
@@ -547,47 +548,15 @@ const generateAutonomousAIResponse = async (receiverAI, incomingMessage) => {
   }
 };
 
-// Process complete AI-to-AI conversation
+// Process complete AI-to-AI conversation — RETIRED.
+// Maya-to-Maya requests moved to /api/maya/requests; the friend always
+// decides — nothing is auto-negotiated or accepted on their behalf.
 const processCompleteAIConversation = async (req, res) => {
-  try {
-    const { fromUserId, toUserId, activity, timeframe, urgency } = req.body;
-
-    console.log(`🎭 Processing complete AI conversation: ${fromUserId} → ${toUserId} for ${activity}`);
-
-    // Use the AI conversation processor
-    const result = await aiConversationProcessor.processAIConversation(
-      fromUserId,
-      toUserId,
-      activity,
-      { timeframe, urgency }
-    );
-
-    if (result.success) {
-      res.json({
-        success: true,
-        message: 'AI conversation completed successfully',
-        data: {
-          conversationId: result.conversationId,
-          summary: result.result.finalResult.summary,
-          steps: result.result.conversationSteps.length
-        }
-      });
-    } else {
-      res.status(400).json({
-        success: false,
-        message: 'AI conversation failed',
-        error: result.error
-      });
-    }
-
-  } catch (error) {
-    console.error('❌ Error processing complete AI conversation:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to process AI conversation',
-      error: error.message
-    });
-  }
+  res.status(410).json({
+    success: false,
+    code: 'MAYA_REQUESTS_MOVED',
+    message: 'AI-to-AI conversation mocks were retired. Use Maya requests.'
+  });
 };
 
 module.exports = {

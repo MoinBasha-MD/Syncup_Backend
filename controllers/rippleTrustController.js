@@ -333,6 +333,11 @@ const reportRipple = asyncHandler(async (req, res) => {
       reason,
       details: String(req.body.details || '').slice(0, 1000),
     });
+    try {
+      require('../services/adminSocket').emitAdminEvent('report:new', {
+        rippleId: String(ripple._id), reportedUserId: ripple.hostUserId, reason,
+      });
+    } catch { /* admin socket optional */ }
   } catch (error) {
     if (error?.code === 11000) return res.status(200).json({ success: true, idempotent: true });
     throw error;

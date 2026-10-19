@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const DeviceLinkChallenge = require('../models/DeviceLinkChallenge');
 const DeviceSession = require('../models/DeviceSession');
+const User = require('../models/userModel');
 const { generateDeskToken, generateRefreshToken } = require('../utils/generateToken');
 const rateLimit = require('express-rate-limit');
 
@@ -245,13 +246,15 @@ const activateSession = async (req, res) => {
       metadata
     );
 
+    const tokenUser = await User.findOne({ userId: session.userId }).select('tokenVersion').lean();
     const accessToken = generateDeskToken(
       session._id.toString(),
       session.userId,
       {
         sessionId: session.sessionId,
         deviceId: session.deviceId,
-      }
+      },
+      tokenUser?.tokenVersion || 0
     );
 
     console.log(`✅ [ACTIVATE] Session created: ${session.sessionId} for user ${challenge.userId}`);
@@ -295,13 +298,15 @@ const refreshSession = async (req, res) => {
     session.lastSeenAt = new Date();
     await session.save();
 
+    const tokenUser = await User.findOne({ userId: session.userId }).select('tokenVersion').lean();
     const newAccessToken = generateDeskToken(
       session._id.toString(),
       session.userId,
       {
         sessionId: session.sessionId,
         deviceId: session.deviceId,
-      }
+      },
+      tokenUser?.tokenVersion || 0
     );
 
     res.json({

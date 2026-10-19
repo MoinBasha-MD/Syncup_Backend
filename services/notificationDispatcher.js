@@ -152,6 +152,7 @@ const dispatchNotification = async ({
   inApp,
   persist = true,
   push = true,
+  silentPush = false,
   socket = true,
   data = {},
 }) => {
@@ -186,6 +187,7 @@ const dispatchNotification = async ({
           toUserId,
           envelope,
           CATEGORY_COLORS[envelope.category],
+          { silent: silentPush },
         );
       }
     } catch (e) {

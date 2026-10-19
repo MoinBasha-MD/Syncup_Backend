@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const LogSanitizer = require('../utils/logSanitizer');
 const { encryptUserData, isUserDataEncrypted } = require('../utils/userEncryption');
+const { getAccountBlock } = require('../utils/accountState');
 const { registerUser: registerVerifiedUser } = require('./authController');
 
 // @desc    Register a new user
@@ -76,6 +77,19 @@ const loginUser = async (req, res) => {
     if (!isMatch) {
       console.log('❌ [LOGIN] Invalid password');
       return res.status(401).json({ message: 'Invalid phone number or password' });
+    }
+
+    // Refuse tokens for banned/suspended/deleted accounts
+    const accountBlock = getAccountBlock(user);
+    if (accountBlock) {
+      console.log('❌ [LOGIN] Blocked account login:', accountBlock.code);
+      return res.status(403).json({
+        success: false,
+        code: accountBlock.code,
+        message: accountBlock.message,
+        ...(accountBlock.until ? { until: accountBlock.until } : {}),
+        ...(accountBlock.reason ? { reason: accountBlock.reason } : {})
+      });
     }
 
     // Check if status timer has expired
