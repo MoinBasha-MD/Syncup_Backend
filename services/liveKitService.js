@@ -16,18 +16,28 @@
 const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 const { TrackSource } = require('@livekit/protocol');
 
-const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
+// Read lazily: server.js requires this module before it calls dotenv.config(),
+// so capturing process.env at load time would see the vars as undefined.
+const env = () => ({
+  url: process.env.LIVEKIT_URL,
+  key: process.env.LIVEKIT_API_KEY,
+  secret: process.env.LIVEKIT_API_SECRET,
+});
 
-const isConfigured = () => !!(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
+const isConfigured = () => {
+  const { url, key, secret } = env();
+  return !!(url && key && secret);
+};
 
 /** HTTP(S) form of LIVEKIT_URL — the admin/room-service API needs http(s), not ws(s). */
-const httpUrl = () => (LIVEKIT_URL || '').replace(/^ws/, 'http');
+const httpUrl = () => (env().url || '').replace(/^ws/, 'http');
 
 let roomServiceClient = null;
 const getRoomService = () => {
   if (!isConfigured()) return null;
   if (!roomServiceClient) {
-    roomServiceClient = new RoomServiceClient(httpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+    const { key, secret } = env();
+    roomServiceClient = new RoomServiceClient(httpUrl(), key, secret);
   }
   return roomServiceClient;
 };
@@ -45,7 +55,8 @@ const createToken = async ({ identity, name, room, canPublish, ttl = '4h', publi
     err.code = 'LIVE_NOT_CONFIGURED';
     throw err;
   }
-  const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+  const { key, secret } = env();
+  const at = new AccessToken(key, secret, {
     identity,
     name,
     ttl,
