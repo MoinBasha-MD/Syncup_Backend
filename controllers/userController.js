@@ -157,7 +157,8 @@ const getUserProfile = async (req, res) => {
         gender: user.gender,
         username: user.username,
         bio: user.bio,
-        isPublic: user.isPublic
+        isPublic: user.isPublic,
+        language: user.language
       });
     } else {
       res.status(404).json({ message: 'User not found' });
@@ -632,7 +633,9 @@ const getUserByUserId = async (req, res) => {
         // Global discovery fields
         isPublic: user.isPublic,
         username: user.username,
-        bio: user.bio
+        bio: user.bio,
+        // Language is a private preference — only return it to the owner
+        ...(req.user && user.userId === req.user.userId ? { language: user.language } : {})
       }
     });
   } catch (error) {
@@ -756,9 +759,11 @@ const getUserByPhone = async (req, res) => {
 // @desc    Update user profile with username and public settings
 // @route   PUT /api/users/profile
 // @access  Private
+const SUPPORTED_LANGUAGES = ['en', 'hi', 'ta', 'te', 'ml', 'kn'];
+
 const updateUserProfileWithDiscovery = async (req, res) => {
   try {
-    const { name, username, bio, isPublic, dateOfBirth, gender, email, phoneNumber, password } = req.body;
+    const { name, username, bio, isPublic, dateOfBirth, gender, email, phoneNumber, password, language } = req.body;
     const user = await User.findById(req.user.id);
 
     if (!user) {
@@ -786,6 +791,15 @@ const updateUserProfileWithDiscovery = async (req, res) => {
     if (typeof isPublic === 'boolean') user.isPublic = isPublic;
     if (dateOfBirth) user.dateOfBirth = dateOfBirth;
     if (gender) user.gender = gender;
+    if (language !== undefined) {
+      if (!SUPPORTED_LANGUAGES.includes(language)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Unsupported language'
+        });
+      }
+      user.language = language;
+    }
     
     // Handle email update
     if (email && email !== user.email) {
@@ -894,7 +908,8 @@ const updateUserProfileWithDiscovery = async (req, res) => {
         gender: user.gender,
         username: user.username,
         bio: user.bio,
-        isPublic: user.isPublic
+        isPublic: user.isPublic,
+        language: user.language
       },
       message: 'Profile updated successfully'
     });

@@ -25,7 +25,7 @@ const createStatusTemplate = asyncHandler(async (req, res) => {
 
   // FIXED: Allow custom status without duration (for status templates)
   // Allow custom duration without status (for duration templates)
-  if (!name) {
+  if (typeof name !== 'string' || !name.trim()) {
     res.status(400);
     throw new Error('Name is required');
   }
@@ -37,19 +37,21 @@ const createStatusTemplate = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(req.user._id);
+  const resolvedDuration = duration ?? mainDuration ?? 0;
+  const resolvedMainDuration = mainDuration ?? duration ?? 0;
 
   const statusTemplate = await StatusTemplate.create({
     user: req.user._id,
     userId: user.userId,
-    name,
+    name: name.trim(),
     // OLD FORMAT
     status: status || mainStatus,
     customStatus: customStatus || mainStatus,
-    duration: duration || mainDuration,
+    duration: resolvedDuration,
     // NEW: Hierarchical
-    mainStatus: mainStatus || status,
-    mainDuration: mainDuration || duration,
-    mainDurationLabel: mainDurationLabel || `${mainDuration || duration} min`,
+    mainStatus: mainStatus || customStatus || status,
+    mainDuration: resolvedMainDuration,
+    mainDurationLabel: mainDurationLabel || (resolvedMainDuration ? `${resolvedMainDuration} min` : 'No duration'),
     subStatus,
     subDuration,
     subDurationLabel,
@@ -109,7 +111,7 @@ const deleteStatusTemplate = asyncHandler(async (req, res) => {
     throw new Error('Not authorized to delete this status template');
   }
 
-  await statusTemplate.remove();
+  await statusTemplate.deleteOne();
   res.json({ message: 'Status template removed' });
 });
 

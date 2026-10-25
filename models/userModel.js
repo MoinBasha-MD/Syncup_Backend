@@ -285,6 +285,13 @@ const userSchema = mongoose.Schema(
       type: Boolean,
       default: false
     },
+    // Preferred UI language; null means "never chosen" so the app can tell it
+    // apart from an explicit English choice
+    language: {
+      type: String,
+      enum: ['en', 'hi', 'ta', 'te', 'ml', 'kn', null],
+      default: null
+    },
     username: {
       type: String,
       unique: true,
