@@ -87,8 +87,16 @@ const buildVisibilityFilter = (viewerUserId, ctx) => ({
   ],
 });
 
+/** May this viewer watch, read and interact with a live broadcast? */
+const canWatchLive = (session, userId, ctx) => {
+  if (session.hostUserId === userId) return true;
+  if (ctx.blockedIds.has(session.hostUserId)) return false;
+  return session.visibility !== 'friends' || ctx.friendIds.has(session.hostUserId);
+};
+
 module.exports = {
   getViewerContext,
   buildVisibilityFilter,
   computeFriendIds,
+  canWatchLive,
 };

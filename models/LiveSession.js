@@ -31,6 +31,8 @@ const liveSessionSchema = new mongoose.Schema(
     startedAt: { type: Date, default: Date.now },
     endedAt: { type: Date, default: null },
 
+    // Distinct viewers; viewerCount is always derived from this set.
+    viewerIds: { type: [String], default: [], select: false },
     viewerCount: { type: Number, default: 0 },
     peakViewerCount: { type: Number, default: 0 },
     // Floating-heart taps, incremented in batches via POST /live/:id/react.
@@ -41,6 +43,12 @@ const liveSessionSchema = new mongoose.Schema(
 
 liveSessionSchema.index({ status: 1, startedAt: -1 });
 liveSessionSchema.index({ hostUserId: 1, status: 1 });
+// One live broadcast per host — closes the concurrent startLive race.
+liveSessionSchema.index(
+  { hostUserId: 1 },
+  // Named explicitly: the default name would collide with hostUserId's own index.
+  { name: 'one_live_session_per_host', unique: true, partialFilterExpression: { status: 'live' } },
+);
 
 const LiveSession = mongoose.model('LiveSession', liveSessionSchema);
 

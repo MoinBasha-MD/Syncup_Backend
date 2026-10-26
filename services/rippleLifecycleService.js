@@ -19,6 +19,10 @@ const RippleEvent = require('../models/RippleEvent');
 const getSocketManager = () => require('../socketManager');
 
 const WRAP_WINDOW_MS = 48 * 60 * 60 * 1000;
+/** Every Ripple ends: an unset end time defaults to a week after its start. */
+const DEFAULT_RIPPLE_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const defaultExpiresAt = (startAt, now = new Date()) =>
+  new Date((startAt || now).getTime() + DEFAULT_RIPPLE_DURATION_MS);
 
 /** Best-effort system timeline entry; never allowed to fail the run. */
 const addSystemEvent = async (rippleId, body) => {
@@ -43,6 +47,13 @@ async function runRippleLifecycle() {
   let frozen = 0;
 
   try {
+    // Legacy active Ripples saved without an end time would never auto-end.
+    // Shorts are excluded: they have no time window and stay open.
+    await Ripple.updateMany(
+      { lifecycle: 'active', expiresAt: null, kind: { $ne: 'short' } },
+      { $set: { expiresAt: defaultExpiresAt(null, now) } },
+    );
+
     // --- scheduled -> active ---
     const toActivate = await Ripple.find({
       lifecycle: 'scheduled',
@@ -123,4 +134,4 @@ async function runRippleLifecycle() {
   return { started, ended, frozen };
 }
 
-module.exports = { runRippleLifecycle, WRAP_WINDOW_MS };
+module.exports = { runRippleLifecycle, WRAP_WINDOW_MS, DEFAULT_RIPPLE_DURATION_MS, defaultExpiresAt };

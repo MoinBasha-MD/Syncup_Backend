@@ -35,6 +35,7 @@ const {
   toConnectionDto,
   toMessageDto,
   toChatSummary,
+  chatPreviewOf,
 } = require('../utils/openNetworkPeopleDto');
 const getSocketManager = () => require('../socketManager');
 const { validateEnvelope, isE2eeV2, e2eeOpenEnforced } = require('../utils/e2eeEnvelope');
@@ -472,6 +473,14 @@ const sharesRipple = async (aId, bId) => {
   return [...aIds].some((id) => bIds.has(id));
 };
 
+/** Can this viewer see the Ripple? Gates any Ripple reference shown to someone else. */
+const canViewRipple = async (rippleId, ctx, userId) => {
+  const ripple = await Ripple.findById(rippleId).lean();
+  if (!ripple) return false;
+  const member = await Rippler.findOne({ rippleId, userId }).lean();
+  return canView(ripple, member, ctx, userId);
+};
+
 /**
  * Syncup friends get an implicit accepted ON connection — no request, no
  * notification. Finds the pair row or creates it accepted; upgrades a
@@ -596,6 +605,11 @@ const createConnection = asyncHandler(async (req, res) => {
     throw err(NotFoundError, 'Person not found', 'PERSON_NOT_FOUND');
   }
 
+  // The recipient sees this Ripple's title, so only keep a reference the
+  // requester could view themselves.
+  const contextRippleId =
+    rippleId && (await canViewRipple(rippleId, ctx, userId)) ? rippleId : null;
+
   const pk = pairKey(userId, toUserId);
   let conn = await OpenConnection.findOne({ pairKey: pk });
 
@@ -648,7 +662,7 @@ const createConnection = asyncHandler(async (req, res) => {
     conn.recipientId = toUserId;
     conn.status = 'pending';
     conn.note = note;
-    conn.contextRippleId = rippleId;
+    conn.contextRippleId = contextRippleId;
     conn.requestedAt = new Date();
     conn.respondedAt = null;
     conn.acceptedAt = null;
@@ -661,7 +675,7 @@ const createConnection = asyncHandler(async (req, res) => {
         pairKey: pk,
         status: 'pending',
         note,
-        contextRippleId: rippleId,
+        contextRippleId,
         requestedAt: new Date(),
       });
     } catch (e) {
@@ -682,7 +696,7 @@ const createConnection = asyncHandler(async (req, res) => {
   const [myProfile, me, contextRipple] = await Promise.all([
     OpenNetworkProfile.findOne({ userId }).lean(),
     User.findOne({ userId }).select('userId name profileImage').lean(),
-    rippleId ? Ripple.findById(rippleId).select('title').lean() : null,
+    contextRippleId ? Ripple.findById(contextRippleId).select('title').lean() : null,
   ]);
   const dto = toConnectionDto(conn, toPersonMini(myProfile, me), contextRipple?.title || null);
   await notifyUser({
@@ -757,6 +771,16 @@ const listConnections = asyncHandler(async (req, res) => {
   });
 });
 
+/** Connection DTO from the viewer's side — the other party is hydrated. */
+const connectionReply = async (conn, viewerId) => {
+  const otherId = conn.requesterId === viewerId ? conn.recipientId : conn.requesterId;
+  const [profile, user] = await Promise.all([
+    OpenNetworkProfile.findOne({ userId: otherId }).lean(),
+    User.findOne({ userId: otherId }).select('userId name profileImage').lean(),
+  ]);
+  return toConnectionDto(conn, toPersonMini(profile, user));
+};
+
 const loadConnection = async (req) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     throw err(NotFoundError, 'Connection not found', 'CONNECTION_NOT_FOUND');
@@ -776,13 +800,21 @@ const acceptConnectionEndpoint = asyncHandler(async (req, res) => {
   }
   if (conn.status === 'accepted') {
     const chat = await OpenChat.findOrCreate(conn.requesterId, conn.recipientId, conn._id);
-    return res.status(200).json({ success: true, connection: conn, chatId: String(chat._id) });
+    return res.status(200).json({
+      success: true,
+      connection: await connectionReply(conn, req.user.userId),
+      chatId: String(chat._id),
+    });
   }
   if (conn.status !== 'pending') {
     throw err(BadRequestError, 'This request is no longer pending', 'NOT_PENDING');
   }
   const { conn: saved, chat } = await acceptConnection(conn);
-  res.status(200).json({ success: true, connection: saved, chatId: String(chat._id) });
+  res.status(200).json({
+    success: true,
+    connection: await connectionReply(saved, req.user.userId),
+    chatId: String(chat._id),
+  });
 });
 
 // @route POST /api/open-network/connections/:id/decline
@@ -797,7 +829,7 @@ const declineConnection = asyncHandler(async (req, res) => {
   conn.status = 'declined';
   conn.respondedAt = new Date();
   await conn.save();
-  res.status(200).json({ success: true, connection: conn });
+  res.status(200).json({ success: true, connection: await connectionReply(conn, req.user.userId) });
 });
 
 // @route POST /api/open-network/connections/:id/withdraw
@@ -812,7 +844,7 @@ const withdrawConnection = asyncHandler(async (req, res) => {
   conn.status = 'withdrawn';
   conn.respondedAt = new Date();
   await conn.save();
-  res.status(200).json({ success: true, connection: conn });
+  res.status(200).json({ success: true, connection: await connectionReply(conn, req.user.userId) });
 });
 
 // @route DELETE /api/open-network/connections/:id — remove an accepted link
@@ -939,6 +971,7 @@ const listMessages = asyncHandler(async (req, res) => {
     messages: page.map(toMessageDto),
     nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
     otherReadAt: otherReadAt ? new Date(otherReadAt).toISOString() : null,
+    muted: !!chat.mutedBy?.includes(userId),
   });
 });
 
@@ -1192,7 +1225,14 @@ const deleteMessage = asyncHandler(async (req, res) => {
   message.deleted = true;
   message.body = '';
   message.imageUrl = null;
+  message.set({ e2ee: undefined, rippleSnapshot: undefined });
   await message.save();
+  // The inbox preview must not keep the deleted text or envelope — rebuild it
+  // from the newest message that is still live (or clear it if none is left).
+  const newest = await OpenMessage.findOne({ chatId: chat._id, deleted: { $ne: true } })
+    .sort({ _id: -1 })
+    .lean();
+  await OpenChat.updateOne({ _id: chat._id }, { $set: { lastMessage: chatPreviewOf(newest) } });
   try {
     chat.participants.forEach((p) => {
       getSocketManager().broadcastToUser(p, 'open-network:message:deleted', {

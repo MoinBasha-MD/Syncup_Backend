@@ -155,6 +155,7 @@ const rippleSchema = new mongoose.Schema(
     startAt: { type: Date, default: null },
     expiresAt: { type: Date, default: null },
     wrapUntil: { type: Date, default: null },
+    lastActivityAt: { type: Date, default: null },
     capacity: { type: Number, default: null },
     counts: {
       ripplers: { type: Number, default: 0 },

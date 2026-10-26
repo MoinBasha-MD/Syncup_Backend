@@ -94,6 +94,25 @@ const toMessageDto = (m) => ({
   createdAt: m.createdAt ? new Date(m.createdAt).toISOString() : null,
 });
 
+/**
+ * Chat-list preview derived from a message. Used when the newest message is
+ * deleted so the inbox never keeps showing its body or E2EE envelope.
+ */
+const chatPreviewOf = (m) => {
+  if (!m) return { body: '', type: null, senderId: null, at: null };
+  const v2 = m.e2ee?.v === 2;
+  const body = v2
+    ? ''
+    : m.type === 'text' ? m.body : m.type === 'image' ? '📷 Photo' : m.rippleSnapshot?.title || '';
+  return {
+    body: String(body || '').slice(0, 120),
+    type: m.type,
+    senderId: m.senderId,
+    at: m.createdAt,
+    ...(v2 ? { lastE2ee: { v: 2, envelope: m.e2ee.envelope } } : {}),
+  };
+};
+
 const toChatSummary = (chat, other, extras = {}) => ({
   chatId: String(chat._id),
   other,
@@ -121,5 +140,6 @@ module.exports = {
   toPersonSummary,
   toConnectionDto,
   toMessageDto,
+  chatPreviewOf,
   toChatSummary,
 };

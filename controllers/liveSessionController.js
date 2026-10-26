@@ -4,11 +4,17 @@ const mongoose = require('mongoose');
 const LiveSession = require('../models/LiveSession');
 const LiveChatMessage = require('../models/LiveChatMessage');
 const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/errorClasses');
-const { getViewerContext } = require('../services/openNetworkVisibility');
+const { getViewerContext, canWatchLive } = require('../services/openNetworkVisibility');
 const { notifyLiveStarted } = require('../services/openNetworkNotify');
 const liveKitService = require('../services/liveKitService');
 
 const toIso = (d) => (d ? new Date(d).toISOString() : null);
+
+const err = (ErrorClass, message, code) => {
+  const e = new ErrorClass(message);
+  e.code = code;
+  return e;
+};
 
 const toLiveSummary = (session) => ({
   id: String(session._id),
@@ -24,6 +30,17 @@ const toLiveSummary = (session) => ({
   viewerCount: session.viewerCount || 0,
   reactionCount: session.reactionCount || 0,
 });
+
+/**
+ * Atomic viewer-set update; the count and peak are derived in the same write.
+ * Sessions created before viewerIds existed have no field, so it's read as [].
+ */
+const VIEWER_IDS = { $ifNull: ['$viewerIds', []] };
+const countPipeline = (viewerIdsExpr) => [
+  { $set: { viewerIds: viewerIdsExpr } },
+  { $set: { viewerCount: { $size: '$viewerIds' } } },
+  { $set: { peakViewerCount: { $max: ['$peakViewerCount', '$viewerCount'] } } },
+];
 
 const MAX_LIVE_TITLE = 120;
 const MAX_CHAT_LENGTH = 240;
@@ -60,6 +77,9 @@ const startLive = asyncHandler(async (req, res) => {
     title,
     roomName,
     visibility,
+  }).catch((e) => {
+    if (e?.code !== 11000) throw e;
+    throw err(BadRequestError, 'You are already live', 'ALREADY_LIVE');
   });
 
   // Tell the host's Syncup friends — fire-and-forget, throttled 10 min per
@@ -118,19 +138,23 @@ const loadActive = async (id) => {
   return session;
 };
 
+// Same gate for joining, reading, chatting and reacting — a blocked viewer
+// looks like a missing session; a non-friend on a friends-only one is refused.
+const assertCanWatch = async (session, userId) => {
+  if (session.hostUserId === userId) return;
+  const ctx = await getViewerContext(userId);
+  if (canWatchLive(session, userId, ctx)) return;
+  if (ctx.blockedIds.has(session.hostUserId)) {
+    throw err(NotFoundError, 'Live session not found', 'NOT_FOUND');
+  }
+  throw err(ForbiddenError, 'This live broadcast is friends-only', 'FORBIDDEN');
+};
+
 // @route POST /api/open-network/live/:id/join — viewer token (subscribe-only)
 const joinLive = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const session = await loadActive(req.params.id);
-
-  if (session.visibility === 'friends' && session.hostUserId !== userId) {
-    const ctx = await getViewerContext(userId);
-    if (!ctx.friendIds.has(session.hostUserId)) {
-      const err = new ForbiddenError('This live broadcast is friends-only');
-      err.code = 'FORBIDDEN';
-      throw err;
-    }
-  }
+  await assertCanWatch(session, userId);
 
   const token = await liveKitService.createToken({
     identity: userId,
@@ -139,15 +163,19 @@ const joinLive = asyncHandler(async (req, res) => {
     canPublish: false,
   });
 
+  let joined = session;
   if (session.hostUserId !== userId) {
-    session.viewerCount += 1;
-    session.peakViewerCount = Math.max(session.peakViewerCount, session.viewerCount);
-    await session.save();
+    joined = await LiveSession.findOneAndUpdate(
+      { _id: session._id, status: 'live' },
+      countPipeline({ $setUnion: [VIEWER_IDS, [userId]] }),
+      { new: true },
+    );
+    if (!joined) throw err(NotFoundError, 'Live session not found', 'NOT_FOUND');
   }
 
   res.status(200).json({
     success: true,
-    session: toLiveSummary(session),
+    session: toLiveSummary(joined),
     livekit: { url: process.env.LIVEKIT_URL, token, room: session.roomName },
   });
 });
@@ -158,11 +186,11 @@ const leaveLive = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(200).json({ success: true }); // already gone — no-op
   }
-  const session = await LiveSession.findById(req.params.id);
-  if (session && session.status === 'live' && session.hostUserId !== userId && session.viewerCount > 0) {
-    session.viewerCount -= 1;
-    await session.save();
-  }
+  // Only a recorded viewer can leave, so a stray leave never lowers the count.
+  await LiveSession.updateOne(
+    { _id: req.params.id, status: 'live', viewerIds: userId },
+    countPipeline({ $setDifference: [VIEWER_IDS, [userId]] }),
+  );
   res.status(200).json({ success: true });
 });
 
@@ -204,6 +232,7 @@ const getLiveMessages = asyncHandler(async (req, res) => {
     err.code = 'NOT_FOUND';
     throw err;
   }
+  await assertCanWatch(session, req.user.userId);
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
   const messages = await LiveChatMessage.find({ sessionId: session._id })
     .sort({ createdAt: -1 })
@@ -218,6 +247,7 @@ const getLiveMessages = asyncHandler(async (req, res) => {
 const postLiveMessage = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const session = await loadActive(req.params.id);
+  await assertCanWatch(session, userId);
   const text = String(req.body?.text || '').trim().slice(0, MAX_CHAT_LENGTH);
   if (!text) {
     const err = new BadRequestError('Message text is required');
@@ -236,6 +266,7 @@ const postLiveMessage = asyncHandler(async (req, res) => {
 // @route POST /api/open-network/live/:id/react — batched heart count.
 const addLiveReactions = asyncHandler(async (req, res) => {
   const session = await loadActive(req.params.id);
+  await assertCanWatch(session, req.user.userId);
   const count = Math.min(Math.max(parseInt(req.body?.count, 10) || 0, 1), MAX_REACTION_BATCH);
   const updated = await LiveSession.findByIdAndUpdate(
     session._id,

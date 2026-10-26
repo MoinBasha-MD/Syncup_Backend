@@ -17,7 +17,7 @@ const { notifyUser } = require('../services/openNetworkNotify');
 const getSocketManager = () => require('../socketManager');
 
 const MANAGER_ROLES = ['host', 'cohost'];
-const EVENT_TYPES = ['text', 'image', 'video', 'voice', 'location'];
+const EVENT_TYPES = ['text', 'image', 'video', 'location'];
 const ALLOWED_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥'];
 const MAX_MEDIA = 10;
 
@@ -137,7 +137,7 @@ const createEvent = asyncHandler(async (req, res) => {
 
   const idempotencyKey = req.get('Idempotency-Key') || req.get('idempotency-key') || null;
   if (idempotencyKey) {
-    const existing = await RippleEvent.findOne({ authorId: userId, idempotencyKey });
+    const existing = await RippleEvent.findOne({ authorId: userId, rippleId: ripple._id, idempotencyKey });
     if (existing) {
       await recordRippleInteractor(existing.rippleId, existing.authorId);
       return res.status(200).json({ success: true, idempotent: true, event: toEventDto(existing) });
@@ -156,7 +156,7 @@ const createEvent = asyncHandler(async (req, res) => {
   if (type === 'text' && !body) {
     throw err(BadRequestError, 'A text post needs a body', 'VALIDATION');
   }
-  if (['image', 'video', 'voice'].includes(type) && media.length === 0) {
+  if (['image', 'video'].includes(type) && media.length === 0) {
     throw err(BadRequestError, `A ${type} post needs at least one media item`, 'VALIDATION');
   }
   if (body.length > 2000) {
@@ -267,7 +267,9 @@ const listEvents = asyncHandler(async (req, res) => {
   }
 
   const limit = Math.min(Number(req.query.limit) || 20, 50);
-  const q = { rippleId: ripple._id, status: 'active' };
+  // Replies from anyone in a block relationship with the viewer are hidden.
+  const visibleAuthors = { $nin: [...ctx.blockedIds] };
+  const q = { rippleId: ripple._id, status: 'active', authorId: visibleAuthors };
   if (req.query.cursor && mongoose.Types.ObjectId.isValid(req.query.cursor)) {
     q._id = { $lt: req.query.cursor };
   }
@@ -286,6 +288,7 @@ const listEvents = asyncHandler(async (req, res) => {
       rippleId: ripple._id,
       status: 'active',
       pinned: true,
+      authorId: visibleAuthors,
     })
       .sort({ _id: -1 })
       .limit(5)

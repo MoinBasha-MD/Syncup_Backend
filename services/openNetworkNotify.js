@@ -100,7 +100,8 @@ const notifyUser = async ({
  */
 const NEARBY_THROTTLE_MS = 6 * 60 * 60 * 1000;
 const NEARBY_MAX_RADIUS_KM = 50;
-const NEARBY_DEFAULT_RADIUS_KM = 25;
+// Global / online-less reach has no km value; it notifies the widest nearby radius.
+const NEARBY_DEFAULT_RADIUS_KM = 50;
 const NEARBY_LIMIT = 200;
 const EARTH_RADIUS_KM = 6378.1;
 

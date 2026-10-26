@@ -43,8 +43,8 @@ const cellSizeForZoom = (zoom) => {
 const normalizeBbox = ({ swLng, swLat, neLng, neLat }) => {
   const south = Math.max(-90, Math.min(swLat, neLat));
   const north = Math.min(90, Math.max(swLat, neLat));
-  const west = Number(swLng);
-  const east = Number(neLng);
+  const west = Math.max(-180, Math.min(180, Number(swLng)));
+  const east = Math.max(-180, Math.min(180, Number(neLng)));
 
   if (west <= east) {
     return [{ swLng: west, swLat: south, neLng: east, neLat: north }];

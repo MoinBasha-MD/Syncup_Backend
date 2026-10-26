@@ -596,9 +596,12 @@ const getFeed = asyncHandler(async (req, res) => {
   // Text search — title, the place label, or the host name. ANDed with the
   // active section, so "search" stays scoped to whatever tab is open (Yours
   // searches your Ripples, Explore searches the public feed, etc.).
+  // A one-character query would match nearly every document as a substring,
+  // so it matches as a prefix instead; longer queries match anywhere.
   const q = String(req.query.q || '').trim().slice(0, 80);
   if (q) {
-    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(q.length === 1 ? `^${escaped}` : escaped, 'i');
     clauses.push({ $or: [{ title: rx }, { 'place.label': rx }, { hostName: rx }] });
   }
   if (typeList.length) clauses.push({ type: { $in: typeList } });

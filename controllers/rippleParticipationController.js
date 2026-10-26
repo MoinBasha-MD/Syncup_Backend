@@ -6,6 +6,7 @@ const RippleSupport = require('../models/RippleSupport');
 const GroupChat = require('../models/groupChatModel');
 const GroupMember = require('../models/groupMemberModel');
 const User = require('../models/userModel');
+const Notification = require('../models/Notification');
 const {
   BadRequestError,
   ForbiddenError,
@@ -23,6 +24,9 @@ const getSocketManager = () => require('../socketManager');
 
 const JOINABLE = ['active', 'scheduled'];
 const MANAGER_ROLES = ['host', 'cohost'];
+const REJECTED_REQUEST_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const INVITE_DAILY_LIMIT = 50;
 
 const err = (ErrorClass, message, code) => {
   const e = new ErrorClass(message);
@@ -76,6 +80,34 @@ const isManager = (ripple, member, userId) =>
 const isFull = (ripple) =>
   ripple.capacity != null && (ripple.counts?.ripplers ?? 0) >= ripple.capacity;
 
+/**
+ * Take a seat atomically: the capacity test and the increment are one write,
+ * so concurrent joins/approvals can't overshoot. Returns false when full.
+ */
+const claimSeat = async (rippleId, extraInc = {}) => {
+  const res = await Ripple.updateOne(
+    { _id: rippleId, $or: [{ capacity: null }, { $expr: { $lt: ['$counts.ripplers', '$capacity'] } }] },
+    { $inc: { 'counts.ripplers': 1, ...extraInc } },
+  );
+  return res.modifiedCount > 0;
+};
+const releaseSeat = (rippleId, extraInc = {}) =>
+  Ripple.updateOne({ _id: rippleId }, { $inc: { 'counts.ripplers': -1, ...extraInc } });
+
+/** requested → approved, exactly once even if two managers approve together. */
+const approvePending = async (ripple, memberId, approvedBy) => {
+  if (!(await claimSeat(ripple._id, { 'counts.pendingRequests': -1 }))) return 'full';
+  const res = await Rippler.updateOne(
+    { _id: memberId, status: 'requested' },
+    { $set: { status: 'approved', joinedAt: new Date(), approvedBy } },
+  );
+  if (!res.modifiedCount) {
+    await releaseSeat(ripple._id, { 'counts.pendingRequests': 1 });
+    return 'stale';
+  }
+  return 'approved';
+};
+
 /* ------------------------------------------------------------------ *
  *  Notifications — socket for in-app, FCM for offline, Notification   *
  *  record for the feed. Lock-screen text carries only the Ripple      *
@@ -106,6 +138,20 @@ const notifyRipple = ({ toUserId, fromUserId, ripple, kind, title, message }) =>
 const ensureGroupChat = async (ripple) => {
   if (ripple.groupChatId) return ripple.groupChatId;
 
+  // Claim the slot before creating anything: only the write that sees
+  // groupChatId still unset wins, so two openers can't both make a chat.
+  const chatId = new mongoose.Types.ObjectId();
+  const claim = await Ripple.updateOne(
+    { _id: ripple._id, groupChatId: null },
+    { $set: { groupChatId: chatId } },
+  );
+  if (!claim.modifiedCount) {
+    const fresh = await Ripple.findById(ripple._id).select('groupChatId').lean();
+    ripple.groupChatId = fresh?.groupChatId || null;
+    return ripple.groupChatId;
+  }
+  ripple.groupChatId = chatId;
+
   const approved = await Rippler.find({
     rippleId: ripple._id,
     status: 'approved',
@@ -118,6 +164,7 @@ const ensureGroupChat = async (ripple) => {
     .map((m) => m.userId);
 
   const groupChat = await GroupChat.create({
+    _id: chatId,
     groupName: (ripple.title || 'Ripple').slice(0, 100),
     description: ripple.description ? ripple.description.slice(0, 500) : '',
     groupImage: '',
@@ -125,6 +172,9 @@ const ensureGroupChat = async (ripple) => {
     admins: adminIds.length ? adminIds : [ripple.hostUserId],
     members: memberIds,
     memberCount: memberIds.length,
+  }).catch(async (e) => {
+    await Ripple.updateOne({ _id: ripple._id, groupChatId: chatId }, { $unset: { groupChatId: 1 } });
+    throw e;
   });
 
   await GroupMember.insertMany(
@@ -136,9 +186,6 @@ const ensureGroupChat = async (ripple) => {
       joinedAt: new Date(),
     })),
   );
-
-  ripple.groupChatId = groupChat._id;
-  await ripple.save();
 
   const notificationData = {
     type: 'group_created',
@@ -232,23 +279,33 @@ const joinRipple = asyncHandler(async (req, res) => {
   // does, via the shared 409 below.
   const acceptingInvite = !!existing && existing.status === 'invited';
 
-  // invite-only: only an invited row may proceed.
-  if (ripple.joinPolicy === 'invite' && !existing) {
+  // A declined request waits out a cooldown before it can be sent again.
+  if (
+    existing?.status === 'rejected' &&
+    Date.now() - new Date(existing.updatedAt).getTime() < REJECTED_REQUEST_COOLDOWN_MS
+  ) {
+    const e = err(BadRequestError, 'Your last request was declined — try again later', 'REQUEST_COOLDOWN');
+    e.statusCode = 429;
+    throw e;
+  }
+
+  // invite-only: only an invited row may proceed — a 'left' or 'rejected' row doesn't count.
+  if (ripple.joinPolicy === 'invite' && !acceptingInvite) {
     throw err(ForbiddenError, 'This Ripple is invite-only', 'RIPPLE_INVITE_ONLY');
   }
 
-  if (isFull(ripple)) {
-    const e = err(BadRequestError, 'This Ripple is full', 'RIPPLE_CAPACITY_FULL');
-    e.statusCode = 409;
-    return res.status(409).json({
+  const approveNow = ripple.joinPolicy === 'open' || acceptingInvite;
+  const sendFull = () =>
+    res.status(409).json({
       success: false,
       code: 'RIPPLE_CAPACITY_FULL',
-      message: e.message,
+      message: 'This Ripple is full',
       canFollow: true,
     });
-  }
+  // A request doesn't take a seat, so the cheap pre-check is enough for it.
+  if (!approveNow && isFull(ripple)) return sendFull();
+  if (approveNow && !(await claimSeat(ripple._id))) return sendFull();
 
-  const approveNow = ripple.joinPolicy === 'open' || acceptingInvite;
   const requestMessage = String(req.body.requestMessage || '').slice(0, 200);
 
   // Coarse origin only — city key + city centroid, never the user's real point.
@@ -267,24 +324,29 @@ const joinRipple = asyncHandler(async (req, res) => {
     }
   }
 
-  const member = await Rippler.findOneAndUpdate(
-    { rippleId: ripple._id, userId },
-    {
-      $set: {
-        role: 'rippler',
-        status: approveNow ? 'approved' : 'requested',
-        requestMessage,
-        joinedAt: approveNow ? new Date() : null,
-        ...(originCityKey ? { originCityKey } : {}),
-        ...(originCentroid ? { originCentroid } : {}),
+  let member;
+  try {
+    member = await Rippler.findOneAndUpdate(
+      { rippleId: ripple._id, userId },
+      {
+        $set: {
+          role: 'rippler',
+          status: approveNow ? 'approved' : 'requested',
+          requestMessage,
+          joinedAt: approveNow ? new Date() : null,
+          ...(originCityKey ? { originCityKey } : {}),
+          ...(originCentroid ? { originCentroid } : {}),
+        },
+        $setOnInsert: { rippleId: ripple._id, userId },
       },
-      $setOnInsert: { rippleId: ripple._id, userId },
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
-  );
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+  } catch (e) {
+    if (approveNow) await releaseSeat(ripple._id);
+    throw e;
+  }
 
   if (approveNow) {
-    await Ripple.updateOne({ _id: ripple._id }, { $inc: { 'counts.ripplers': 1 } });
     await recordRippleInteractor(ripple._id, userId);
     await addToGroupChat(ripple, userId);
   } else {
@@ -399,7 +461,7 @@ const getMembers = asyncHandler(async (req, res) => {
     q.status = 'approved';
   }
   if (role) q.role = role;
-  if (cursor) q._id = { $lt: cursor };
+  if (cursor && mongoose.Types.ObjectId.isValid(cursor)) q._id = { $lt: cursor };
 
   const rows = await Rippler.find(q).sort({ _id: -1 }).limit(cap + 1).lean();
   const hasMore = rows.length > cap;
@@ -476,22 +538,18 @@ const approveRequest = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, idempotent: true });
   }
 
-  if (isFull(ripple)) {
+  const outcome = await approvePending(ripple, target._id, actorId);
+  if (outcome === 'full') {
     return res.status(409).json({
       success: false,
       code: 'RIPPLE_CAPACITY_FULL',
       message: 'This Ripple is full',
     });
   }
-
-  await Rippler.updateOne(
-    { _id: target._id },
-    { $set: { status: 'approved', joinedAt: new Date(), approvedBy: actorId } },
-  );
-  await Ripple.updateOne(
-    { _id: ripple._id },
-    { $inc: { 'counts.ripplers': 1, 'counts.pendingRequests': -1 } },
-  );
+  if (outcome === 'stale') {
+    // Another manager approved (or the request was withdrawn) meanwhile.
+    return res.status(200).json({ success: true, idempotent: true });
+  }
   await recordRippleInteractor(ripple._id, targetUserId);
   await addToGroupChat(ripple, targetUserId);
   await notifyRipple({
@@ -691,6 +749,13 @@ const inviteToRipple = asyncHandler(async (req, res) => {
   }
   const candidateIds = [...new Set(rawIds)];
 
+  // Invites are capped per inviter per day so one account can't blast people.
+  const invitesToday = await Rippler.countDocuments({
+    invitedBy: callerId,
+    invitedAt: { $gte: new Date(Date.now() - DAY_MS) },
+  });
+  let inviteBudget = Math.max(0, INVITE_DAILY_LIMIT - invitesToday);
+
   // Bulk-load every check — never a query per invitee.
   const anchors = [...new Set([callerId, ripple.hostUserId])];
   const [ctx, hostBlocks, profiles, connections, existingRows, callerUser] =
@@ -714,12 +779,6 @@ const inviteToRipple = asyncHandler(async (req, res) => {
   const connectedPairs = new Set(connections.map((c) => c.pairKey));
   const existingByUser = new Map(existingRows.map((m) => [m.userId, m]));
   const callerName = callerUser?.name || 'Someone';
-
-  // counts.ripplers read once — manager auto-approvals inside the loop bump
-  // this local counter so capacity stays honest within the batch.
-  let ripplersCount = ripple.counts?.ripplers ?? 0;
-  const capacityFullNow = () =>
-    ripple.capacity != null && ripplersCount >= ripple.capacity;
 
   const invited = [];
   const approved = [];
@@ -756,19 +815,11 @@ const inviteToRipple = asyncHandler(async (req, res) => {
         skipped.push({ userId: inviteeId, reason: 'already_requested' });
         continue;
       }
-      if (capacityFullNow()) {
-        skipped.push({ userId: inviteeId, reason: 'capacity_full' });
+      const outcome = await approvePending(ripple, prior._id, callerId);
+      if (outcome !== 'approved') {
+        skipped.push({ userId: inviteeId, reason: outcome === 'full' ? 'capacity_full' : 'already_member' });
         continue;
       }
-      await Rippler.updateOne(
-        { _id: prior._id },
-        { $set: { status: 'approved', joinedAt: new Date(), approvedBy: callerId } },
-      );
-      await Ripple.updateOne(
-        { _id: ripple._id },
-        { $inc: { 'counts.ripplers': 1, 'counts.pendingRequests': -1 } },
-      );
-      ripplersCount += 1;
       await recordRippleInteractor(ripple._id, inviteeId);
       await addToGroupChat(ripple, inviteeId);
       await notifyRipple({
@@ -796,6 +847,12 @@ const inviteToRipple = asyncHandler(async (req, res) => {
       skipped.push({ userId: inviteeId, reason: 'already_invited' });
       continue;
     }
+
+    if (inviteBudget <= 0) {
+      skipped.push({ userId: inviteeId, reason: 'rate_limited' });
+      continue;
+    }
+    inviteBudget -= 1;
 
     // No row, or a manager re-inviting removed/banned, or left/rejected —
     // upsert the invite. A 'left'/'rejected' prior is a fresh slate.
@@ -974,7 +1031,13 @@ const toggleSupport = asyncHandler(async (req, res) => {
   if (existing) {
     await RippleSupport.deleteOne({ _id: existing._id });
   } else {
-    await RippleSupport.create({ rippleId: ripple._id, userId });
+    try {
+      await RippleSupport.create({ rippleId: ripple._id, userId });
+    } catch (e) {
+      // A concurrent tap already created the row and bumped the counter.
+      if (e?.code !== 11000) throw e;
+      return res.status(200).json({ success: true, supported: true, supportCount: ripple.counts?.supports ?? 0 });
+    }
   }
   await recordRippleInteractor(ripple._id, userId);
   const updated = await Ripple.findOneAndUpdate(
@@ -984,7 +1047,17 @@ const toggleSupport = asyncHandler(async (req, res) => {
   ).lean();
 
   const supportCount = Math.max(0, updated?.counts?.supports ?? 0);
-  if (!existing && ripple.hostUserId !== userId) {
+  // Re-supporting after an un-support must not ping the host again within a day.
+  const pingedRecently =
+    !existing &&
+    (await Notification.exists({
+      userId: ripple.hostUserId,
+      type: 'ripple_support',
+      fromUserId: userId,
+      'data.rippleId': String(ripple._id),
+      createdAt: { $gte: new Date(Date.now() - DAY_MS) },
+    }));
+  if (!existing && !pingedRecently && ripple.hostUserId !== userId) {
     let actorName = req.user.name || 'Someone';
     if (actorName === 'Someone') {
       try {

@@ -17,6 +17,7 @@ const { getViewerContext } = require('../services/openNetworkVisibility');
 const { canView } = require('../utils/rippleAccess');
 const { sanitizeMedia } = require('../utils/rippleMedia');
 const { notifyRippleNearby } = require('../services/openNetworkNotify');
+const { defaultExpiresAt } = require('../services/rippleLifecycleService');
 
 const TYPES = ['activity', 'question', 'request', 'plan', 'event', 'interest', 'alert', 'project'];
 const KINDS = ['ripple', 'short'];
@@ -31,6 +32,10 @@ const JOINABLE_LIFECYCLES = ['active', 'scheduled'];
 
 // Spam guard: a brand-new account shouldn't be able to carpet the globe.
 const DAILY_RIPPLE_LIMIT = 10;
+// Shorts are cheap uploads, so they get their own cap instead of eating the Ripple one.
+const DAILY_SHORT_LIMIT = 30;
+const MAX_RIPPLE_TITLE = 120;
+const MAX_RIPPLE_DESCRIPTION = 2000;
 const GLOBAL_REACH_MIN_ACCOUNT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const enumCheck = (value, allowed, field) => {
@@ -260,13 +265,16 @@ const createRipple = asyncHandler(async (req, res) => {
 
   // --- Abuse guards ---
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const isShort = kind === 'short';
   const createdRecently = await Ripple.countDocuments({
     hostUserId: userId,
+    kind: isShort ? 'short' : { $ne: 'short' },
     createdAt: { $gte: since },
   });
-  if (createdRecently >= DAILY_RIPPLE_LIMIT) {
+  const dailyLimit = isShort ? DAILY_SHORT_LIMIT : DAILY_RIPPLE_LIMIT;
+  if (createdRecently >= dailyLimit) {
     const err = new BadRequestError(
-      `You can create at most ${DAILY_RIPPLE_LIMIT} Ripples per day`,
+      `You can create at most ${dailyLimit} ${isShort ? 'Shorts' : 'Ripples'} per day`,
     );
     err.code = 'RIPPLE_RATE_LIMITED';
     err.statusCode = 429;
@@ -291,8 +299,19 @@ const createRipple = asyncHandler(async (req, res) => {
     : await resolvePlace(lng, lat);
 
   const startAt = body.startAt ? new Date(body.startAt) : null;
-  const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
   const lifecycle = body.publish === true ? lifecycleForPublish(startAt) : 'draft';
+  // Published full Ripples always end. Shorts have no time window, and a
+  // draft gets its default at publish time so it can't inherit a stale end.
+  const expiresAt = body.expiresAt
+    ? new Date(body.expiresAt)
+    : kind !== 'short' && lifecycle !== 'draft'
+      ? defaultExpiresAt(lifecycle === 'scheduled' ? startAt : null)
+      : null;
+  if (startAt && expiresAt && expiresAt <= startAt) {
+    const err = new BadRequestError('expiresAt must be after startAt');
+    err.code = 'VALIDATION';
+    throw err;
+  }
 
   const media = sanitizeMedia(body.media, MAX_RIPPLE_MEDIA);
   if (kind === 'short' && media.length === 0) {
@@ -450,6 +469,12 @@ const updateRipple = asyncHandler(async (req, res) => {
     err.code = 'LIFECYCLE_READONLY';
     throw err;
   }
+  if (['memory', 'removed'].includes(ripple.lifecycle)) {
+    const err = new BadRequestError('A Memory is frozen and can no longer be edited');
+    err.code = 'LIFECYCLE_FROZEN';
+    err.statusCode = 409;
+    throw err;
+  }
   if (ripple.lifecycle !== 'draft' && ('reach' in body || 'location' in body || 'lng' in body || 'lat' in body)) {
     const err = new BadRequestError('reach/location can only change while the Ripple is a draft');
     err.code = 'GEO_LOCKED';
@@ -461,6 +486,17 @@ const updateRipple = asyncHandler(async (req, res) => {
   enumCheck(body.discoverability, DISCOVERABILITIES, 'discoverability');
   if (body.visibility === 'page_followers' && !ripple.hostPageId) {
     const err = new BadRequestError('page_followers visibility requires a Page host');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
+  if (typeof body.title === 'string' && (!body.title.trim() || body.title.length > MAX_RIPPLE_TITLE)) {
+    const err = new BadRequestError(`title must be 1-${MAX_RIPPLE_TITLE} characters`);
+    err.code = 'VALIDATION';
+    throw err;
+  }
+  if (typeof body.description === 'string' && body.description.length > MAX_RIPPLE_DESCRIPTION) {
+    const err = new BadRequestError(`description must be ${MAX_RIPPLE_DESCRIPTION} characters or fewer`);
     err.code = 'VALIDATION';
     throw err;
   }
@@ -491,6 +527,18 @@ const updateRipple = asyncHandler(async (req, res) => {
     if ('verifiedOnly' in body.settings) {
       ripple.settings.verifiedOnly = !!body.settings.verifiedOnly;
     }
+  }
+
+  if (!ripple.expiresAt && ripple.kind !== 'short' && ['active', 'scheduled'].includes(ripple.lifecycle)) {
+    ripple.expiresAt = defaultExpiresAt(ripple.lifecycle === 'scheduled' ? ripple.startAt : null);
+  }
+  if (
+    ('startAt' in body || 'expiresAt' in body) &&
+    ripple.startAt && ripple.expiresAt && ripple.expiresAt <= ripple.startAt
+  ) {
+    const err = new BadRequestError('expiresAt must be after startAt');
+    err.code = 'VALIDATION';
+    throw err;
   }
 
   await syncPageRippleVisibility(ripple);
@@ -529,6 +577,9 @@ const publishRipple = asyncHandler(async (req, res) => {
     throw err;
   }
   ripple.lifecycle = lifecycleForPublish(ripple.startAt);
+  if (ripple.kind !== 'short' && (!ripple.expiresAt || ripple.expiresAt <= new Date())) {
+    ripple.expiresAt = defaultExpiresAt(ripple.lifecycle === 'scheduled' ? ripple.startAt : null);
+  }
   await syncPageRippleVisibility(ripple);
   await ripple.save();
   // A draft has no audience until now — alert opted-in nearby members.
@@ -673,12 +724,18 @@ const purgeRippleChildren = async (ripple) => {
   }
 };
 
-// @route DELETE /api/ripples/:id — hard-delete drafts + closed Ripples
-// (cancelled/memory); a live one must be ended or cancelled first so the
-// archive can't just vanish under its participants.
+// @route DELETE /api/ripples/:id — hard-delete drafts and cancelled Ripples.
+// A live one must be ended or cancelled first, and a Memory is kept: it holds
+// every participant's replies, ratings and group chat, which a host can't erase.
 const deleteRipple = asyncHandler(async (req, res) => {
   const { ripple } = await loadForLifecycle(req);
-  if (!['draft', 'cancelled', 'memory'].includes(ripple.lifecycle)) {
+  if (ripple.lifecycle === 'memory') {
+    const e = new BadRequestError('A Memory is kept so every contributor keeps their replies and chat.');
+    e.code = 'MEMORY_KEPT';
+    e.statusCode = 409;
+    throw e;
+  }
+  if (!['draft', 'cancelled'].includes(ripple.lifecycle)) {
     const e = new BadRequestError(
       'End or cancel this Ripple first — only drafts and closed Ripples can be deleted.',
     );
