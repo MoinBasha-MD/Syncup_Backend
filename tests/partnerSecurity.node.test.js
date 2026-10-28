@@ -114,7 +114,7 @@ test('requireDataKey fails closed without a valid 64-hex key', () => {
   }
 });
 
-test('portal headers set a strict CSP, no-store, and no-referrer', () => {
+test('portal headers set a strict CSP, no-store, and same-origin referrer policy', () => {
   const sec = loadSecurity();
   const res = responseMock();
   sec.portalHeaders({ headers: {} }, res, () => {});
@@ -124,7 +124,7 @@ test('portal headers set a strict CSP, no-store, and no-referrer', () => {
   assert.ok(csp.includes("object-src 'none'"));
   assert.ok(!csp.includes('unsafe-inline'));
   assert.equal(res.headers['cache-control'], 'no-store');
-  assert.equal(res.headers['referrer-policy'], 'no-referrer');
+  assert.equal(res.headers['referrer-policy'], 'same-origin');
 });
 
 test('partner and admin sessions use dedicated cookie names, paths, and lifetimes', async () => {
@@ -444,7 +444,7 @@ test('portal smoke: login page, CSRF enforcement, guards, and session cookies', 
   assert.match(html, /name="_csrf" value="[A-Za-z0-9_-]{43}"/);
   assert.match(login.headers.get('content-security-policy'), /default-src 'self'/);
   assert.equal(login.headers.get('cache-control'), 'no-store');
-  assert.match(login.headers.get('referrer-policy'), /no-referrer/);
+  assert.match(login.headers.get('referrer-policy'), /same-origin/);
   const cookie = login.headers.get('set-cookie') || '';
   assert.match(cookie, /syncspace\.partner\.sid=/);
 

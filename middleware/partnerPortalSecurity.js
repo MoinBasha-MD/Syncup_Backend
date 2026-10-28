@@ -65,7 +65,7 @@ const portalHeaders = (req, res, next) => {
     "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; " +
     "form-action 'self'; frame-ancestors 'none'"
   );
-  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Cache-Control', 'no-store');
   next();
 };
