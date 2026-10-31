@@ -1,9 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const Admin = require('../models/Admin');
 const { getAdminJwtSecret, ADMIN_JWT_AUDIENCE } = require('../config/adminSecrets');
 const { recordAdminAction } = require('../services/adminAudit');
+
+const DUMMY_PASSWORD_HASH = '$2b$10$e8KzG0z5fA3zJ6vV9rN2E.q8M6X6X6X6X6X6X6X6X6X6X6X6X6X6X';
 
 const JWT_EXPIRES_IN = '7d'; // Token expires in 7 days
 
@@ -97,8 +100,8 @@ router.post('/setup', async (req, res) => {
       return res.status(400).json({ message: 'Username must be at least 3 characters' });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    if (password.length < 12) {
+      return res.status(400).json({ message: 'Password must be at least 12 characters' });
     }
 
     // Check if any admin already exists
@@ -166,6 +169,7 @@ router.post('/login', async (req, res) => {
     const admin = await Admin.findOne({ username: username.toLowerCase().trim() });
 
     if (!admin) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
@@ -177,18 +181,19 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Check if account is active
-    if (!admin.isActive) {
-      return res.status(403).json({ message: 'Account is deactivated. Contact super admin.' });
-    }
-
     // Verify password
     const isMatch = await admin.comparePassword(password);
 
     if (!isMatch) {
+      console.warn(`⚠️ [ADMIN AUTH] Failed login for "${admin.username}" from ${req.ip} (UA: ${req.get('user-agent') || 'unknown'}) at ${new Date().toISOString()}`);
       // Increment login attempts
       await admin.incLoginAttempts();
       return res.status(401).json({ message: 'Invalid username or password' });
+    }
+
+    // Check if account is active (only after valid credentials, so deactivation state is not enumerable)
+    if (!admin.isActive) {
+      return res.status(403).json({ message: 'Account is deactivated. Contact super admin.' });
     }
 
     // Reset login attempts on successful login
@@ -263,8 +268,8 @@ router.post('/change-password', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'Current and new password are required' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    if (newPassword.length < 12) {
+      return res.status(400).json({ message: 'New password must be at least 12 characters' });
     }
 
     const admin = await Admin.findById(req.admin._id);

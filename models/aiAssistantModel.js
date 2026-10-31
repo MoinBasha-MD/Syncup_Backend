@@ -12,10 +12,10 @@ const aiAssistantSchema = new mongoose.Schema({
   
   // Owner of this AI
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String, // UUID string, not ObjectId
     required: true,
-    unique: true // Each user has exactly one AI
+    unique: true, // Each user has exactly one AI
+    index: true
   },
   
   // AI Configuration
@@ -125,16 +125,8 @@ aiAssistantSchema.methods.setOffline = function() {
 
 // Static methods
 aiAssistantSchema.statics.findByUserId = async function(userId) {
-  // First find the user by their string userId to get their MongoDB _id
-  const User = require('./userModel');
-  const user = await User.findOne({ userId: userId }).select('_id');
-  
-  if (!user) {
-    return null;
-  }
-  
-  // Then find the AIAssistant using the MongoDB _id
-  return this.findOne({ userId: user._id });
+  // Direct lookup by string userId (no circular dependency)
+  return this.findOne({ userId: userId });
 };
 
 aiAssistantSchema.statics.findByAiId = function(aiId) {

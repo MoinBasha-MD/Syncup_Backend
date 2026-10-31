@@ -33,9 +33,10 @@ const MIME_EXTENSION_MAP = {
 };
 
 const getSafeExtension = (file) => {
-  const originalExt = path.extname(file.originalname || '');
-  if (originalExt) return originalExt;
-  return MIME_EXTENSION_MAP[file.mimetype] || '';
+  const originalExt = path.extname(file.originalname || '').toLowerCase();
+  const allowed = Object.values(MIME_EXTENSION_MAP);
+  if (allowed.includes(originalExt)) return originalExt;
+  return MIME_EXTENSION_MAP[file.mimetype] || '.bin';
 };
 
 // Configure storage for profile images

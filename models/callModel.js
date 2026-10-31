@@ -162,6 +162,8 @@ const callSchema = new mongoose.Schema({
 callSchema.index({ callerId: 1, createdAt: -1 });
 callSchema.index({ receiverId: 1, createdAt: -1 });
 callSchema.index({ status: 1, createdAt: -1 });
+// Add compound index for call history queries with $or operator
+callSchema.index({ callerId: 1, receiverId: 1, createdAt: -1 });
 
 // Virtual for call duration in minutes
 callSchema.virtual('durationMinutes').get(function() {

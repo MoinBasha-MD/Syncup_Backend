@@ -105,8 +105,15 @@ agentTaskSchema.index({ priority: 1, createdAt: 1 });
 agentTaskSchema.index({ scheduledFor: 1, status: 1 });
 agentTaskSchema.index({ 'context.userId': 1, status: 1 });
 
-// TTL index for automatic cleanup of old completed tasks
-agentTaskSchema.index({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 }); // 7 days
+// TTL index for automatic cleanup - only delete completed tasks after 7 days
+// Failed tasks are preserved for debugging
+agentTaskSchema.index(
+  { createdAt: 1 },
+  {
+    expireAfterSeconds: 7 * 24 * 60 * 60, // 7 days
+    partialFilterExpression: { status: 'completed' }
+  }
+);
 
 // Static methods
 agentTaskSchema.statics.findByAgent = function(agentId, status = null) {

@@ -40,44 +40,33 @@ router.post('/register-fcm-token', protect, async (req, res) => {
       user.fcmTokens = [];
     }
 
-    // Check if token already exists
-    const tokenExists = user.fcmTokens.some(t => t.token === fcmToken);
-    
-    if (!tokenExists) {
-      // CRITICAL FIX: Remove old tokens for this platform to prevent accumulation
-      // Keep only the latest token per platform
-      const currentPlatform = platform || 'android';
-      user.fcmTokens = user.fcmTokens.filter(t => t.platform !== currentPlatform);
-      
-      // Add new token
-      user.fcmTokens.push({
-        token: fcmToken,
-        platform: currentPlatform,
-        addedAt: new Date(),
-        lastUsed: new Date()
-      });
+    const currentPlatform = platform || 'android';
 
-      await user.save();
-      console.log('✅ [FCM] Token registered successfully (old tokens removed)');
-      console.log(`📱 [FCM] Active tokens: ${user.fcmTokens.length}`);
-      console.log(`🔍 [FCM DEBUG] Saved token details:`, {
-        userId: user.userId,
-        tokenCount: user.fcmTokens.length,
-        tokens: user.fcmTokens.map(t => ({
-          platform: t.platform,
-          tokenPreview: t.token.substring(0, 20) + '...',
-          addedAt: t.addedAt
-        }))
-      });
-    } else {
-      // Update lastUsed timestamp for existing token
-      const existingToken = user.fcmTokens.find(t => t.token === fcmToken);
-      if (existingToken) {
-        existingToken.lastUsed = new Date();
-        await user.save();
+    // Atomic update: Remove existing tokens for this platform or token string
+    await User.updateOne(
+      { userId },
+      { $pull: { fcmTokens: { $or: [{ token: fcmToken }, { platform: currentPlatform }] } } }
+    );
+
+    // Atomic push: Add new token and keep only the latest 10 tokens to prevent unbounded array growth
+    await User.updateOne(
+      { userId },
+      {
+        $push: {
+          fcmTokens: {
+            $each: [{
+              token: fcmToken,
+              platform: currentPlatform,
+              addedAt: new Date(),
+              lastUsed: new Date()
+            }],
+            $slice: -10
+          }
+        }
       }
-      console.log('ℹ️ [FCM] Token already registered (timestamp updated)');
-    }
+    );
+
+    console.log('✅ [FCM] Token registered atomically');
 
     res.json({
       success: true,
@@ -114,12 +103,12 @@ router.post('/remove-fcm-token', protect, async (req, res) => {
       });
     }
 
-    // Remove token from array
-    if (user.fcmTokens) {
-      user.fcmTokens = user.fcmTokens.filter(t => t.token !== fcmToken);
-      await user.save();
-      console.log('✅ [FCM] Token removed successfully');
-    }
+    // Remove token from array atomically
+    await User.updateOne(
+      { userId },
+      { $pull: { fcmTokens: { token: fcmToken } } }
+    );
+    console.log('✅ [FCM] Token removed successfully');
 
     res.json({
       success: true,

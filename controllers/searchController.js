@@ -3,18 +3,22 @@ const Message = require('../models/Message');
 const Post = require('../models/postModel');
 const GroupModel = require('../models/groupModel');
 
+const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * Global search across all resources
  */
 const globalSearch = async (req, res) => {
   try {
-    const query = req.query.q || '';
+    const rawQuery = (req.query.q || '').trim();
     const type = req.query.type || 'all';
-    
-    if (!query) {
+
+    if (!rawQuery) {
       return res.json({ success: true, results: {} });
     }
-    
+
+    const query = escapeRegex(rawQuery);
+
     const results = {};
     
     // Search users

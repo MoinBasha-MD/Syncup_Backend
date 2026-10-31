@@ -14,5 +14,6 @@ const schema = new mongoose.Schema({
 }, { timestamps: true });
 
 schema.index({ appId: 1, revokedAt: 1 });
+schema.index({ appId: 1, revokedAt: 1, expiresAt: 1 }); // Optimized for active key queries
 
 module.exports = mongoose.model('PartnerApiKey', schema);

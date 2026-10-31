@@ -821,7 +821,7 @@ router.post('/:id/follow', protect, followLimiter, async (req, res) => {
         { $inc: { followerCount: 1 } },
         { new: true }
       );
-      page.followerCount = updatedPage.followerCount;
+      page.followerCount = updatedPage ? updatedPage.followerCount : (page.followerCount + 1);
 
       console.log(`✅ [PAGES] User ${req.user._id} followed page ${page.name}`);
       console.log(`📊 [PAGES] Demographics captured:`, {

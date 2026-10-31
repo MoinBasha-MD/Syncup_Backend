@@ -309,7 +309,7 @@ app.get('/authorize', page(async (req, res) => {
     return renderError(res, 'Unknown app', 'This app is not registered for Sign in with Syncup.');
   }
   const redirectUri = typeof q.redirect_uri === 'string' ? q.redirect_uri : '';
-  if (!redirectUri || !appDoc.redirectUris.includes(redirectUri)) {
+  if (!redirectUri || !Array.isArray(appDoc.redirectUris) || !appDoc.redirectUris.includes(redirectUri)) {
     return renderError(res, 'Invalid redirect', 'This app sent an unregistered redirect URI.');
   }
   const oauthReq = {
@@ -391,9 +391,9 @@ app.post(
       return fail();
     }
     const user = await User.findOne({ phoneNumber: normalizePhoneNumber(phoneNumber) }).select('+password');
-    if (!user) return fail();
-    const match = await bcrypt.compare(password, user.password || '');
-    if (!match) return fail();
+    const dummyHash = '$2b$10$e8KzG0z5fA3zJ6vV9rN2E.q8M6X6X6X6X6X6X6X6X6X6X6X6X6X6X';
+    const match = await bcrypt.compare(password, user?.password || dummyHash);
+    if (!user || !match) return fail();
 
     const oauthReq = req.session.oauthRequest;
     await new Promise((resolve, reject) => {

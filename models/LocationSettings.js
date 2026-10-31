@@ -2,37 +2,35 @@ const mongoose = require('mongoose');
 
 const locationSettingsSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String, // UUID string, not ObjectId
     required: true,
-    unique: true
+    unique: true,
+    index: true
   },
-  
+
   // Real-time location sharing enabled
   isRealTime: {
     type: Boolean,
     required: true,
     default: false
   },
-  
+
   // Sharing mode
   sharingMode: {
     type: String,
     enum: ['all_friends', 'selected_friends', 'off'],
     default: 'all_friends'
   },
-  
+
   // Selected friends (when mode is 'selected_friends')
   selectedFriends: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    type: String // UUID strings
   }],
-  
+
   // Active sharing sessions (WhatsApp-style)
   activeSessions: [{
     friendId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      type: String, // UUID string
       required: true
     },
     duration: {

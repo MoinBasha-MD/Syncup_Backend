@@ -157,8 +157,10 @@ const searchUsers = asyncHandler(async (req, res) => {
     
     console.log(`🔍 [DEBUG] Full exclusion list:`, excludedUserIds);
     
-    // Create search regex for partial matching
-    const searchRegex = new RegExp(query.split('').join('.*'), 'i');
+    const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Create safe search regex for partial matching
+    const searchRegex = new RegExp(query.split('').map(c => escapeRegex(c)).join('.*'), 'i');
     
     // Build the MongoDB query
     const mongoQuery = {

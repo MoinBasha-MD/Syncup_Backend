@@ -233,49 +233,29 @@ friendSchema.statics.getFriends = async function(userId, options = {}) {
   
   // ✅ FIX: Only apply MUTUAL check to DEVICE CONTACTS, not app connections
   // App connections (friend requests) should always be shown if accepted
-  const mutualFriends = [];
-  
-  console.log(`🔍 [GET FRIENDS] Processing ${friends.length} friendships for user: ${userId}`);
-  
-  for (const friend of friends) {
-    console.log(`🔍 [GET FRIENDS] Checking friendship: ${userId} → ${friend.friendUserId}`);
-    console.log(`   - Status: ${friend.status}`);
-    console.log(`   - isDeviceContact: ${friend.isDeviceContact}`);
-    console.log(`   - isDeleted: ${friend.isDeleted}`);
-    console.log(`   - Source: ${friend.source}`);
-    
-    // If this is an app connection (friend request), always include it
-    if (!friend.isDeviceContact) {
-      mutualFriends.push(friend);
-      console.log(`✅ [APP CONNECTION] ${userId} ↔ ${friend.friendUserId}: Friend request (always shown)`);
-      console.log(`   - This friendship WILL BE VISIBLE to user ${userId}`);
-      continue;
-    }
-    
-    // For device contacts, check if reciprocal friendship exists
-    console.log(`🔍 [DEVICE CONTACT] Checking reciprocal for ${userId} → ${friend.friendUserId}`);
-    const reciprocal = await this.findOne({
-      userId: friend.friendUserId,
+  // Optimized batch reciprocal lookup to eliminate N+1 serial queries
+  const deviceContactFriendIds = friends
+    .filter(f => f.isDeviceContact)
+    .map(f => f.friendUserId);
+
+  let reciprocalSet = new Set();
+  if (deviceContactFriendIds.length > 0) {
+    const reciprocals = await this.find({
+      userId: { $in: deviceContactFriendIds },
       friendUserId: userId,
       status: 'accepted',
-      // CRITICAL FIX: Don't require isDeviceContact match - just check if reciprocal exists
-      // This fixes the issue where Shivaji (isDeviceContact=true) can't see Moin (isDeviceContact=false)
       isDeleted: false
-    }).lean();
-    
-    // Only include device contact if reciprocal exists (mutual contact)
-    if (reciprocal) {
-      mutualFriends.push(friend);
-      console.log(`✅ [MUTUAL CHECK] ${userId} ↔ ${friend.friendUserId}: Mutual device contact`);
-      console.log(`   - This friendship WILL BE VISIBLE to user ${userId}`);
-    } else {
-      console.log(`⚠️ [MUTUAL CHECK] ${userId} → ${friend.friendUserId}: One-way device contact, excluded`);
-      console.log(`   - This friendship WILL NOT BE VISIBLE to user ${userId}`);
-    }
+    }).select('userId').lean();
+    reciprocalSet = new Set(reciprocals.map(r => r.userId));
   }
-  
-  console.log(`✅ [GET FRIENDS] Returning ${mutualFriends.length} visible friends for user: ${userId}`);
-  
+
+  const mutualFriends = friends.filter(friend => {
+    if (!friend.isDeviceContact) {
+      return true;
+    }
+    return reciprocalSet.has(friend.friendUserId);
+  });
+
   return mutualFriends;
 };
 

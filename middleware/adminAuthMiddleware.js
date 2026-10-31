@@ -10,15 +10,18 @@ const isAdminAuthenticated = (req, res, next) => {
   }
   
   // If AJAX request, return JSON
-  if (req.xhr || req.headers.accept.indexOf('json') > -1) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Unauthorized. Please login.' 
+  const acceptHeader = req.headers && req.headers.accept;
+  if (req.xhr || (acceptHeader && acceptHeader.indexOf('json') > -1)) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized. Please login.'
     });
   }
-  
+
   // Otherwise redirect to login
-  req.session.returnTo = req.originalUrl;
+  if (req.session) {
+    req.session.returnTo = req.originalUrl;
+  }
   return res.redirect('/admin/login');
 };
 
@@ -64,8 +67,8 @@ const checkPermission = (resource, action) => {
     }
     
     const permissions = req.session.adminUser.permissions;
-    
-    if (permissions[resource] && permissions[resource][action]) {
+
+    if (permissions && permissions[resource] && permissions[resource][action]) {
       return next();
     }
     

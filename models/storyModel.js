@@ -14,12 +14,12 @@ const storyItemSchema = new mongoose.Schema({
   // For image/video content
   url: {
     type: String,
-    required: function() { return this.type === 'image' || this.type === 'video'; }
+    required: function() { return Boolean(this && (this.type === 'image' || this.type === 'video')); }
   },
   // For text content
   text: {
     type: String,
-    required: function() { return this.type === 'text'; },
+    required: function() { return Boolean(this && this.type === 'text'); },
     maxlength: 500
   },
   // Styling options for text stories

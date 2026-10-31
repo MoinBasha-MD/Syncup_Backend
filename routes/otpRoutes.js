@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const otpService = require('../services/otpService');
 const emailService = require('../services/emailService');
+const { verifyToken: adminVerifyToken } = require('./adminAuthRoutes');
 
 const emailOTPTypes = new Set([
   'registration',
@@ -131,7 +132,6 @@ router.post('/verify', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: result.error,
-        attemptsLeft: result.attemptsLeft,
       });
     }
 
@@ -243,7 +243,7 @@ router.post('/resend', async (req, res) => {
  * @desc    Test Gmail SMTP connection
  * @access  Public
  */
-router.get('/test-connection', async (req, res) => {
+router.get('/test-connection', adminVerifyToken, async (req, res) => {
   try {
     console.log('🔍 [OTP ROUTES] Testing Gmail SMTP connection...');
     
@@ -278,7 +278,7 @@ router.get('/test-connection', async (req, res) => {
  * @desc    Get OTP statistics (for debugging)
  * @access  Public (should be protected in production)
  */
-router.get('/stats', async (req, res) => {
+router.get('/stats', adminVerifyToken, async (req, res) => {
   try {
     const stats = await otpService.getStats();
     res.json({
@@ -299,7 +299,7 @@ router.get('/stats', async (req, res) => {
  * @desc    Test email service connection
  * @access  Public (for debugging)
  */
-router.get('/test-email', async (req, res) => {
+router.get('/test-email', adminVerifyToken, async (req, res) => {
   try {
     console.log('🔍 [OTP ROUTES] Testing email service...');
     
@@ -445,7 +445,6 @@ router.post('/verify-sms', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: result.error,
-        attemptsLeft: result.attemptsLeft,
       });
     }
 

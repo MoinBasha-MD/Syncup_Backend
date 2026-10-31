@@ -219,6 +219,12 @@ const app = express();
 
 app.set('trust proxy', 1);
 
+app.use((req, res, next) => {
+  req.id = String(req.headers['x-request-id'] || require('crypto').randomUUID()).slice(0, 128);
+  res.setHeader('X-Request-Id', req.id);
+  next();
+});
+
 
 
 // Start memory monitoring
@@ -476,9 +482,11 @@ app.get('/metrics', metrics);
 
 
 
-// Performance metrics endpoint
+// Performance metrics endpoint - Secured (requires authentication)
 
-app.get('/performance', (req, res) => {
+const { verifyToken: adminAuthMiddleware } = require('./routes/adminAuthRoutes');
+
+app.get('/performance', adminAuthMiddleware, (req, res) => {
 
   const stats = getPerformanceStats();
 
@@ -694,7 +702,7 @@ app.use('/agent-dashboard', agentDashboardRoutes); // Agent visualization dashbo
 
 const adminDashboardRoutes = require('./routes/adminDashboardRoutes');
 
-const { router: adminAuthRoutes, verifyToken: adminAuthMiddleware } = require('./routes/adminAuthRoutes');
+const { router: adminAuthRoutes } = require('./routes/adminAuthRoutes');
 
 const adminUserStatusRoutes = require('./routes/adminUserStatusRoutes');
 
@@ -782,7 +790,7 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 
 
-// Root route — web page for browsers, JSON status for API clients
+// Root route — web page for browsers, minimal response for API clients
 
 app.get('/', (req, res) => {
 
@@ -792,13 +800,13 @@ app.get('/', (req, res) => {
 
   }
 
-  res.json({ 
+  // Minimal response - don't expose version or server details
 
-    message: 'API is running...', 
+  res.status(404).json({
 
-    version: '1.0.0',
+    success: false,
 
-    timestamp: new Date().toISOString()
+    message: 'Not Found'
 
   });
 
@@ -806,49 +814,25 @@ app.get('/', (req, res) => {
 
 
 
-// API base route
+// API Documentation page (for developers)
+
+app.get('/api/docs', (req, res) => {
+
+  res.sendFile(path.join(__dirname, 'public', 'api-docs.html'));
+
+});
+
+
+
+// API base route - Secured to prevent information disclosure
 
 app.get('/api', (req, res) => {
 
-  res.json({
+  res.status(404).json({
 
-    message: 'API endpoints available',
+    success: false,
 
-    version: '1.0.0',
-
-    endpoints: {
-
-      auth: '/api/auth',
-
-      users: '/api/users',
-
-      status: '/api/status',
-
-      statusManagement: '/api/status-management',
-
-      bulk: '/api/bulk',
-
-      contacts: '/api/contacts',
-
-      uploads: '/api/uploads',
-
-      calendar: '/api/calendar',
-
-      chat: '/api/chat',
-
-      stories: '/api/stories',
-
-      diya: '/api/diya',
-
-      ai: '/api/ai',
-
-      agents: '/api/agents'
-
-    },
-
-    documentation: '/api/docs',
-
-    timestamp: new Date().toISOString()
+    message: 'Not Found'
 
   });
 
@@ -856,37 +840,7 @@ app.get('/api', (req, res) => {
 
 
 
-// Network diagnostic endpoint
-
-app.get('/api/network-test', (req, res) => {
-
-  const clientIP = req.ip || req.connection.remoteAddress;
-
-  res.json({
-
-    success: true,
-
-    message: 'Network connectivity test successful',
-
-    data: {
-
-      clientIP,
-
-      serverIP: NETWORK_IP,
-
-      port: PORT,
-
-      timestamp: new Date().toISOString(),
-
-      userAgent: req.get('User-Agent'),
-
-      headers: req.headers
-
-    }
-
-  });
-
-});
+// Network diagnostic endpoint - Removed for security (exposed server details)
 
 
 

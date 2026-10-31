@@ -83,9 +83,22 @@ const pageSchema = new mongoose.Schema({
       trim: true,
       default: ''
     },
+    // GeoJSON format for proper geospatial queries
+    location: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        default: [0, 0]
+      }
+    },
+    // Legacy coordinate fields (deprecated - use location.coordinates instead)
     coordinates: {
-      lat: { type: Number, default: null },
-      lng: { type: Number, default: null }
+      lat: { type: Number, default: 0 },
+      lng: { type: Number, default: 0 }
     }
   },
   

@@ -75,6 +75,7 @@ statusHistorySchema.index({ status: 1 }); // For status-based queries
 statusHistorySchema.index({ startTime: -1 }); // For time-based queries, sorted by newest first
 statusHistorySchema.index({ userId: 1, startTime: -1 }); // For user's history sorted by time
 statusHistorySchema.index({ userId: 1, status: 1 }); // For user's history filtered by status
+statusHistorySchema.index({ userId: 1, endTime: -1 }); // Optimized for userId + time range queries
 
 const StatusHistory = mongoose.model('StatusHistory', statusHistorySchema);
 

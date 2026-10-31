@@ -6,6 +6,8 @@ const Page = require('../models/Page');
 const PageFollower = require('../models/PageFollower');
 const Friend = require('../models/Friend');
 
+const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // @route   POST /api/search/unified
 // @desc    Unified search for people, pages, and suggestions
 // @access  Private
@@ -88,11 +90,12 @@ router.post('/pages', protect, async (req, res) => {
       });
     }
 
+    const safeQuery = escapeRegex(query.trim());
     const searchQuery = {
       $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { username: { $regex: query, $options: 'i' } },
-        { bio: { $regex: query, $options: 'i' } }
+        { name: { $regex: safeQuery, $options: 'i' } },
+        { username: { $regex: safeQuery, $options: 'i' } },
+        { bio: { $regex: safeQuery, $options: 'i' } }
       ],
       isPublic: true
     };
@@ -182,11 +185,12 @@ router.get('/suggestions', protect, async (req, res) => {
 // Helper: Search People
 async function searchPeople(userId, currentObjectId, query, limit) {
   try {
+    const safeQuery = escapeRegex(query);
     const searchQuery = {
       $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { username: { $regex: query, $options: 'i' } },
-        { email: { $regex: query, $options: 'i' } }
+        { name: { $regex: safeQuery, $options: 'i' } },
+        { username: { $regex: safeQuery, $options: 'i' } },
+        { email: { $regex: safeQuery, $options: 'i' } }
       ],
       _id: { $ne: currentObjectId }
     };
@@ -278,11 +282,12 @@ async function searchPeople(userId, currentObjectId, query, limit) {
 // Helper: Search Pages
 async function searchPages(userId, query, limit) {
   try {
+    const safeQuery = escapeRegex(query);
     const searchQuery = {
       $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { username: { $regex: query, $options: 'i' } },
-        { bio: { $regex: query, $options: 'i' } }
+        { name: { $regex: safeQuery, $options: 'i' } },
+        { username: { $regex: safeQuery, $options: 'i' } },
+        { bio: { $regex: safeQuery, $options: 'i' } }
       ],
       isPublic: true
     };

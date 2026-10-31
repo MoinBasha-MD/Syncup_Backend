@@ -1,0 +1,2558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Syncup API Documentation - Interactive Guide</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --primary: #8B5CF6;
+    --primary-dark: #6D28D9;
+    --primary-light: #A78BFA;
+    --secondary: #EC4899;
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --info: #3B82F6;
+    --dark: #1F2937;
+    --light: #F9FAFB;
+    --border: #E5E7EB;
+    --text: #374151;
+    --text-light: #6B7280;
+    --code-bg: #1E293B;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* Header */
+  header {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    box-shadow: var(--shadow);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    border-bottom: 3px solid var(--primary);
+  }
+
+  .header-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 1.5rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .logo-icon {
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow);
+  }
+
+  .logo h1 {
+    font-size: 1.75rem;
+    color: var(--dark);
+    font-weight: 700;
+  }
+
+  .logo span {
+    color: var(--primary);
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .search-box {
+    position: relative;
+  }
+
+  .search-box input {
+    padding: 0.75rem 1rem 0.75rem 2.5rem;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    width: 300px;
+    font-size: 0.95rem;
+    transition: all 0.3s ease;
+  }
+
+  .search-box input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-light);
+  }
+
+  /* Main Container */
+  .container {
+    max-width: 1400px;
+    margin: 2rem auto;
+    padding: 0 2rem 2rem;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 2rem;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: var(--shadow-lg);
+    height: fit-content;
+    position: sticky;
+    top: 100px;
+  }
+
+  .sidebar h3 {
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-light);
+    margin-bottom: 1rem;
+    font-weight: 600;
+  }
+
+  .category-list {
+    list-style: none;
+  }
+
+  .category-item {
+    margin-bottom: 0.5rem;
+  }
+
+  .category-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text);
+    transition: all 0.2s ease;
+    font-weight: 500;
+    font-size: 0.95rem;
+  }
+
+  .category-link:hover {
+    background: var(--light);
+    color: var(--primary);
+    transform: translateX(4px);
+  }
+
+  .category-link.active {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    box-shadow: var(--shadow);
+  }
+
+  .category-badge {
+    margin-left: auto;
+    background: var(--light);
+    color: var(--text-light);
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .category-link.active .category-badge {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+  }
+
+  /* Main Content */
+  .main-content {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: var(--shadow-lg);
+    animation: fadeInUp 0.5s ease;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .intro-section {
+    margin-bottom: 3rem;
+    padding-bottom: 2rem;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .intro-section h2 {
+    font-size: 2.5rem;
+    color: var(--dark);
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .intro-section p {
+    font-size: 1.125rem;
+    color: var(--text-light);
+    line-height: 1.8;
+  }
+
+  .base-url-box {
+    background: var(--code-bg);
+    color: #94a3b8;
+    padding: 1.5rem;
+    border-radius: 12px;
+    margin: 1.5rem 0;
+    font-family: 'Monaco', 'Courier New', monospace;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .base-url-box code {
+    color: #22d3ee;
+    font-size: 1.125rem;
+  }
+
+  .copy-btn {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+
+  .copy-btn:hover {
+    background: var(--primary-dark);
+    transform: scale(1.05);
+  }
+
+  /* API Category Section */
+  .api-category {
+    margin-bottom: 3rem;
+    animation: fadeIn 0.5s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .category-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .category-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+  }
+
+  .auth-icon { background: linear-gradient(135deg, #10B981, #059669); }
+  .user-icon { background: linear-gradient(135deg, #3B82F6, #2563EB); }
+  .social-icon { background: linear-gradient(135deg, #EC4899, #DB2777); }
+  .content-icon { background: linear-gradient(135deg, #F59E0B, #D97706); }
+  .ai-icon { background: linear-gradient(135deg, #8B5CF6, #7C3AED); }
+  .admin-icon { background: linear-gradient(135deg, #EF4444, #DC2626); }
+  .integration-icon { background: linear-gradient(135deg, #06B6D4, #0891B2); }
+
+  .category-header h3 {
+    font-size: 1.75rem;
+    color: var(--dark);
+    font-weight: 700;
+  }
+
+  .category-description {
+    color: var(--text-light);
+    margin-bottom: 1.5rem;
+    font-size: 1rem;
+  }
+
+  /* API Endpoint Card */
+  .endpoint-card {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+    transition: all 0.3s ease;
+  }
+
+  .endpoint-card:hover {
+    border-color: var(--primary);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
+  }
+
+  .endpoint-header {
+    padding: 1.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--light);
+    transition: background 0.2s ease;
+  }
+
+  .endpoint-header:hover {
+    background: #f3f4f6;
+  }
+
+  .method-badge {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    min-width: 80px;
+    text-align: center;
+  }
+
+  .method-get { background: #DBEAFE; color: #1E40AF; }
+  .method-post { background: #D1FAE5; color: #065F46; }
+  .method-put { background: #FEF3C7; color: #92400E; }
+  .method-delete { background: #FEE2E2; color: #991B1B; }
+  .method-patch { background: #E9D5FF; color: #6B21A8; }
+
+  .endpoint-path {
+    flex: 1;
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 1rem;
+    color: var(--dark);
+    font-weight: 600;
+  }
+
+  .auth-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .auth-required {
+    background: #FEF3C7;
+    color: #92400E;
+  }
+
+  .auth-public {
+    background: #D1FAE5;
+    color: #065F46;
+  }
+
+  .expand-icon {
+    transition: transform 0.3s ease;
+  }
+
+  .expand-icon.expanded {
+    transform: rotate(180deg);
+  }
+
+  .endpoint-body {
+    padding: 0;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+  }
+
+  .endpoint-body.expanded {
+    max-height: 2000px;
+    padding: 1.5rem;
+    border-top: 2px solid var(--border);
+  }
+
+  .endpoint-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .endpoint-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .section-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .section-content {
+    background: var(--light);
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid var(--primary);
+  }
+
+  .param-list {
+    list-style: none;
+  }
+
+  .param-item {
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  .param-name {
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-weight: 700;
+    color: var(--primary);
+    font-size: 0.95rem;
+  }
+
+  .param-type {
+    display: inline-block;
+    background: var(--border);
+    color: var(--text);
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+  }
+
+  .param-required {
+    display: inline-block;
+    background: #FEE2E2;
+    color: #991B1B;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+  }
+
+  .param-description {
+    color: var(--text-light);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+  }
+
+  .code-block {
+    background: var(--code-bg);
+    color: #e2e8f0;
+    padding: 1.5rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    position: relative;
+  }
+
+  .code-block pre {
+    margin: 0;
+  }
+
+  .json-key { color: #22d3ee; }
+  .json-string { color: #4ade80; }
+  .json-number { color: #fb923c; }
+  .json-boolean { color: #c084fc; }
+  .json-null { color: #f87171; }
+
+  /* Dependency Graph */
+  .dependency-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: #EDE9FE;
+    color: #6B21A8;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  /* Stats Dashboard */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin: 2rem 0;
+  }
+
+  .stat-card {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    text-align: center;
+  }
+
+  .stat-number {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+
+  .stat-label {
+    font-size: 0.95rem;
+    opacity: 0.9;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .container {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      position: static;
+    }
+
+    .header-content {
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .search-box input {
+      width: 100%;
+    }
+  }
+
+  /* Scroll Animation */
+  .fade-in-section {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+  }
+
+  .fade-in-section.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Loading Animation */
+  .loading {
+    text-align: center;
+    padding: 3rem;
+  }
+
+  .spinner {
+    border: 4px solid var(--border);
+    border-top: 4px solid var(--primary);
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="header-content">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
+          <path d="M17 3.5a4 4 0 1 1-3.6 5.72L9.6 10.9a4 4 0 0 1 0 2.2l3.8 1.68A4 4 0 1 1 12.6 17"/>
+        </svg>
+      </div>
+      <h1>Syncup <span>API</span> Documentation</h1>
+    </div>
+    <div class="header-actions">
+      <div class="search-box">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input type="text" id="searchInput" placeholder="Search endpoints...">
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Main Container -->
+<div class="container">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <h3>Categories</h3>
+    <ul class="category-list">
+      <li class="category-item">
+        <a href="#overview" class="category-link active">
+          <span>📊</span>
+          <span>Overview</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#authentication" class="category-link">
+          <span>🔐</span>
+          <span>Authentication</span>
+          <span class="category-badge">3</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#users" class="category-link">
+          <span>👤</span>
+          <span>Users & Profile</span>
+          <span class="category-badge">12</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#social" class="category-link">
+          <span>💬</span>
+          <span>Social Features</span>
+          <span class="category-badge">25</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#content" class="category-link">
+          <span>📝</span>
+          <span>Content Management</span>
+          <span class="category-badge">18</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#ai" class="category-link">
+          <span>🤖</span>
+          <span>AI & Agents</span>
+          <span class="category-badge">8</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#location" class="category-link">
+          <span>📍</span>
+          <span>Location & Maps</span>
+          <span class="category-badge">6</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#media" class="category-link">
+          <span>🎵</span>
+          <span>Media & Files</span>
+          <span class="category-badge">7</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#e2ee" class="category-link">
+          <span>🔒</span>
+          <span>E2EE & Security</span>
+          <span class="category-badge">5</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#admin" class="category-link">
+          <span>⚙️</span>
+          <span>Admin & Management</span>
+          <span class="category-badge">10</span>
+        </a>
+      </li>
+      <li class="category-item">
+        <a href="#integration" class="category-link">
+          <span>🔌</span>
+          <span>Integrations</span>
+          <span class="category-badge">8</span>
+        </a>
+      </li>
+    </ul>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Overview Section -->
+    <section id="overview" class="intro-section">
+      <h2>Welcome to Syncup API Documentation</h2>
+      <p>
+        This comprehensive guide covers all API endpoints for the Syncup backend.
+        Our API powers a modern social networking platform with advanced features including
+        real-time messaging, AI-powered assistants, location sharing, end-to-end encryption,
+        and much more.
+      </p>
+
+      <div class="base-url-box">
+        <div>
+          <div style="color: #94a3b8; margin-bottom: 0.25rem;">Base URL:</div>
+          <code>https://api.crackman.in</code>
+        </div>
+        <button class="copy-btn" onclick="copyToClipboard('https://api.crackman.in')">Copy</button>
+      </div>
+
+      <!-- Stats Dashboard -->
+      <div class="stats-grid">
+        <div class="stat-card" style="background: linear-gradient(135deg, #10B981, #059669);">
+          <div class="stat-number" id="totalEndpoints">102</div>
+          <div class="stat-label">Total Endpoints</div>
+        </div>
+        <div class="stat-card" style="background: linear-gradient(135deg, #3B82F6, #2563EB);">
+          <div class="stat-number">11</div>
+          <div class="stat-label">Categories</div>
+        </div>
+        <div class="stat-card" style="background: linear-gradient(135deg, #F59E0B, #D97706);">
+          <div class="stat-number">24</div>
+          <div class="stat-label">Protected Routes</div>
+        </div>
+        <div class="stat-card" style="background: linear-gradient(135deg, #EC4899, #DB2777);">
+          <div class="stat-number">v1.0</div>
+          <div class="stat-label">API Version</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Authentication APIs -->
+    <section id="authentication" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon auth-icon">🔐</div>
+        <div>
+          <h3>Authentication</h3>
+          <p class="category-description">User registration, login, and authentication management</p>
+        </div>
+      </div>
+
+      <!-- Register User -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/auth/register</span>
+          <span class="auth-public">🌐 Public</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Register a new user account with phone number, username, and optional profile details.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">phoneNumber</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">User's phone number (must be unique)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">username</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Desired username (must be unique)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">firstName</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">User's first name</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">lastName</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">User's last name</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📤 Response</div>
+            <div class="code-block">
+<pre>{
+  <span class="json-key">"success"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"message"</span>: <span class="json-string">"User registered successfully"</span>,
+  <span class="json-key">"data"</span>: {
+    <span class="json-key">"user"</span>: {
+      <span class="json-key">"_id"</span>: <span class="json-string">"507f1f77bcf86cd799439011"</span>,
+      <span class="json-key">"phoneNumber"</span>: <span class="json-string">"+1234567890"</span>,
+      <span class="json-key">"username"</span>: <span class="json-string">"john_doe"</span>,
+      <span class="json-key">"firstName"</span>: <span class="json-string">"John"</span>,
+      <span class="json-key">"lastName"</span>: <span class="json-string">"Doe"</span>
+    },
+    <span class="json-key">"token"</span>: <span class="json-string">"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."</span>
+  }
+}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Login User -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/auth/login</span>
+          <span class="auth-public">🌐 Public</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Authenticate user and receive JWT token. Rate limited to 5 attempts per 15 minutes.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">phoneNumber</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">User's registered phone number</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📤 Response</div>
+            <div class="code-block">
+<pre>{
+  <span class="json-key">"success"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"data"</span>: {
+    <span class="json-key">"user"</span>: { <span class="json-string">/* user object */</span> },
+    <span class="json-key">"token"</span>: <span class="json-string">"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."</span>
+  }
+}</pre>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔗 Dependencies</div>
+            <div class="section-content">
+              <span class="dependency-badge">→ Use token in Authorization header for protected routes</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Check User Exists -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/auth/check</span>
+          <span class="auth-public">🌐 Public</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Check if a phone number or username already exists in the system.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">phoneNumber</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Phone number to check</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">username</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Username to check</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Users & Profile APIs -->
+    <section id="users" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon user-icon">👤</div>
+        <div>
+          <h3>Users & Profile Management</h3>
+          <p class="category-description">User profile management, contacts, status updates, and user data operations</p>
+        </div>
+      </div>
+
+      <!-- Get User Profile -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-get">GET</span>
+          <span class="endpoint-path">/api/users/profile</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Get the authenticated user's complete profile information including status, settings, and preferences.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔑 Headers</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">Authorization</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Bearer {token}</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📤 Response</div>
+            <div class="code-block">
+<pre>{
+  <span class="json-key">"success"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"data"</span>: {
+    <span class="json-key">"_id"</span>: <span class="json-string">"507f1f77bcf86cd799439011"</span>,
+    <span class="json-key">"phoneNumber"</span>: <span class="json-string">"+1234567890"</span>,
+    <span class="json-key">"username"</span>: <span class="json-string">"john_doe"</span>,
+    <span class="json-key">"firstName"</span>: <span class="json-string">"John"</span>,
+    <span class="json-key">"lastName"</span>: <span class="json-string">"Doe"</span>,
+    <span class="json-key">"bio"</span>: <span class="json-string">"Tech enthusiast"</span>,
+    <span class="json-key">"profileImage"</span>: <span class="json-string">"/uploads/profile-images/..."</span>,
+    <span class="json-key">"currentStatus"</span>: { <span class="json-string">/* status object */</span> }
+  }
+}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Update User Profile -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-put">PUT</span>
+          <span class="endpoint-path">/api/users/profile</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Update user profile information including name, bio, and settings.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">firstName</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Updated first name</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">lastName</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Updated last name</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">bio</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">User bio/description</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contact Management -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/contacts/sync</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Sync device contacts with the server. Rate limited to prevent abuse.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">contacts</span>
+                  <span class="param-type">array</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Array of contact objects with phoneNumber, name, etc.</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status Management -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/status-management/current</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Set or update the user's current status (availability, mood, activity).
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">status</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Status text/message</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">emoji</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Status emoji</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">expiresAt</span>
+                  <span class="param-type">date</span>
+                  <p class="param-description">When status should expire</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔗 Related Endpoints</div>
+            <div class="section-content">
+              <span class="dependency-badge">GET /api/status/history</span>
+              <span class="dependency-badge">GET /api/status/templates</span>
+              <span class="dependency-badge">DELETE /api/status-management/current</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Data Export -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-get">GET</span>
+          <span class="endpoint-path">/api/users/:userId/data/export</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Export all user data for GDPR compliance (account, posts, messages, etc.).
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📤 Response</div>
+            <div class="section-content">
+              Returns a JSON file with complete user data archive.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Social Features -->
+    <section id="social" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon social-icon">💬</div>
+        <div>
+          <h3>Social Features</h3>
+          <p class="category-description">Messaging, groups, friends, connections, stories, and social interactions</p>
+        </div>
+      </div>
+
+      <!-- Send Message -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/chat/messages</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Send a direct message to another user. Supports text, media, and encrypted content.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">recipientId</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">User ID of message recipient</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">content</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Message text content</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">mediaUrl</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">URL to attached media (image, video, file)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">replyTo</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Message ID if replying to another message</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔗 Related Endpoints</div>
+            <div class="section-content">
+              <span class="dependency-badge">GET /api/chat/messages/:chatId</span>
+              <span class="dependency-badge">DELETE /api/chat/messages/:messageId</span>
+              <span class="dependency-badge">PUT /api/chat/messages/:messageId/read</span>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">⚡ Real-time</div>
+            <div class="section-content">
+              Messages are delivered via Socket.IO for instant delivery. WebSocket event: <code>new_message</code>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Group Chat -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/group-chats</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Create a new group chat with multiple participants.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">name</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Group chat name</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">participants</span>
+                  <span class="param-type">array</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Array of user IDs to add to group</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">groupImage</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Group profile image URL</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Friends Management -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/friends/request</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Send a friend request to another user.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">userId</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">ID of user to send friend request to</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔗 Related Endpoints</div>
+            <div class="section-content">
+              <span class="dependency-badge">POST /api/friends/accept/:requestId</span>
+              <span class="dependency-badge">DELETE /api/friends/:friendId</span>
+              <span class="dependency-badge">GET /api/friends/list</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stories -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/stories</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Create a new story (24-hour temporary content with image/video).
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">mediaUrl</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">URL to story media (image or video)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">caption</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Optional story caption</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">privacy</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Privacy setting: "public", "friends", "custom"</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">⏱️ Auto-deletion</div>
+            <div class="section-content">
+              Stories automatically expire and delete after 24 hours.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Posts -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/posts</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Create a new social post with text, images, videos, or polls.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">content</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Post text content</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">media</span>
+                  <span class="param-type">array</span>
+                  <p class="param-description">Array of media URLs (images/videos)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">hashtags</span>
+                  <span class="param-type">array</span>
+                  <p class="param-description">Array of hashtags</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">mentions</span>
+                  <span class="param-type">array</span>
+                  <p class="param-description">Array of mentioned user IDs</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔗 Related Endpoints</div>
+            <div class="section-content">
+              <span class="dependency-badge">GET /api/posts/feed</span>
+              <span class="dependency-badge">POST /api/posts/:postId/like</span>
+              <span class="dependency-badge">POST /api/posts/:postId/comment</span>
+              <span class="dependency-badge">DELETE /api/posts/:postId</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Content Management -->
+    <section id="content" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon content-icon">📝</div>
+        <div>
+          <h3>Content Management</h3>
+          <p class="category-description">Pages, documents, image space, calendars, and content organization</p>
+        </div>
+      </div>
+
+      <!-- Pages -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/pages</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Create a public page (like Facebook Pages) for businesses, communities, or public figures.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">name</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Page name</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">category</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Page category (Business, Community, Public Figure, etc.)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">description</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Page description</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Doc Space -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/doc-space</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Upload and share documents with privacy controls (Maya AI document sharing).
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">title</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Document title</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">fileUrl</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Uploaded file URL</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">category</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Document category</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">privacy</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">"private", "friends", "public"</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔗 Related Endpoints</div>
+            <div class="section-content">
+              <span class="dependency-badge">GET /api/doc-space/my-documents</span>
+              <span class="dependency-badge">POST /api/doc-space-sharing</span>
+              <span class="dependency-badge">GET /api/doc-space-download/:docId</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar Events -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/calendar/events</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Create calendar events and manage schedules.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">title</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Event title</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">startTime</span>
+                  <span class="param-type">date</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Event start time</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">endTime</span>
+                  <span class="param-type">date</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Event end time</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Image Space -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/image-space</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Upload images to private gallery with albums and organization.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI & Agents -->
+    <section id="ai" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon ai-icon">🤖</div>
+        <div>
+          <h3>AI & Agent System</h3>
+          <p class="category-description">AI assistants (Diya/Maya), agent framework, and AI-powered features</p>
+        </div>
+      </div>
+
+      <!-- Diya Request -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/diya/request</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Send a request to another user's Diya AI assistant for cross-user AI communication.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">targetUserId</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">User ID whose Diya to contact</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">message</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Message for the AI assistant</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🤖 AI Features</div>
+            <div class="section-content">
+              Diya is Syncup's personal AI assistant that can communicate with other users' Diyas for intelligent cross-user interactions.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Instance Management -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/ai/instances</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Create and configure AI assistant instances with custom personalities and settings.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent Framework -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/agents</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Create autonomous agents for background tasks and automation.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">⚠️ Note</div>
+            <div class="section-content">
+              Agent system is currently disabled for performance optimization. Endpoints return graceful responses.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Location & Maps -->
+    <section id="location" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon integration-icon">📍</div>
+        <div>
+          <h3>Location & Maps</h3>
+          <p class="category-description">Location sharing, meetups, places, and geolocation services</p>
+        </div>
+      </div>
+
+      <!-- Location Sharing -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/location-sharing</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Share real-time location with selected users or groups with time limits and privacy controls.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">latitude</span>
+                  <span class="param-type">number</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">longitude</span>
+                  <span class="param-type">number</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">sharedWith</span>
+                  <span class="param-type">array</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Array of user IDs to share location with</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">duration</span>
+                  <span class="param-type">number</span>
+                  <p class="param-description">Duration in minutes (default: 60)</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Meetups -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/meetups</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Create meetup with shared destination and group live tracking.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">destination</span>
+                  <span class="param-type">object</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Destination coordinates and name</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">participants</span>
+                  <span class="param-type">array</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Array of user IDs invited to meetup</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Places API -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-get">GET</span>
+          <span class="endpoint-path">/api/places/nearby</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Get nearby places using Geoapify integration with caching.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Query Parameters</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">lat</span>
+                  <span class="param-type">number</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">lon</span>
+                  <span class="param-type">number</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">radius</span>
+                  <span class="param-type">number</span>
+                  <p class="param-description">Search radius in meters (default: 1000)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">category</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Place category filter</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Media & Files -->
+    <section id="media" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon content-icon">🎵</div>
+        <div>
+          <h3>Media & Files</h3>
+          <p class="category-description">File uploads, music library, video streaming, and encrypted files</p>
+        </div>
+      </div>
+
+      <!-- File Upload -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/upload</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Upload files (images, videos, documents). Supports multipart/form-data with file size limits.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">file</span>
+                  <span class="param-type">file</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">File to upload (multipart/form-data)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">type</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">"image", "video", "document", "profile", "story"</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📤 Response</div>
+            <div class="code-block">
+<pre>{
+  <span class="json-key">"success"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"url"</span>: <span class="json-string">"/uploads/post-media/file_12345.jpg"</span>,
+  <span class="json-key">"mediaToken"</span>: <span class="json-string">"signed_token_here"</span>
+}</pre>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">⚠️ Limits</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">Images: 10MB max</li>
+                <li class="param-item">Videos: 200MB max</li>
+                <li class="param-item">Documents: 50MB max</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Music Library -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-get">GET</span>
+          <span class="endpoint-path">/api/music</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Browse music library with trending songs, genres, and streaming support.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Blob Storage (E2EE) -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/blobs</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Upload encrypted ciphertext blobs for end-to-end encrypted content.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔒 Security</div>
+            <div class="section-content">
+              Server stores only encrypted data. Decryption keys never leave client devices.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- E2EE & Security -->
+    <section id="e2ee" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon auth-icon">🔒</div>
+        <div>
+          <h3>End-to-End Encryption & Security</h3>
+          <p class="category-description">E2EE key exchange, device pairing, encrypted storage</p>
+        </div>
+      </div>
+
+      <!-- Key Exchange -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/crypto/keys/exchange</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Exchange public keys for E2EE encrypted messaging setup.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">publicKey</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">User's public encryption key (base64)</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">deviceId</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Device identifier</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔐 E2EE Features</div>
+            <div class="section-content">
+              <span class="dependency-badge">Signal Protocol</span>
+              <span class="dependency-badge">Perfect Forward Secrecy</span>
+              <span class="dependency-badge">Multi-device Support</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Device Management -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/devices/pair</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Pair a new device to user account with secure verification.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- E2EE Device Directory -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-get">GET</span>
+          <span class="endpoint-path">/api/e2ee/devices/:userId</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Get list of user's registered devices and their public keys for E2EE messaging.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Admin & Management -->
+    <section id="admin" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon admin-icon">⚙️</div>
+        <div>
+          <h3>Admin & Management</h3>
+          <p class="category-description">Administrative controls, user management, notifications, and system monitoring</p>
+        </div>
+      </div>
+
+      <!-- Admin Authentication -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/admin/auth/login</span>
+          <span class="auth-public">🌐 Public</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Admin panel authentication with 2FA support.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">username</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">password</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">totpCode</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Two-factor authentication code</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔒 Security</div>
+            <div class="section-content">
+              Admin endpoints require JWT authentication and optionally 2FA verification.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Status Management -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-put">PUT</span>
+          <span class="endpoint-path">/api/admin/users/:userId/status</span>
+          <span class="auth-required">🔒 Admin Auth</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Manage user account status (suspend, activate, ban).
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">status</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">"active", "suspended", "banned"</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">reason</span>
+                  <span class="param-type">string</span>
+                  <p class="param-description">Reason for status change</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Push Notifications -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/admin/notifications/push</span>
+          <span class="auth-required">🔒 Admin Auth</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Send push notifications to users (FCM v2 envelope format).
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">userIds</span>
+                  <span class="param-type">array</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Array of user IDs to send to</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">title</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">body</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- System Metrics -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-get">GET</span>
+          <span class="endpoint-path">/api/admin/dashboard/stats</span>
+          <span class="auth-required">🔒 Admin Auth</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Get comprehensive system statistics including user counts, activity metrics, and performance data.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Integration APIs -->
+    <section id="integration" class="api-category fade-in-section">
+      <div class="category-header">
+        <div class="category-icon integration-icon">🔌</div>
+        <div>
+          <h3>Integrations & External Services</h3>
+          <p class="category-description">Partner APIs, OAuth, webhooks, and third-party integrations</p>
+        </div>
+      </div>
+
+      <!-- Partner API -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/partner/v1/users</span>
+          <span class="auth-required">🔒 API Key</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Partner API for third-party integrations. Requires API key authentication.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔑 Headers</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">X-API-Key</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Partner API key</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OAuth -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-get">GET</span>
+          <span class="endpoint-path">/oauth/authorize</span>
+          <span class="auth-public">🌐 Public</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              OAuth 2.0 authorization endpoint for third-party application access.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Query Parameters</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">client_id</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">redirect_uri</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">scope</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sync Space -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/sync-space</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Sync Space API for real-time collaboration and data synchronization.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">⚠️ Body Size Limit</div>
+            <div class="section-content">
+              Sync Space endpoints have a strict 64KB body limit for performance.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FCM Token Registration -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-post">POST</span>
+          <span class="endpoint-path">/api/notifications/register-token</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Register device FCM token for push notifications.
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">📥 Request Body</div>
+            <div class="section-content">
+              <ul class="param-list">
+                <li class="param-item">
+                  <span class="param-name">token</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Firebase Cloud Messaging token</p>
+                </li>
+                <li class="param-item">
+                  <span class="param-name">deviceId</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                  <p class="param-description">Unique device identifier</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Open Network -->
+      <div class="endpoint-card">
+        <div class="endpoint-header" onclick="toggleEndpoint(this)">
+          <span class="method-badge method-get">GET</span>
+          <span class="endpoint-path">/api/open-network/nearby</span>
+          <span class="auth-required">🔒 Auth Required</span>
+          <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="endpoint-body">
+          <div class="endpoint-section">
+            <div class="section-title">📝 Description</div>
+            <div class="section-content">
+              Discover nearby users and content in the Open Network (location-based social discovery).
+            </div>
+          </div>
+
+          <div class="endpoint-section">
+            <div class="section-title">🔗 Related Endpoints</div>
+            <div class="section-content">
+              <span class="dependency-badge">POST /api/open-network/join</span>
+              <span class="dependency-badge">GET /api/open-network/feed</span>
+              <span class="dependency-badge">POST /api/ripples</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+// Search functionality
+const searchInput = document.getElementById('searchInput');
+const endpointCards = document.querySelectorAll('.endpoint-card');
+const categories = document.querySelectorAll('.api-category');
+
+searchInput.addEventListener('input', (e) => {
+  const searchTerm = e.target.value.toLowerCase();
+
+  endpointCards.forEach(card => {
+    const path = card.querySelector('.endpoint-path').textContent.toLowerCase();
+    const method = card.querySelector('.method-badge').textContent.toLowerCase();
+    const parentCategory = card.closest('.api-category');
+
+    if (path.includes(searchTerm) || method.includes(searchTerm)) {
+      card.style.display = 'block';
+      parentCategory.style.display = 'block';
+    } else {
+      card.style.display = 'none';
+    }
+  });
+
+  // Hide empty categories
+  categories.forEach(category => {
+    const visibleCards = category.querySelectorAll('.endpoint-card[style="display: block"]');
+    if (visibleCards.length === 0 && searchTerm !== '') {
+      category.style.display = 'none';
+    } else {
+      category.style.display = 'block';
+    }
+  });
+});
+
+// Toggle endpoint details
+function toggleEndpoint(header) {
+  const body = header.nextElementSibling;
+  const icon = header.querySelector('.expand-icon');
+
+  if (body.classList.contains('expanded')) {
+    body.classList.remove('expanded');
+    icon.classList.remove('expanded');
+  } else {
+    body.classList.add('expanded');
+    icon.classList.add('expanded');
+  }
+}
+
+// Smooth scroll for navigation
+document.querySelectorAll('.category-link').forEach(link => {
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    const targetId = link.getAttribute('href');
+    const targetSection = document.querySelector(targetId);
+
+    if (targetSection) {
+      targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      // Update active link
+      document.querySelectorAll('.category-link').forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
+    }
+  });
+});
+
+// Intersection Observer for fade-in animations
+const observerOptions = {
+  threshold: 0.1,
+  rootMargin: '0px 0px -50px 0px'
+};
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, observerOptions);
+
+document.querySelectorAll('.fade-in-section').forEach(section => {
+  observer.observe(section);
+});
+
+// Copy to clipboard
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => {
+      btn.textContent = originalText;
+    }, 2000);
+  });
+}
+
+// Update active navigation on scroll
+window.addEventListener('scroll', () => {
+  let current = '';
+
+  categories.forEach(section => {
+    const sectionTop = section.offsetTop;
+    const sectionHeight = section.clientHeight;
+    if (window.pageYOffset >= sectionTop - 150) {
+      current = section.getAttribute('id');
+    }
+  });
+
+  document.querySelectorAll('.category-link').forEach(link => {
+    link.classList.remove('active');
+    if (link.getAttribute('href') === '#' + current) {
+      link.classList.add('active');
+    }
+  });
+});
+
+// Auto-expand first few endpoints for demo
+setTimeout(() => {
+  const firstCards = document.querySelectorAll('.endpoint-card');
+  if (firstCards.length > 0) {
+    // Don't auto-expand any by default - let users explore
+  }
+}, 500);
+
+console.log('🚀 Syncup API Documentation loaded successfully!');
+console.log('📚 Total endpoints documented: ' + endpointCards.length);
+</script>
+
+</body>
+</html>

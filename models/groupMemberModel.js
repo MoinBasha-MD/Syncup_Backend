@@ -105,7 +105,8 @@ const groupMemberSchema = mongoose.Schema(
 );
 
 // Create compound indexes
-groupMemberSchema.index({ groupId: 1, userId: 1 }, { unique: true }); // Unique member per group
+// Fix: Include isActive in unique constraint to allow users to rejoin after leaving
+groupMemberSchema.index({ groupId: 1, userId: 1, isActive: 1 }, { unique: true }); // Unique active member per group
 groupMemberSchema.index({ groupId: 1, role: 1 }); // Find admins/members
 groupMemberSchema.index({ userId: 1, isActive: 1 }); // User's active groups
 groupMemberSchema.index({ groupId: 1, isActive: 1 }); // Active members in group

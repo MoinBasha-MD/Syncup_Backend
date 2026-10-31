@@ -9,12 +9,22 @@ const {
 // ✅ SECURITY FIX: Add rate limiting to prevent brute force attacks
 // Simple in-memory rate limiter (for production, use Redis)
 const loginAttempts = new Map();
+let lastSweep = 0;
 
 const rateLimiter = (req, res, next) => {
   const identifier = req.body.phoneNumber || req.ip;
   const now = Date.now();
   const windowMs = 15 * 60 * 1000; // 15 minutes
   const maxAttempts = 5;
+  
+  if (now - lastSweep > windowMs) {
+    lastSweep = now;
+    for (const [key, times] of loginAttempts.entries()) {
+      const recent = times.filter(time => now - time < windowMs);
+      if (recent.length === 0) loginAttempts.delete(key);
+      else loginAttempts.set(key, recent);
+    }
+  }
   
   if (!loginAttempts.has(identifier)) {
     loginAttempts.set(identifier, []);
@@ -35,18 +45,6 @@ const rateLimiter = (req, res, next) => {
   
   recentAttempts.push(now);
   loginAttempts.set(identifier, recentAttempts);
-  
-  // Clean up old entries every hour
-  if (Math.random() < 0.01) {
-    for (const [key, times] of loginAttempts.entries()) {
-      const recent = times.filter(time => now - time < windowMs);
-      if (recent.length === 0) {
-        loginAttempts.delete(key);
-      } else {
-        loginAttempts.set(key, recent);
-      }
-    }
-  }
   
   next();
 };

@@ -199,8 +199,9 @@ agentStateSchema.methods.updateHealth = function(healthData) {
 
 agentStateSchema.methods.updatePerformance = function(perfData) {
   this.performance = { ...this.performance, ...perfData };
-  this.performance.successRate = this.performance.tasksCompleted > 0 
-    ? (this.performance.tasksCompleted / this.performance.tasksProcessed) * 100 
+  // Fix division by zero bug
+  this.performance.successRate = this.performance.tasksProcessed > 0
+    ? (this.performance.tasksCompleted / this.performance.tasksProcessed) * 100
     : 100;
   return this.save();
 };

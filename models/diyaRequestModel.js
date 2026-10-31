@@ -36,7 +36,7 @@ const diyaRequestSchema = new mongoose.Schema({
   },
   response: {
     type: String,
-    enum: ['share', 'decline'],
+    enum: ['share', 'decline', null],
     default: null
   },
   responseMessage: {
@@ -44,14 +44,8 @@ const diyaRequestSchema = new mongoose.Schema({
     maxlength: 500,
     default: null
   },
-  
-  // Timestamps
-  createdAt: {
-    type: Date,
-    default: Date.now,
-    required: true,
-    index: true
-  },
+
+  // Timestamps (removed manual createdAt - timestamps: true handles it)
   respondedAt: {
     type: Date,
     default: null

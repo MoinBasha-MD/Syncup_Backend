@@ -6,6 +6,7 @@ const Message = require('../models/Message');
 const Broadcast = require('../models/Broadcast');
 const { setAccountState } = require('../services/userSessionControl');
 const { recordAdminAction } = require('../services/adminAudit');
+const { hasPermission } = require('../config/adminPermissions');
 const broadcasts = require('../controllers/adminV2/broadcastsController').legacy;
 
 const audit = (req, action, extra = {}) => {
@@ -112,24 +113,27 @@ router.get('/analytics/upload-stats', async (req, res) => {
   }
 });
 
+const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Get users list with pagination and search
 router.get('/users', async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const search = req.query.search || '';
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+    const search = (req.query.search || '').trim();
     const skip = (page - 1) * limit;
 
     console.log(`👥 [ADMIN] Fetching users - page: ${page}, limit: ${limit}, search: "${search}"`);
 
     let filter = {};
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter = {
         $or: [
-          { name: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { phoneNumber: { $regex: search, $options: 'i' } },
-          { userId: { $regex: search, $options: 'i' } }
+          { name: { $regex: safeSearch, $options: 'i' } },
+          { email: { $regex: safeSearch, $options: 'i' } },
+          { phoneNumber: { $regex: safeSearch, $options: 'i' } },
+          { userId: { $regex: safeSearch, $options: 'i' } }
         ]
       };
     }
@@ -183,6 +187,7 @@ const USER_EDITABLE_FIELDS = ['name', 'bio', 'email', 'phoneNumber', 'profileIma
 // Update user
 router.put('/users/:id', async (req, res) => {
   try {
+    if (!hasPermission(req.admin, 'users.write')) return res.status(403).json({ error: 'Permission denied' });
     console.log(`✏️ [ADMIN] Updating user: ${req.params.id}`);
 
     const updateData = {};
@@ -313,8 +318,8 @@ router.delete('/users/:id', async (req, res) => {
 // Get posts list
 router.get('/posts', async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
     const skip = (page - 1) * limit;
 
     console.log(`📝 [ADMIN] Fetching posts - page: ${page}, limit: ${limit}`);
@@ -367,6 +372,7 @@ router.get('/posts', async (req, res) => {
 // Delete post
 router.delete('/posts/:id', async (req, res) => {
   try {
+    if (!hasPermission(req.admin, 'content.moderate')) return res.status(403).json({ error: 'Permission denied' });
     console.log(`🗑️ [ADMIN] Deleting post: ${req.params.id}`);
     
     const post = await Post.findByIdAndDelete(req.params.id).lean();
@@ -374,6 +380,12 @@ router.delete('/posts/:id', async (req, res) => {
     if (!post) {
       return res.status(404).json({ error: 'Post not found' });
     }
+
+    audit(req, 'post.delete', {
+      targetType: 'post',
+      targetId: req.params.id,
+      postUserId: post.userId
+    });
 
     console.log(`✅ [ADMIN] Post deleted`);
     res.json({ success: true, message: 'Post deleted successfully' });
@@ -386,8 +398,8 @@ router.delete('/posts/:id', async (req, res) => {
 // Get messages list
 router.get('/messages', async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
     const skip = (page - 1) * limit;
 
     console.log(`💬 [ADMIN] Fetching messages - page: ${page}, limit: ${limit}`);
@@ -525,7 +537,7 @@ router.get('/users/:id/stats', async (req, res) => {
 router.get('/statuses', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
     const skip = (page - 1) * limit;
 
     console.log(`📊 [ADMIN] Fetching active statuses - page: ${page}, limit: ${limit}`);
@@ -674,7 +686,7 @@ router.delete('/broadcasts/:id', broadcasts.delete);
 // Get trending hashtags
 router.get('/hashtags/trending', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
     const days = parseInt(req.query.days) || 7;
 
     console.log(`#️⃣ [ADMIN] Fetching trending hashtags (last ${days} days)`);
