@@ -38,7 +38,6 @@ const {
   removeMember,
   promoteMember,
   demoteMember,
-  getOrCreateRippleChat,
   toggleSupport,
   inviteToRipple,
   getInviteCandidates,
@@ -115,9 +114,6 @@ router.post('/:id/members/:userId/demote', demoteMember);
 router.post('/:id/invite', inviteToRipple);
 router.get('/:id/invite-candidates', getInviteCandidates);
 router.post('/:id/invite/decline', declineInvite);
-
-// Coordination — lazily creates the linked group chat on first open
-router.post('/:id/chat', getOrCreateRippleChat);
 
 // Contribution timeline — the posts inside a Ripple
 router.post('/:id/events', createEvent);

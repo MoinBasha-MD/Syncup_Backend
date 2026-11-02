@@ -129,103 +129,8 @@ const notifyRipple = ({ toUserId, fromUserId, ripple, kind, title, message }) =>
     },
   });
 
-/* ------------------------------------------------------------------ *
- *  Group chat linking — replicates groupChatController.createGroupChat *
- *  exactly: GroupChat doc + a GroupMember row per member, with the     *
- *  'group:created' broadcast. Both stores must be written.            *
- * ------------------------------------------------------------------ */
-
-const ensureGroupChat = async (ripple) => {
-  if (ripple.groupChatId) return ripple.groupChatId;
-
-  // Claim the slot before creating anything: only the write that sees
-  // groupChatId still unset wins, so two openers can't both make a chat.
-  const chatId = new mongoose.Types.ObjectId();
-  const claim = await Ripple.updateOne(
-    { _id: ripple._id, groupChatId: null },
-    { $set: { groupChatId: chatId } },
-  );
-  if (!claim.modifiedCount) {
-    const fresh = await Ripple.findById(ripple._id).select('groupChatId').lean();
-    ripple.groupChatId = fresh?.groupChatId || null;
-    return ripple.groupChatId;
-  }
-  ripple.groupChatId = chatId;
-
-  const approved = await Rippler.find({
-    rippleId: ripple._id,
-    status: 'approved',
-    role: { $ne: 'follower' },
-  }).select('userId role').lean();
-
-  const memberIds = [...new Set(approved.map((m) => m.userId))];
-  const adminIds = approved
-    .filter((m) => MANAGER_ROLES.includes(m.role))
-    .map((m) => m.userId);
-
-  const groupChat = await GroupChat.create({
-    _id: chatId,
-    groupName: (ripple.title || 'Ripple').slice(0, 100),
-    description: ripple.description ? ripple.description.slice(0, 500) : '',
-    groupImage: '',
-    createdBy: ripple.hostUserId,
-    admins: adminIds.length ? adminIds : [ripple.hostUserId],
-    members: memberIds,
-    memberCount: memberIds.length,
-  }).catch(async (e) => {
-    await Ripple.updateOne({ _id: ripple._id, groupChatId: chatId }, { $unset: { groupChatId: 1 } });
-    throw e;
-  });
-
-  await GroupMember.insertMany(
-    memberIds.map((memberId) => ({
-      groupId: groupChat._id,
-      userId: memberId,
-      role: adminIds.includes(memberId) ? 'admin' : 'member',
-      addedBy: ripple.hostUserId,
-      joinedAt: new Date(),
-    })),
-  );
-
-  const notificationData = {
-    type: 'group_created',
-    groupId: groupChat._id,
-    groupName: groupChat.groupName,
-    createdBy: ripple.hostUserId,
-    memberCount: memberIds.length,
-    timestamp: new Date().toISOString(),
-  };
-  memberIds.forEach((memberId) => {
-    if (memberId !== ripple.hostUserId) {
-      try {
-        getSocketManager().broadcastToUser(memberId, 'group:created', notificationData);
-      } catch (e) {
-        console.error(`❌ [RIPPLE CHAT] notify ${memberId}:`, e.message);
-      }
-    }
-  });
-
-  return groupChat._id;
-};
-
-/** Keep GroupChat.members + GroupMember rows in sync with Rippler state. */
-const addToGroupChat = async (ripple, userId) => {
-  if (!ripple.groupChatId) return;
-  await GroupChat.findByIdAndUpdate(ripple.groupChatId, {
-    $addToSet: { members: userId },
-    $set: { lastActivity: new Date() },
-  });
-  await GroupMember.findOneAndUpdate(
-    { groupId: ripple.groupChatId, userId },
-    {
-      $set: { isActive: true, joinedAt: new Date() },
-      $setOnInsert: { role: 'member', addedBy: ripple.hostUserId },
-    },
-    { upsert: true },
-  );
-};
-
-const removeFromGroupChat = async (ripple, userId) => {
+// Revoke access to legacy linked groups; new Ripplers are never added to them.
+const removeFromLegacyGroupChat = async (ripple, userId) => {
   if (!ripple.groupChatId) return;
   await GroupChat.findByIdAndUpdate(ripple.groupChatId, {
     $pull: { members: userId, admins: userId },
@@ -348,7 +253,6 @@ const joinRipple = asyncHandler(async (req, res) => {
 
   if (approveNow) {
     await recordRippleInteractor(ripple._id, userId);
-    await addToGroupChat(ripple, userId);
   } else {
     await Ripple.updateOne({ _id: ripple._id }, { $inc: { 'counts.pendingRequests': 1 } });
     await notifyRipple({
@@ -393,7 +297,7 @@ const leaveRipple = asyncHandler(async (req, res) => {
   if (Object.keys(inc).length) {
     await Ripple.updateOne({ _id: ripple._id }, { $inc: inc });
   }
-  if (wasApproved && !wasFollower) await removeFromGroupChat(ripple, userId);
+  if (wasApproved && !wasFollower) await removeFromLegacyGroupChat(ripple, userId);
 
   res.status(200).json({ success: true });
 });
@@ -551,7 +455,6 @@ const approveRequest = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, idempotent: true });
   }
   await recordRippleInteractor(ripple._id, targetUserId);
-  await addToGroupChat(ripple, targetUserId);
   await notifyRipple({
     toUserId: targetUserId,
     fromUserId: actorId,
@@ -610,7 +513,7 @@ const removeMember = asyncHandler(async (req, res) => {
     ? { 'counts.followers': -1 }
     : { 'counts.ripplers': -1 };
   await Ripple.updateOne({ _id: ripple._id }, { $inc: inc });
-  if (target.role !== 'follower') await removeFromGroupChat(ripple, targetUserId);
+  if (target.role !== 'follower') await removeFromLegacyGroupChat(ripple, targetUserId);
   // Quiet — socket only, no push, per spec.
   try {
     getSocketManager().broadcastToUser(targetUserId, 'notification:ripple:removed', {
@@ -643,16 +546,6 @@ const promoteMember = asyncHandler(async (req, res) => {
   }
 
   await Rippler.updateOne({ _id: target._id }, { $set: { role: 'cohost' } });
-  // Promote inside the linked chat too.
-  if (ripple.groupChatId) {
-    await GroupChat.findByIdAndUpdate(ripple.groupChatId, {
-      $addToSet: { admins: targetUserId },
-    });
-    await GroupMember.findOneAndUpdate(
-      { groupId: ripple.groupChatId, userId: targetUserId },
-      { $set: { role: 'admin' } },
-    );
-  }
 
   res.status(200).json({ success: true });
 });
@@ -678,9 +571,7 @@ const demoteMember = asyncHandler(async (req, res) => {
 
   await Rippler.updateOne({ _id: target._id }, { $set: { role: 'rippler' } });
   if (ripple.groupChatId) {
-    await GroupChat.findByIdAndUpdate(ripple.groupChatId, {
-      $pull: { admins: targetUserId },
-    });
+    await GroupChat.findByIdAndUpdate(ripple.groupChatId, { $pull: { admins: targetUserId } });
     await GroupMember.findOneAndUpdate(
       { groupId: ripple.groupChatId, userId: targetUserId },
       { $set: { role: 'member' } },
@@ -809,7 +700,7 @@ const inviteToRipple = asyncHandler(async (req, res) => {
     }
     if (prior?.status === 'requested') {
       // A manager's invite short-circuits the pending request — same
-      // side-effects as approveRequest: counts, group chat, interactor,
+      // side-effects as approveRequest: counts, interactor,
       // notification.
       if (!callerIsManager) {
         skipped.push({ userId: inviteeId, reason: 'already_requested' });
@@ -821,7 +712,6 @@ const inviteToRipple = asyncHandler(async (req, res) => {
         continue;
       }
       await recordRippleInteractor(ripple._id, inviteeId);
-      await addToGroupChat(ripple, inviteeId);
       await notifyRipple({
         toUserId: inviteeId,
         fromUserId: callerId,
@@ -983,23 +873,6 @@ const declineInvite = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true });
 });
 
-// @route POST /api/ripples/:id/chat — create-or-return the linked group chat
-const getOrCreateRippleChat = asyncHandler(async (req, res) => {
-  const userId = req.user.userId;
-  const ripple = await loadRipple(req);
-
-  const member = await getMember(ripple._id, userId);
-  const allowed =
-    isManager(ripple, member, userId) ||
-    (member && member.status === 'approved' && member.role !== 'follower');
-  if (!allowed) {
-    throw err(ForbiddenError, 'Only Ripplers can open this chat', 'FORBIDDEN');
-  }
-
-  const groupId = await ensureGroupChat(ripple);
-  res.status(200).json({ success: true, groupId: String(groupId) });
-});
-
 // @route POST /api/ripples/:id/support — toggle the Short's support counter
 const toggleSupport = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
@@ -1101,7 +974,6 @@ module.exports = {
   removeMember,
   promoteMember,
   demoteMember,
-  getOrCreateRippleChat,
   toggleSupport,
   inviteToRipple,
   getInviteCandidates,
