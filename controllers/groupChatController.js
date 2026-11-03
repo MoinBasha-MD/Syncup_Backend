@@ -11,13 +11,14 @@ const { broadcastToUser } = require('../socketManager');
  * that the roster changed so their E2EE member-id caches invalidate. Bodies
  * carry only the groupId — members re-fetch the roster.
  */
-const broadcastMembersChanged = async (groupId, extraUserIds = []) => {
+const broadcastMembersChanged = async (groupId, extraUserIds = [], removedUserIds = []) => {
   try {
     const members = await GroupMember.find({ groupId, isActive: true }).select('userId');
     const targets = new Set(members.map((m) => m.userId));
+    const removed = new Set(removedUserIds.map(String));
     for (const id of extraUserIds) targets.add(id);
     for (const userId of targets) {
-      broadcastToUser(userId, 'group:members-changed', { groupId: String(groupId) });
+      broadcastToUser(userId, 'group:members-changed', { groupId: String(groupId), removed: removed.has(String(userId)) });
     }
   } catch (e) {
     console.warn('⚠️ [GROUP MEMBERS] members-changed broadcast failed:', e.message);
@@ -249,9 +250,9 @@ const getGroupChatDetails = asyncHandler(async (req, res) => {
     
     // Get user details for each member
     const memberUserIds = memberRecords.map(member => member.userId);
-    const users = await User.find({ userId: { $in: memberUserIds } }).select('userId name profileImage phoneNumber');
+    const users = await User.find({ userId: { $in: memberUserIds } }).select('userId name profileImage');
     
-    // Combine member records with user details
+    // Combine member records with user details (phone numbers are never exposed to members)
     const imageBaseUrl = process.env.IMAGE_BASE_URL || 'https://api.crackman.in';
     const members = memberRecords.map(member => {
       const user = users.find(u => u.userId === member.userId);
@@ -259,8 +260,7 @@ const getGroupChatDetails = asyncHandler(async (req, res) => {
         ...member.toObject(),
         userId: member.userId,
         name: user?.name || 'Unknown User',
-        profileImage: user?.profileImage || '',
-        phoneNumber: user?.phoneNumber || 'No phone'
+        profileImage: user?.profileImage || ''
       };
     });
 
@@ -843,15 +843,14 @@ const removeGroupMember = asyncHandler(async (req, res) => {
     const isSelfRemoval = userId.toString() === memberId.toString();
     const isCreatorBeingRemoved = groupChat.createdBy.toString() === memberId.toString();
     
+    if (isCreatorBeingRemoved) {
+      res.status(403);
+      throw new Error('Group creator cannot leave or be removed. Transfer ownership first.');
+    }
     if (!isSelfRemoval) {
       if (membership.role !== 'admin') {
         res.status(403);
         throw new Error('Only admins can remove other members');
-      }
-      
-      if (isCreatorBeingRemoved) {
-        res.status(403);
-        throw new Error('Cannot remove group creator');
       }
     }
 
@@ -876,7 +875,7 @@ const removeGroupMember = asyncHandler(async (req, res) => {
     console.log(`👥 [GROUP MEMBERS] Removed member ${memberId} from group ${groupId}`);
 
     // Include the removed user — their app should drop the cached roster too.
-    broadcastMembersChanged(groupId, [memberId]);
+    broadcastMembersChanged(groupId, [memberId], [memberId]);
 
     res.status(200).json({
       success: true,
@@ -884,8 +883,8 @@ const removeGroupMember = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('❌ [GROUP MEMBERS] Error removing member:', error);
-    res.status(500);
-    throw new Error('Failed to remove member');
+    res.status(res.statusCode === 200 ? 500 : res.statusCode);
+    throw new Error(error.message || 'Failed to remove member');
   }
 });
 
@@ -962,11 +961,20 @@ const updateGroupChat = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    // Check if user is admin
-    const membership = await GroupMember.isAdmin(groupId, userId);
-    if (!membership) {
+    const current = await GroupChat.findById(groupId).select('settings');
+    if (!current) {
+      res.status(404);
+      throw new Error('Group chat not found');
+    }
+    const isAdminUser = await GroupMember.isAdmin(groupId, userId);
+    const membersMayEditInfo = current.settings?.onlyAdminsCanEditGroupInfo === false;
+    if (!isAdminUser && !membersMayEditInfo) {
       res.status(403);
       throw new Error('Only admins can update group information');
+    }
+    if (!isAdminUser && settings !== undefined) {
+      res.status(403);
+      throw new Error('Only admins can change group settings');
     }
 
     const updateData = {};
@@ -987,8 +995,21 @@ const updateGroupChat = asyncHandler(async (req, res) => {
       updateData.groupImage = groupImage;
     }
     
-    if (settings) {
-      updateData.settings = { ...settings };
+    if (settings && typeof settings === 'object') {
+      const BOOLEAN_SETTINGS = ['onlyAdminsCanMessage', 'onlyAdminsCanAddMembers', 'onlyAdminsCanEditGroupInfo', 'muteNotifications'];
+      const allowed = {};
+      for (const key of BOOLEAN_SETTINGS) {
+        if (typeof settings[key] === 'boolean') allowed[key] = settings[key];
+      }
+      if (settings.disappearingMessages && typeof settings.disappearingMessages === 'object') {
+        const { enabled, duration } = settings.disappearingMessages;
+        if (typeof enabled === 'boolean' && Number.isFinite(Number(duration))) {
+          allowed.disappearingMessages = { enabled, duration: Number(duration) };
+        }
+      }
+      for (const [key, value] of Object.entries(allowed)) {
+        updateData[`settings.${key}`] = value;
+      }
     }
 
     updateData.lastActivity = new Date();
@@ -1043,12 +1064,13 @@ const deleteGroupChat = asyncHandler(async (req, res) => {
     }
 
     // Check if user is the creator or admin
-    const membership = await GroupMember.findOne({ groupId, userId });
+    const membership = await GroupMember.findOne({ groupId, userId, isActive: true });
     if (!membership || (group.createdBy !== userId && membership.role !== 'admin')) {
       res.status(403);
       throw new Error('Only group creator or admins can delete the group');
     }
 
+    const activeMembers = await GroupMember.find({ groupId, isActive: true }).select('userId');
     // Delete all group members
     await GroupMember.deleteMany({ groupId });
 
@@ -1057,6 +1079,9 @@ const deleteGroupChat = asyncHandler(async (req, res) => {
 
     // Delete the group chat
     await GroupChat.findByIdAndDelete(groupId);
+    for (const member of activeMembers) {
+      broadcastToUser(member.userId, 'group:deleted', { groupId: String(groupId) });
+    }
 
     console.log(`🗑️ [GROUP DELETE] Group ${groupId} deleted by ${userId}`);
 
@@ -1066,8 +1091,8 @@ const deleteGroupChat = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('❌ [GROUP DELETE] Error deleting group:', error);
-    res.status(500);
-    throw new Error('Failed to delete group');
+    res.status(res.statusCode === 200 ? 500 : res.statusCode);
+    throw new Error(error.message || 'Failed to delete group');
   }
 });
 
@@ -1424,7 +1449,7 @@ const leaveGroup = asyncHandler(async (req, res) => {
 
   try {
     // Check if user is a member
-    const member = await GroupMember.findOne({ groupId, userId });
+    const member = await GroupMember.findOne({ groupId, userId, isActive: true });
     if (!member) {
       res.status(404);
       throw new Error('You are not a member of this group');
@@ -1443,7 +1468,11 @@ const leaveGroup = asyncHandler(async (req, res) => {
     }
 
     // Remove the member
-    await GroupMember.findOneAndDelete({ groupId, userId });
+    const removedMember = await GroupMember.findOneAndDelete({ groupId, userId, isActive: true });
+    if (!removedMember) {
+      res.status(404);
+      throw new Error('You are not a member of this group');
+    }
 
     // Update group member count
     await GroupChat.findByIdAndUpdate(groupId, {
@@ -1453,7 +1482,7 @@ const leaveGroup = asyncHandler(async (req, res) => {
 
     console.log(`🚪 [GROUP CHAT] User ${userId} left group ${groupId}`);
 
-    broadcastMembersChanged(groupId, [userId]);
+    broadcastMembersChanged(groupId, [userId], [userId]);
 
     res.status(200).json({
       success: true,
@@ -1461,8 +1490,8 @@ const leaveGroup = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('❌ [GROUP CHAT] Error leaving group:', error);
-    res.status(500);
-    throw new Error('Failed to leave group');
+    res.status(res.statusCode === 200 ? 500 : res.statusCode);
+    throw new Error(error.message || 'Failed to leave group');
   }
 });
 
@@ -1490,9 +1519,26 @@ const updateMemberRole = asyncHandler(async (req, res) => {
       throw new Error('Invalid role. Must be "member" or "admin"');
     }
 
+    const group = await GroupChat.findById(groupId);
+    if (!group) {
+      res.status(404);
+      throw new Error('Group not found');
+    }
+    if (role === 'member' && group.createdBy.toString() === memberId.toString()) {
+      res.status(403);
+      throw new Error('Group creator cannot be demoted');
+    }
+    if (role === 'member') {
+      const target = await GroupMember.findOne({ groupId, userId: memberId, isActive: true });
+      if (target?.role === 'admin' && await GroupMember.countDocuments({ groupId, role: 'admin', isActive: true }) <= 1) {
+        res.status(403);
+        throw new Error('The last group admin cannot be demoted');
+      }
+    }
+
     // Update member role
     const updatedMember = await GroupMember.findOneAndUpdate(
-      { groupId, userId: memberId },
+      { groupId, userId: memberId, isActive: true },
       { role },
       { new: true }
     );
@@ -1522,8 +1568,8 @@ const updateMemberRole = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('❌ [GROUP ROLE] Error updating member role:', error);
-    res.status(500);
-    throw new Error('Failed to update member role');
+    res.status(res.statusCode === 200 ? 500 : res.statusCode);
+    throw new Error(error.message || 'Failed to update member role');
   }
 });
 
@@ -1532,6 +1578,46 @@ const updateMemberRole = asyncHandler(async (req, res) => {
  * @route   GET /api/group-chats/health
  * @access  Private
  */
+const transferGroupOwnership = asyncHandler(async (req, res) => {
+  const { groupId } = req.params;
+  const { newOwnerId } = req.body;
+  const userId = req.user.userId;
+
+  try {
+    const group = await GroupChat.findById(groupId);
+    if (!group) {
+      res.status(404);
+      throw new Error('Group chat not found');
+    }
+    if (String(group.createdBy) !== String(userId)) {
+      res.status(403);
+      throw new Error('Only the group creator can transfer ownership');
+    }
+    if (typeof newOwnerId !== 'string' || !newOwnerId || newOwnerId === String(userId)) {
+      res.status(400);
+      throw new Error('Choose another member as the new owner');
+    }
+    const target = await GroupMember.findOne({ groupId, userId: newOwnerId, isActive: true });
+    if (!target) {
+      res.status(400);
+      throw new Error('New owner must be an active group member');
+    }
+
+    await GroupMember.updateOne({ _id: target._id }, { role: 'admin' });
+    await GroupChat.findByIdAndUpdate(groupId, {
+      createdBy: newOwnerId,
+      $addToSet: { admins: newOwnerId },
+      lastActivity: new Date(),
+    });
+
+    broadcastMembersChanged(groupId);
+    res.status(200).json({ success: true, message: 'Group ownership transferred' });
+  } catch (error) {
+    res.status(res.statusCode === 200 ? 500 : res.statusCode);
+    throw new Error(error.message || 'Failed to transfer ownership');
+  }
+});
+
 const getGroupsHealth = asyncHandler(async (req, res) => {
   try {
     // Basic health check
@@ -1558,6 +1644,25 @@ const getGroupsHealth = asyncHandler(async (req, res) => {
   }
 });
 
+const unmuteGroupNotifications = asyncHandler(async (req, res) => {
+  const { groupId } = req.params;
+  const userId = req.user.userId;
+
+  try {
+    const member = await GroupMember.findOne({ groupId, userId, isActive: true });
+    if (!member) {
+      res.status(404);
+      throw new Error('You are not a member of this group');
+    }
+    member.unmuteNotifications();
+    await member.save();
+    res.status(200).json({ success: true, message: 'Group notifications unmuted' });
+  } catch (error) {
+    res.status(res.statusCode === 200 ? 500 : res.statusCode);
+    throw new Error(error.message || 'Failed to unmute group notifications');
+  }
+});
+
 module.exports = {
   createGroupChat,
   getUserGroupChats,
@@ -1574,7 +1679,9 @@ module.exports = {
   editGroupMessage,
   deleteGroupMessage,
   muteGroupNotifications,
+  unmuteGroupNotifications,
   leaveGroup,
+  transferGroupOwnership,
   getGroupsHealth,
   toggleGroupMessageReaction,
   searchGroupMessages

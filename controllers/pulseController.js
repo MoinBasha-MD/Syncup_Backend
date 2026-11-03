@@ -3,6 +3,7 @@ const Pulse = require('../models/Pulse');
 const PulseChain = require('../models/PulseChain');
 const User = require('../models/userModel');
 const Friend = require('../models/Friend');
+const Block = require('../models/blockModel');
 const friendService = require('../services/friendService');
 const { broadcastToUser } = require('../socketManager');
 const { validateEnvelope, isE2eeV2, e2eePulseEnforced } = require('../utils/e2eeEnvelope');
@@ -11,6 +12,13 @@ const fcmNotificationService = require('../services/fcmNotificationService');
 
 function buildChainId(a, b) {
   return [a, b].sort().join('_');
+}
+
+async function blockedUserIds(userId) {
+  const blocks = await Block.find({
+    $or: [{ blockerId: userId }, { blockedUserId: userId }]
+  }).select('blockerId blockedUserId').lean();
+  return blocks.map(block => block.blockerId === userId ? block.blockedUserId : block.blockerId);
 }
 
 const mapUserToPulseUser = (user) => ({
@@ -122,19 +130,27 @@ const MAX_CHAINS_RETURNED = 200;
 const getChains = asyncHandler(async (req, res) => {
   try {
     const userId = req.user.userId;
+    const blockedIds = await blockedUserIds(userId);
+    const beforeDate = req.query?.before ? new Date(req.query.before) : null;
+    const before = beforeDate && !isNaN(beforeDate.getTime()) ? beforeDate : null;
     const chains = await PulseChain.find({
-      'participants.userId': userId
+      'participants.userId': userId,
+      ...(before ? { lastPulseAt: { $lt: before } } : {}),
+      ...(blockedIds.length ? { $and: [{ 'participants.userId': { $nin: blockedIds } }] } : {})
     })
       .sort({ lastPulseAt: -1 })
-      .limit(MAX_CHAINS_RETURNED)
+      .limit(MAX_CHAINS_RETURNED + 1)
       .lean();
+
+    const hasMore = chains.length > MAX_CHAINS_RETURNED;
+    if (hasMore) chains.pop();
 
     const data = chains.map((chain) => ({
       ...chain,
       unseenCount: getUnseenCount(chain, userId)
     }));
 
-    res.status(200).json({ success: true, data });
+    res.status(200).json({ success: true, data, hasMore });
   } catch (error) {
     console.error('❌ [PULSE] Error getting chains:', error.message);
     res.status(500).json({ success: false, message: error.message });
@@ -177,11 +193,26 @@ const getChainMoments = asyncHandler(async (req, res) => {
         throw new Error('Not authorized to view this chain');
       }
 
+      const blockedIds = await blockedUserIds(userId);
+      if (blockedIds.some(id => buildChainId(userId, id) === chainId)) {
+        res.status(403);
+        throw new Error('Not authorized to view this chain');
+      }
+
       res.status(200).json({ success: true, data: [], hasMore: false });
       return;
     }
 
     if (!chain.participants.some((p) => p.userId === userId)) {
+      res.status(403);
+      throw new Error('Not authorized to view this chain');
+    }
+
+    const blocks = await Promise.all(
+      chain.participants.filter(p => p.userId !== userId)
+        .map(p => Block.isMutuallyBlocked(userId, p.userId))
+    );
+    if (blocks.some(block => block.anyBlocked)) {
       res.status(403);
       throw new Error('Not authorized to view this chain');
     }
@@ -199,6 +230,8 @@ const getChainMoments = asyncHandler(async (req, res) => {
     const hasMore = moments.length > limit;
     if (hasMore) moments.pop();
 
+    // Only the first page marks moments seen; older pages are history views.
+    if (!before) {
     // Mark unseen as seen for current user
     await Pulse.updateMany(
       {
@@ -214,6 +247,7 @@ const getChainMoments = asyncHandler(async (req, res) => {
       { chainId },
       { $set: { [`unseenCounts.${userId}`]: 0 } }
     );
+    }
 
     res.status(200).json({ success: true, data: moments, hasMore });
   } catch (error) {
@@ -298,6 +332,10 @@ const sendPulse = asyncHandler(async (req, res) => {
     // check, letting strangers send pulses. Require an accepted friendship.
     const friends = await areFriends(senderId, receiverId);
     if (!friends) {
+      res.status(403);
+      throw new Error('You can only send pulses to friends');
+    }
+    if ((await Block.isMutuallyBlocked(senderId, receiverId)).anyBlocked) {
       res.status(403);
       throw new Error('You can only send pulses to friends');
     }

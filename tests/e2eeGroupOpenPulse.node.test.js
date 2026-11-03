@@ -369,6 +369,7 @@ const loadPulseController = (captured) => {
       findOne: ({ userId }) => ({ select: () => lean({ userId, name: userId, profileImage: '' }) }),
     },
     '../models/Friend': { areFriends: async () => true },
+    '../models/blockModel': { isMutuallyBlocked: async () => ({ anyBlocked: false }) },
     '../services/friendService': {},
     '../socketManager': {
       broadcastToUser: (userId, event, data) => {

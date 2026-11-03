@@ -23,7 +23,9 @@ const {
   toggleGroupMessageReaction,
   searchGroupMessages,
   muteGroupNotifications,
-  leaveGroup
+  unmuteGroupNotifications,
+  leaveGroup,
+  transferGroupOwnership
 } = require('../controllers/groupChatController');
 
 // Configure multer for group image uploads
@@ -83,8 +85,10 @@ router.post('/:groupId/messages/search', searchGroupMessages);
 
 // Group Member Actions
 router.post('/:groupId/mark-read', markGroupMessagesAsRead); // POST /api/group-chats/:groupId/mark-read - Mark messages as read
-router.post('/:groupId/mute', muteGroupNotifications);     // POST /api/group-chats/:groupId/mute - Mute group notifications
+router.post('/:groupId/mute', muteGroupNotifications);
+router.post('/:groupId/unmute', unmuteGroupNotifications);     // POST /api/group-chats/:groupId/mute - Mute group notifications
 router.post('/:groupId/leave', leaveGroup);                // POST /api/group-chats/:groupId/leave - Leave group
+router.post('/:groupId/transfer-ownership', transferGroupOwnership); // Creator hands the group to another active member
 
 // Group Messages Routes
 router.route('/:groupId/messages')

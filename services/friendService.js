@@ -27,8 +27,12 @@ class FriendService {
       console.log(`✅ [FRIEND SERVICE] Found ${friends.length} friends (before block filter)`);
       
       // Get list of blocked users to exclude them from friends list
-      const blockedUsers = await Block.find({ blockerId: userId }).select('blockedUserId').lean();
-      const blockedUserIds = new Set(blockedUsers.map(b => b.blockedUserId));
+      const blockedUsers = await Block.find({
+        $or: [{ blockerId: userId }, { blockedUserId: userId }]
+      }).select('blockerId blockedUserId').lean();
+      const blockedUserIds = new Set(blockedUsers.map(b =>
+        b.blockerId === userId ? b.blockedUserId : b.blockerId
+      ));
       
       // Filter out blocked users
       const filteredFriends = friends.filter(friend => {
@@ -928,14 +932,18 @@ class FriendService {
    */
   async syncDeviceContacts(userId, phoneNumbers) {
     try {
+      if (!Array.isArray(phoneNumbers)) {
+        throw new Error('Phone numbers array is required');
+      }
       console.log(`📱 [FRIEND SERVICE] Syncing ${phoneNumbers.length} device contacts for user: ${userId}`);
       
-      if (!phoneNumbers || phoneNumbers.length === 0) {
-        return { newFriends: [], removedContacts: [], totalFriends: 0 };
+      if (phoneNumbers.length === 0) {
+        const totalFriends = await Friend.countDocuments({ userId, status: 'accepted', isDeleted: false });
+        return { newFriends: [], removedContacts: 0, totalFriends };
       }
       
       // Log sample phone numbers for debugging
-      console.log(`📱 [SAMPLE NUMBERS] First 5: ${phoneNumbers.slice(0, 5).join(', ')}`);
+      console.log(`📱 [SAMPLE NUMBERS] Count: ${Math.min(phoneNumbers.length, 5)} (redacted)`);
       
       // Create phone number query with normalization
       const phoneQuery = createPhoneNumberQuery(phoneNumbers);

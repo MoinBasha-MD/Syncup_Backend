@@ -2,6 +2,7 @@ const admin = require('firebase-admin');
 const path = require('path');
 const User = require('../models/userModel');
 const { withMediaToken } = require('../utils/mediaToken');
+const { excludeConfirmedToken, isInvalidRegistrationToken } = require('./backgroundNotificationReceipt');
 
 // Transient network errors that warrant a retry (DNS failures, timeouts,
 // connection resets, etc.). These are typically temporary and resolve
@@ -117,7 +118,7 @@ class FCMNotificationService {
    * Send wakeup notification to user's device(s)
    * This is a silent notification that wakes the app to reconnect WebSocket
    */
-  async sendWakeupNotification(userId, messageData) {
+  async sendWakeupNotification(userId, messageData, options = {}) {
     if (!this.fcmEnabled) {
       console.log('⚠️ [FCM] FCM is disabled - skipping notification');
       return { success: false, reason: 'FCM disabled' };
@@ -134,7 +135,6 @@ class FCMNotificationService {
         tokenCount: user && user.fcmTokens ? user.fcmTokens.length : 0,
         tokens: user && user.fcmTokens ? user.fcmTokens.map(t => ({
           platform: t.platform,
-          tokenPreview: t.token.substring(0, 20) + '...',
           addedAt: t.addedAt
         })) : []
       });
@@ -144,7 +144,8 @@ class FCMNotificationService {
         return { success: false, reason: 'No FCM tokens' };
       }
 
-      const tokens = user.fcmTokens.map(t => t.token);
+      const tokens = excludeConfirmedToken(user.fcmTokens.map(t => t.token), options.excludeToken);
+      if (!tokens.length) return { success: true, reason: 'Already delivered' };
       console.log(`📱 [FCM] Sending wakeup notification to ${tokens.length} device(s)`);
 
       // Create notification payload with both notification and data
@@ -203,11 +204,9 @@ class FCMNotificationService {
         const invalidTokens = [];
         response.responses.forEach((resp, idx) => {
           if (!resp.success) {
-            invalidTokens.push(tokens[idx]);
-            console.log(`❌ [FCM] Token failed: ${tokens[idx].substring(0, 20)}...`);
+            if (isInvalidRegistrationToken(resp.error?.code)) invalidTokens.push(tokens[idx]);
             console.log(`❌ [FCM] Error code: ${resp.error?.code}`);
             console.log(`❌ [FCM] Error message: ${resp.error?.message}`);
-            console.log(`❌ [FCM] Full token: ${tokens[idx]}`);
           }
         });
 

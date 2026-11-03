@@ -3,6 +3,7 @@ const Notification = require('../models/Notification');
 // Lazy require to break circular dependency with socketManager
 const getSocketManager = () => require('../socketManager');
 const fcmNotificationService = require('./fcmNotificationService');
+const { confirmedSocketToken } = require('./backgroundNotificationReceipt');
 const { withMediaToken } = require('../utils/mediaToken');
 
 /**
@@ -149,13 +150,16 @@ class EnhancedNotificationService {
       // the request hung until nginx returned 502.
       console.log('📱 [FCM] Sending push notification to ensure delivery...');
 
-      fcmNotificationService.sendWakeupNotification(receiverId, {
+      const recipientSocket = socketSuccess ? getSocketManager().getUserSockets().get(String(receiverId)) : null;
+      confirmedSocketToken(recipientSocket, message._id ? String(message._id) : '').then(excludeToken => (
+        fcmNotificationService.sendWakeupNotification(receiverId, {
         senderId,
         senderName: sender.name,
         senderProfileImage: senderAvatar,
         messageId: message._id,
         messagePreview: this.formatMessagePreview(message)
-      }).then((fcmResult) => {
+        }, { excludeToken })
+      )).then((fcmResult) => {
         if (fcmResult.success) {
           console.log('✅ [FCM] Push notification sent successfully');
           if (!socketSuccess) {
