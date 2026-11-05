@@ -1012,6 +1012,10 @@ initializePublicStatusCacheCleaner();
 const { initializeScheduledPagePostPublisher } = require('./cron/publishScheduledPagePosts');
 initializeScheduledPagePostPublisher();
 
+// Start Partner Account Cleanup (purges unverified accounts hourly)
+const { initializePartnerAccountCleanup } = require('./cron/partnerAccountCleanup');
+initializePartnerAccountCleanup();
+
 
 
 // Keep these individual schedulers for special cases

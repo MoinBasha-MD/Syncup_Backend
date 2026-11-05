@@ -90,8 +90,14 @@ app.get('/dashboard', sec.requireAdmin, page(async (req, res) => {
     admin: req.admin,
     status,
     result,
+    purged: typeof req.query.purged === 'string' ? req.query.purged : null,
     error: null,
   });
+}));
+
+app.post('/purge-unverified', sec.requireAdmin, sec.requireCsrf, page(async (req, res) => {
+  const { deleted } = await partnerService.purgeUnverifiedPartners({ olderThanHours: 24 });
+  res.redirect(`/partners-admin/dashboard?status=sandbox&purged=${deleted}`);
 }));
 
 app.get('/partners/:partnerId', sec.requireAdmin, page(async (req, res) => {

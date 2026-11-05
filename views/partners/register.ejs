@@ -4,6 +4,11 @@
   <% if (error) { %><p class="notice notice-err"><%= error %></p><% } %>
   <form method="post" action="/partners/register" class="form" data-progress>
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div class="hp-field" aria-hidden="true">
+      <label>Company
+        <input type="text" name="company" tabindex="-1" autocomplete="off">
+      </label>
+    </div>
     <label class="field">
       <span>Business or project name</span>
       <input type="text" name="businessName" required maxlength="120" value="<%= values.businessName || '' %>">

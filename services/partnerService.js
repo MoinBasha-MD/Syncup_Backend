@@ -857,6 +857,22 @@ const reviewPartner = async (admin, partnerId, input) => {
   return partnerDto(updated);
 };
 
+const purgeUnverifiedPartners = async ({ olderThanHours = 48 } = {}) => {
+  const cutoff = new Date(Date.now() - olderThanHours * 60 * 60 * 1000);
+  const stale = await PartnerAccount.find({
+    emailVerifiedAt: null,
+    approvalStatus: 'sandbox',
+    createdAt: { $lt: cutoff },
+  }).select('partnerId').lean();
+  if (!stale.length) return { deleted: 0 };
+  const partnerIds = stale.map((p) => p.partnerId);
+  const [{ deletedCount }] = await Promise.all([
+    PartnerAccount.deleteMany({ partnerId: { $in: partnerIds } }),
+    PartnerEmailChallenge.deleteMany({ partnerId: { $in: partnerIds } }),
+  ]);
+  return { deleted: deletedCount || 0 };
+};
+
 const listPartnersAdmin = async ({ status, page = 1, limit = 20, q, sort } = {}) => {
   const filter = {};
   if (status && status !== 'all') {
@@ -1030,6 +1046,7 @@ module.exports = {
   getPartnerAdminDetail,
   requestPasswordReset,
   resetPassword,
+  purgeUnverifiedPartners,
   setWebhookUrl,
   rotateWebhookSecret,
   listAppConnections,

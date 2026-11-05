@@ -6,6 +6,7 @@
 </section>
 
 <section class="panel reveal">
+  <% if (purged !== null) { %><p class="notice notice-ok">Removed <%= purged %> unverified account(s).</p><% } %>
   <div class="filter-row" role="tablist" aria-label="Status filter">
     <% var c = result.counts || {}; var allCount = ['pending','sandbox','approved','rejected','suspended'].reduce(function (n, k) { return n + (c[k] || 0); }, 0); %>
     <% ['pending', 'sandbox', 'approved', 'rejected', 'suspended', 'all'].forEach(function (s) { %>
@@ -18,6 +19,11 @@
     <input type="hidden" name="sort" value="<%= result.sort %>">
     <input class="input-inline search-box" type="search" name="q" value="<%= result.q || '' %>" placeholder="Search business or email…" aria-label="Search partners">
     <button class="btn btn-ghost btn-sm" type="submit">Search</button>
+  </form>
+
+  <form class="form-inline" method="post" action="/partners-admin/purge-unverified">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <button class="btn btn-ghost btn-sm" type="submit">Purge unverified (24h+)</button>
   </form>
 
   <% if (result.items.length === 0) { %>
@@ -37,7 +43,7 @@
           <tr>
             <td><%= p.businessName %></td>
             <td><%= p.email %></td>
-            <td><span class="pill pill-<%= p.approvalStatus %>"><%= p.approvalStatus %></span></td>
+            <td><span class="pill pill-<%= p.approvalStatus %>"><%= p.approvalStatus %></span><% if (!p.emailVerified) { %> <span class="pill pill-unverified">unverified</span><% } %></td>
             <td><%= p.requestedAt ? new Date(p.requestedAt).toISOString().slice(0, 10) : '—' %></td>
             <td><a class="btn btn-ghost btn-sm" href="/partners-admin/partners/<%= p.partnerId %>">Review</a></td>
           </tr>

@@ -195,6 +195,19 @@ const adminLoginLimiter = rateLimit({
   }),
 });
 
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  handler: (req, res) => res.status(429).render('error', {
+    title: 'Too many attempts',
+    message: 'Too many signups from this network, please try again later.',
+    partner: null,
+    admin: null,
+  }),
+});
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
@@ -221,6 +234,7 @@ module.exports = {
   signInPartner,
   signInAdmin,
   destroySession,
+  registerLimiter,
   loginLimiter,
   adminLoginLimiter,
   newCsrfToken,

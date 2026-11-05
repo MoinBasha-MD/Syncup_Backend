@@ -4,6 +4,7 @@ const ejsLayouts = require('express-ejs-layouts');
 const partnerService = require('../services/partnerService');
 const partnerSpaceService = require('../services/partnerSpaceService');
 const { BUSINESS_SCOPES } = require('../services/syncSpacePermissions');
+const { BadRequestError } = require('../utils/errorClasses');
 const sec = require('../middleware/partnerPortalSecurity');
 
 const app = express();
@@ -70,17 +71,38 @@ app.get('/', (req, res) => {
 });
 
 app.get('/register', page(async (req, res) => {
+  req.session.registerRenderedAt = Date.now();
   res.render('register', { title: 'Create account', partner: null, error: null, values: {} });
 }));
 
-app.post('/register', sec.loginLimiter, sec.requireCsrf, formPage('register', (req, error) => ({
+const fakeRegisterSuccess = (res, email) => res.status(201).render('verify', {
+  title: 'Verify your email',
+  partner: null,
+  challengeId: '',
+  email: typeof email === 'string' ? email : '',
+  error: null,
+  resent: false,
+});
+
+app.post('/register', sec.registerLimiter, sec.requireCsrf, formPage('register', (req, error) => ({
   title: 'Create account',
   partner: null,
   error: error.message,
   values: formValues(req, ['businessName', 'email', 'website']),
 }))(async (req, res) => {
-  const { email, password, businessName, website } = req.body || {};
+  const { email, password, businessName, website, company } = req.body || {};
+  // Honeypot: bots fill the hidden field — pretend it worked, create nothing.
+  if (typeof company === 'string' && company.trim() !== '') {
+    console.warn(`[partners] Honeypot registration dropped (ip=${req.ip}, email=${email})`);
+    return fakeRegisterSuccess(res, email);
+  }
+  const renderedAt = req.session && req.session.registerRenderedAt;
+  const elapsed = typeof renderedAt === 'number' ? Date.now() - renderedAt : null;
+  if (elapsed === null || elapsed < 3000 || elapsed > 60 * 60 * 1000) {
+    throw new BadRequestError('Please reload the form and try again');
+  }
   const result = await partnerService.createPartner({ email, password, businessName, website });
+  req.session.registerRenderedAt = null;
   res.status(201).render('verify', {
     title: 'Verify your email',
     partner: null,

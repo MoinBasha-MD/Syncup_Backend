@@ -2,6 +2,7 @@ node_modules/
 logs/
 storage/
 scripts/
+tests/
 components.zip
 *.md
 

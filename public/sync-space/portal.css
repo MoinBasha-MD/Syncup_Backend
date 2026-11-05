@@ -181,6 +181,8 @@ body {
 .pill-rejected { background: #FEF2F2; color: var(--danger); border-color: #FECACA; }
 .pill-suspended { background: #FEF2F2; color: var(--danger); border-color: #FECACA; }
 .pill-env-sandbox { background: #F5F3FF; color: var(--violet-deep); border-color: #DDD6FE; }
+.pill-unverified { background: #FEF2F2; color: var(--danger); border-color: #FECACA; }
+.hp-field { position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .pill-env-live { background: #ECFDF5; color: var(--teal); border-color: #A7F3D0; }
 .pill-row { display: flex; gap: 8px; }
 
