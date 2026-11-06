@@ -404,7 +404,12 @@ app.use(cors({
 
     // In production, check allowed origins
 
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
+    // The marketing site lives on crackman.in — always allow it for the public waitlist.
+    const allowedOrigins = [
+      'https://crackman.in',
+      'https://www.crackman.in',
+      ...(process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) || []),
+    ];
 
     console.log('🔍 Allowed origins:', allowedOrigins);
 
@@ -680,6 +685,8 @@ app.use('/api/places', apiLimiter, placesRoutes); // Places caching and nearby p
 app.use('/api/open-network', apiLimiter, require('./routes/openNetworkRoutes')); // Open Network: membership, viewport, nearby, feed
 
 app.use('/api/sync-space', apiLimiter, require('./routes/syncSpaceRoutes'));
+
+app.use('/api/waitlist', apiLimiter, require('./routes/waitlistRoutes')); // Launch waitlist: public join + count, admin list
 
 app.use('/api/partner/v1', apiLimiter, require('./routes/partnerApiRoutes'));
 
