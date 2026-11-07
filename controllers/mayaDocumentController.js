@@ -10,8 +10,11 @@ const enhancedNotificationService = require('../services/enhancedNotificationSer
  */
 exports.requestDocument = async (req, res) => {
   try {
-    const { documentType, targetUsername, requesterId, requesterName } = req.body;
-    
+    const { documentType, targetUsername } = req.body;
+    // Identity must come from the verified token, never the request body.
+    const requesterId = req.user.userId;
+    const requesterName = req.user.name;
+
     console.log(`📄 [MAYA DOC REQUEST] ${requesterName} requesting ${documentType} from @${targetUsername}`);
     
     // Find target user by username
@@ -160,8 +163,11 @@ exports.requestDocument = async (req, res) => {
  */
 exports.shareDocument = async (req, res) => {
   try {
-    const { documentId, targetUsername, senderId, senderName } = req.body;
-    
+    const { documentId, targetUsername } = req.body;
+    // Identity must come from the verified token, never the request body.
+    const senderId = req.user.userId;
+    const senderName = req.user.name;
+
     console.log(`📤 [MAYA DOC SHARE] ${senderName} sharing document with @${targetUsername}`);
     
     // Find target user

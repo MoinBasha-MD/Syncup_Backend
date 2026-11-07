@@ -3,6 +3,7 @@ const User = require('../models/userModel');
 const ConnectionRequest = require('../models/connectionRequestModel');
 const Block = require('../models/blockModel');
 const { checkRateLimit } = require('../services/rateLimitService');
+const escapeRegex = require('../utils/escapeRegex');
 
 /**
  * Calculate mutual connections between two users
@@ -160,7 +161,7 @@ const searchUsers = asyncHandler(async (req, res) => {
     const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // Create safe search regex for partial matching
-    const searchRegex = new RegExp(query.split('').map(c => escapeRegex(c)).join('.*'), 'i');
+    const searchRegex = new RegExp(String(query).slice(0, 50).split('').map(c => escapeRegex(c)).join('.*'), 'i');
     
     // Build the MongoDB query
     const mongoQuery = {
@@ -431,8 +432,8 @@ const getSearchSuggestions = asyncHandler(async (req, res) => {
   try {
     const { query, limit = 5 } = req.body;
     const currentUserId = req.user.userId;
-    
-    if (!query || query.length < 1) {
+
+    if (typeof query !== 'string' || query.length < 1) {
       return res.status(200).json({
         success: true,
         data: { suggestions: [] }
@@ -440,20 +441,21 @@ const getSearchSuggestions = asyncHandler(async (req, res) => {
     }
     
     // Get popular usernames and names for suggestions
+    const safeQuery = escapeRegex(query.slice(0, 50));
     const suggestions = await User.find({
       $and: [
         { userId: { $ne: currentUserId } },
         { isPublic: true },
         {
           $or: [
-            { username: { $regex: `^${query}`, $options: 'i' } },
-            { name: { $regex: `^${query}`, $options: 'i' } }
+            { username: { $regex: `^${safeQuery}`, $options: 'i' } },
+            { name: { $regex: `^${safeQuery}`, $options: 'i' } }
           ]
         }
       ]
     })
     .select('name username')
-    .limit(parseInt(limit))
+    .limit(Math.min(20, Math.max(1, parseInt(limit) || 5)))
     .lean();
     
     const suggestionList = suggestions.map(user => ({

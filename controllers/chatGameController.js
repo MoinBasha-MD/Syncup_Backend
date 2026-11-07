@@ -18,6 +18,12 @@ const createGame = async (req, res) => {
       });
     }
 
+    const Block = require('../models/blockModel');
+    const blockStatus = await Block.isMutuallyBlocked(creatorUserId, opponentUserId);
+    if (blockStatus.anyBlocked) {
+      return res.status(403).json({ success: false, message: 'Cannot invite this user' });
+    }
+
     // Get creator info
     const creator = await User.findOne({ userId: creatorUserId });
 

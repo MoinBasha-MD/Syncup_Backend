@@ -161,7 +161,12 @@ const postMediaStorage = multer.diskStorage({
       return '';
     };
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname) || getExtFromMime(file.mimetype);
+    // Never trust the client extension: only whitelisted media extensions
+    // survive, otherwise derive it from the validated MIME type.
+    const originalExt = path.extname(file.originalname || '').toLowerCase();
+    const ext = Object.values(MIME_EXTENSION_MAP).includes(originalExt)
+      ? originalExt
+      : (getExtFromMime(file.mimetype) || '.bin');
     const prefix = file.mimetype.startsWith('video/') ? 'video' : 'photo';
     cb(null, `post-${prefix}-${uniqueSuffix}${ext}`);
   }

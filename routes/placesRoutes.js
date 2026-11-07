@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const placesController = require('../controllers/placesController');
+const { verifyToken: adminVerifyToken } = require('./adminAuthRoutes');
 
 // GET /api/places/nearby - Get nearby places (DB cache or API)
 router.get('/nearby', placesController.getNearbyPlaces);
@@ -15,7 +16,7 @@ router.post('/cache', placesController.cachePlaces);
 // GET /api/places/cache-status - Check cache status
 router.get('/cache-status', placesController.getCacheStatus);
 
-// POST /api/places/cleanup - Cleanup expired cache (admin)
-router.post('/cleanup', placesController.cleanupCache);
+// POST /api/places/cleanup - Cleanup expired cache (admin only)
+router.post('/cleanup', adminVerifyToken, placesController.cleanupCache);
 
 module.exports = router;

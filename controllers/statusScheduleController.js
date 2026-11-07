@@ -193,20 +193,22 @@ const createScheduleFromTemplate = asyncHandler(async (req, res) => {
   const startDate = new Date(startTime);
   const endDate = new Date(startDate.getTime() + (template.duration * 60 * 1000));
 
-  // Create schedule with template data and customizations
+  // Create schedule with template data and customizations. Client-provided
+  // values must never override the authenticated identity.
+  const { _id, user, userId, ...safeCustomizations } = customizations || {};
   const scheduleData = {
+    ...safeCustomizations,
     user: req.user._id,
     userId: req.user.userId,
-    status: customizations?.status || template.status,
-    customStatus: customizations?.customStatus || template.customStatus,
+    status: safeCustomizations.status || template.status,
+    customStatus: safeCustomizations.customStatus || template.customStatus,
     startTime: startDate,
     endTime: endDate,
     templateId: template._id,
     templateName: template.name,
     appliedBy: 'template',
-    color: template.color,
-    tags: template.tags,
-    ...customizations
+    color: safeCustomizations.color || template.color,
+    tags: safeCustomizations.tags || template.tags,
   };
 
   const statusSchedule = await StatusSchedule.create(scheduleData);

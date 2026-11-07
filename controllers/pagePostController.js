@@ -12,6 +12,30 @@ const enhancedNotificationService = require('../services/enhancedNotificationSer
 
 // Resolve the string `userId` (not Mongo _id) of a Page's owner, used to key
 // sockets/FCM/Notification records the same way the rest of the app does.
+// Shared access guard for every page-post read/write path.
+async function resolvePagePostAccess(pageId, postId, user) {
+  const page = await Page.findById(pageId);
+  if (!page) return { error: 404, message: 'Page not found' };
+
+  const isTeam = !!(user && (page.isOwner(user._id) || page.isTeamMember(user._id)));
+  const isFollowing = !isTeam && !!(user && await PageFollower.isFollowing(page._id, user._id));
+
+  if (!page.isPublic && !isTeam && !isFollowing) {
+    return { error: 403, message: 'This page is private' };
+  }
+
+  const post = await PagePost.findOne({ _id: postId, page: pageId });
+  if (!post) return { error: 404, message: 'Post not found' };
+
+  const visible = isTeam || post.visibility === 'public' ||
+    (post.visibility === 'followers' && isFollowing);
+  if (!visible || (!post.isPublished && !isTeam)) {
+    return { error: 404, message: 'Post not found' };
+  }
+
+  return { page, post, isTeam, isFollowing };
+}
+
 async function getPageOwnerUserId(page) {
   try {
     if (!page || !page.owner) return null;
@@ -349,11 +373,23 @@ const getPagePosts = async (req, res) => {
 
     // Build query
     const query = { page: pageId };
+    const isTeam = !!(req.user && (page.isOwner(req.user._id) || page.isTeamMember(req.user._id)));
 
     // Only show published posts unless user is page owner/editor
     const showUnpublished = includeUnpublished === 'true' && req.user && page.canEdit(req.user._id);
     if (!showUnpublished) {
       query.isPublished = true;
+    }
+
+    // Followers-only and custom posts are not visible to everyone who can
+    // reach the page. Custom audiences stay restricted to the page team.
+    if (!isTeam) {
+      const isFollowing = !!(req.user && await PageFollower.isFollowing(page._id, req.user._id));
+      const visibleTo = isFollowing ? ['public', 'followers'] : ['public'];
+      query.$or = [
+        { visibility: { $in: visibleTo } },
+        { visibility: { $exists: false } },
+      ];
     }
 
     const posts = await PagePost.find(query)
@@ -463,6 +499,14 @@ const getPagePost = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'This page is private'
+      });
+    }
+
+    const access = await resolvePagePostAccess(pageId, postId, req.user);
+    if (access.error) {
+      return res.status(access.error).json({
+        success: false,
+        message: access.message
       });
     }
 
@@ -632,12 +676,17 @@ const toggleLikePagePost = async (req, res) => {
     const { pageId, postId } = req.params;
 
     const post = await PagePost.findOne({ _id: postId, page: pageId });
-    
+
     if (!post) {
       return res.status(404).json({
         success: false,
         message: 'Post not found'
       });
+    }
+
+    const access = await resolvePagePostAccess(pageId, postId, req.user);
+    if (access.error) {
+      return res.status(access.error).json({ success: false, message: access.message });
     }
 
     await post.toggleLike(req.user._id);
@@ -721,6 +770,11 @@ const addCommentToPagePost = async (req, res) => {
         success: false,
         message: 'Post not found'
       });
+    }
+
+    const access = await resolvePagePostAccess(pageId, postId, req.user);
+    if (access.error) {
+      return res.status(access.error).json({ success: false, message: access.message });
     }
 
     const page = await Page.findById(pageId);
@@ -812,13 +866,11 @@ const getPagePostComments = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    const post = await PagePost.findOne({ _id: postId, page: pageId });
-    if (!post) {
-      return res.status(404).json({
-        success: false,
-        message: 'Post not found'
-      });
+    const access = await resolvePagePostAccess(pageId, postId, req.user);
+    if (access.error) {
+      return res.status(access.error).json({ success: false, message: access.message });
     }
+    const post = access.post;
 
     const comments = await Comment.getPostComments(post._id, 'PagePost', page, limit);
 

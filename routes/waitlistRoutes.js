@@ -74,8 +74,13 @@ router.get('/count', async (_req, res) => {
   }
 });
 
-// GET /api/waitlist — admin-only joined list
-router.get('/', verifyToken, async (req, res) => {
+// GET /api/waitlist — owner/super_admin only (name + email list)
+router.get('/', verifyToken, (req, res, next) => {
+  if (req.admin && (req.admin.role === 'owner' || req.admin.role === 'super_admin')) {
+    return next();
+  }
+  return res.status(403).json({ success: false, message: 'Owner or super admin access required' });
+}, async (req, res) => {
   const requested = Number.parseInt(req.query.limit, 10);
   const limit = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 1000) : 200;
 

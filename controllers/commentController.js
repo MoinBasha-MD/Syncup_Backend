@@ -4,6 +4,7 @@ const User = require('../models/userModel');
 const mongoose = require('mongoose');
 const { getInstance: getPostEncryption } = require('../utils/postEncryption');
 const enhancedNotificationService = require('../services/enhancedNotificationService');
+const { canViewFeedPost } = require('../utils/feedVisibility');
 
 // ✅ ARCHITECTURE FIX: A page post shown in the Feed is a denormalized `FeedPost` copy
 // of the canonical `PagePost` document. Comments made from the Feed live in this
@@ -37,7 +38,7 @@ const createComment = async (req, res) => {
 
     // Check if post exists
     const post = await FeedPost.findOne({ _id: postId, isActive: true });
-    if (!post) {
+    if (!post || !(await canViewFeedPost(post, userId))) {
       return res.status(404).json({
         success: false,
         message: 'Post not found'
@@ -165,6 +166,14 @@ const getComments = async (req, res) => {
     const { postId } = req.params;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
+
+    const post = await FeedPost.findOne({ _id: postId, isActive: true });
+    if (!post || !(await canViewFeedPost(post, req.user.userId))) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
 
     const comments = await Comment.getPostComments(postId, 'FeedPost', page, limit);
 

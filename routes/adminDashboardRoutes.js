@@ -9,6 +9,22 @@ const { recordAdminAction } = require('../services/adminAudit');
 const { hasPermission } = require('../config/adminPermissions');
 const broadcasts = require('../controllers/adminV2/broadcastsController').legacy;
 
+// v1 is a legacy surface with coarse middleware. Restrict every mutation and
+// every PII-bearing read to owner/super_admin; ordinary admins should use v2,
+// which enforces per-permission grants.
+router.use((req, res, next) => {
+  const role = req.admin && req.admin.role;
+  if (role === 'owner' || role === 'super_admin') return next();
+  const routePath = String(req.path || req.originalUrl || '');
+  const sensitiveRead = req.method === 'GET' &&
+    /(^|\/)(users|messages|waitlist|broadcasts|statuses)(\/|$)/.test(routePath);
+  if (req.method === 'GET' && !sensitiveRead) return next();
+  return res.status(403).json({
+    success: false,
+    message: 'Owner or super admin access required'
+  });
+});
+
 const audit = (req, action, extra = {}) => {
   recordAdminAction({
     adminId: req.admin?._id,

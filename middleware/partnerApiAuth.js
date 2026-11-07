@@ -35,16 +35,7 @@ const apiKeyLimiter = keyRateLimiter(120);
 const messageLimiter = keyRateLimiter(30);
 const pairingLimiter = keyRateLimiter(10);
 
-const requireScope = (scope) => (req, res, next) => {
-  const scopes = req.partnerApi && req.partnerApi.key ? req.partnerApi.key.scopes : [];
-  if (!scopes.includes(scope)) {
-    return res.status(403).json({
-      success: false,
-      code: 'INSUFFICIENT_SCOPE',
-      message: 'API key lacks the required scope',
-    });
-  }
-  return next();
-};
+// Scope enforcement lives in services/partnerSpaceService.js — no route-level
+// helper is used.
 
-module.exports = { partnerApiAuth, apiKeyLimiter, messageLimiter, pairingLimiter, requireScope };
+module.exports = { partnerApiAuth, apiKeyLimiter, messageLimiter, pairingLimiter };

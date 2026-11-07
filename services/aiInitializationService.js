@@ -22,8 +22,13 @@ class AIInitializationService {
         return existingAI;
       }
       
-      // Get user details
-      const user = await User.findById(userId);
+      // Get user details. Callers pass the app-wide UUID; the bulk initializer
+      // passes the Mongo _id, so accept both.
+      const mongoose = require('mongoose');
+      let user = await User.findOne({ userId });
+      if (!user && mongoose.Types.ObjectId.isValid(String(userId))) {
+        user = await User.findById(userId);
+      }
       if (!user) {
         throw new Error('User not found');
       }

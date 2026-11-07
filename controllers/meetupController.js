@@ -19,7 +19,15 @@ const serializeMeetup = (meetup) => ({
   hostId: meetup.hostId,
   hostName: meetup.hostName,
   destination: meetup.destination,
-  participants: meetup.participants,
+  // Live location only for participants who are actually in the meetup.
+  participants: (meetup.participants || []).map(p => {
+    const participant = typeof p.toObject === 'function' ? p.toObject() : { ...p };
+    if (participant.status === 'accepted' || participant.status === 'arrived') {
+      return participant;
+    }
+    delete participant.lastLocation;
+    return participant;
+  }),
   status: meetup.status,
   inviteToken: meetup.inviteToken,
   inviteLink: buildInviteLink(meetup),
@@ -213,8 +221,9 @@ exports.getMeetup = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Meetup not found' });
     }
 
+    const me = (meetup.participants || []).find(p => p.userId === req.user.userId);
     const isMember = meetup.hostId === req.user.userId
-      || meetup.participants.some(p => p.userId === req.user.userId);
+      || (me && me.status !== 'declined' && me.status !== 'left');
     if (!isMember) {
       return res.status(403).json({ success: false, message: 'Not a meetup participant' });
     }

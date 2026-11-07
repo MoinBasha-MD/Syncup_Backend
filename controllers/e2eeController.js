@@ -75,6 +75,10 @@ const registerDevice = async (req, res) => {
     if (existing && existing.identityKey !== identityKey) {
       return res.status(409).json({ success: false, message: 'Identity key is immutable for a device', code: 'IDENTITY_IMMUTABLE' });
     }
+    // A revoked device must not be able to silently re-activate itself.
+    if (existing && existing.revokedAt) {
+      return res.status(409).json({ success: false, message: 'Device has been revoked', code: 'DEVICE_REVOKED' });
+    }
 
     if (!existing) {
       const activeCount = await E2EEDevice.countDocuments({ userId, revokedAt: null });
@@ -268,7 +272,7 @@ const putBackup = async (req, res) => {
     if (typeof noncePrefix !== 'string' || noncePrefix.length === 0 || noncePrefix.length > 64) {
       return res.status(400).json({ success: false, code: 'INVALID_NONCE', message: 'Invalid noncePrefix' });
     }
-    if (!Number.isInteger(encSize) || encSize < 0 || encSize > 200 * 1024 * 1024) {
+    if (!Number.isInteger(encSize) || encSize < 0 || encSize > 105 * 1024 * 1024) {
       return res.status(400).json({ success: false, code: 'INVALID_SIZE', message: 'Invalid encSize' });
     }
     if (typeof encSha256 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(encSha256)) {

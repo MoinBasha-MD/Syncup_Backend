@@ -7,7 +7,7 @@ const express = require('express');
 const router = express.Router();
 const admin = require('firebase-admin');
 const User = require('../models/userModel');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, requireAdmin } = require('../middleware/authMiddleware');
 
 /**
  * Test FCM token validity
@@ -26,8 +26,20 @@ router.post('/test-token', protect, async (req, res) => {
 
     console.log('🔍 [FCM DIAGNOSTICS] Testing token...');
     console.log('📱 [FCM DIAGNOSTICS] Token length:', fcmToken.length);
-    console.log('📱 [FCM DIAGNOSTICS] Token preview:', fcmToken.substring(0, 50) + '...');
-    console.log('📱 [FCM DIAGNOSTICS] Token suffix:', '...' + fcmToken.substring(fcmToken.length - 20));
+
+    // A user may only probe their own registered tokens; admins may probe any.
+    if (req.user.role !== 'admin') {
+      const owner = await User.findOne({ userId: req.user.userId })
+        .select('fcmTokens deviceTokens')
+        .lean();
+      const ownsToken = !!owner && [
+        ...(owner.fcmTokens || []),
+        ...(owner.deviceTokens || []),
+      ].some((t) => (typeof t === 'string' ? t : t?.token) === fcmToken);
+      if (!ownsToken) {
+        return res.status(403).json({ success: false, message: 'Token does not belong to this account' });
+      }
+    }
 
     // Test 1: Token format validation
     const formatValid = fcmToken.length >= 140 && fcmToken.length <= 200;
@@ -95,7 +107,7 @@ router.post('/test-token', protect, async (req, res) => {
  * Get any user's FCM tokens by userId (Admin)
  * GET /api/fcm-diagnostics/user-tokens/:userId
  */
-router.get('/user-tokens/:userId', protect, async (req, res) => {
+router.get('/user-tokens/:userId', protect, requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     

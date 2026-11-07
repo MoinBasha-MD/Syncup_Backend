@@ -1,5 +1,6 @@
 const FeedPost = require('../models/FeedPost');
 const User = require('../models/userModel');
+const escapeRegex = require('../utils/escapeRegex');
 
 /**
  * Validate and clean hashtag
@@ -293,16 +294,18 @@ exports.getHashtagStats = async (req, res) => {
 exports.autocompleteHashtags = async (req, res) => {
   try {
     const { q } = req.query;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
 
-    if (!q || q.length < 2) {
+    if (typeof q !== 'string' || q.length < 2) {
       return res.json({
         success: true,
         data: [],
       });
     }
 
-    const cleanQuery = q.toLowerCase().replace(/^#/, '');
+    // Escape regex metacharacters so user input cannot alter the query or
+    // trigger catastrophic backtracking, and cap the pattern length.
+    const cleanQuery = escapeRegex(q.slice(0, 50).toLowerCase().replace(/^#/, ''));
 
     // Find hashtags that match the query
     const matchingHashtags = await FeedPost.aggregate([

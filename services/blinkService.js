@@ -8,6 +8,7 @@ class BlinkService {
   // Remove uploaded media/music files from disk so deleted/replaced Blinks do not leak storage
   deleteBlinkMediaFiles(mediaUrl, musicUrl) {
     try {
+      const uploadsRoot = path.resolve(__dirname, '..', 'uploads');
       const deleteFileFromUrl = (url) => {
         if (!url || typeof url !== 'string') return;
         let relativePath = url;
@@ -20,11 +21,15 @@ class BlinkService {
           }
         }
         if (!relativePath.startsWith('/uploads/')) return;
-        const filePath = path.join(__dirname, '..', relativePath);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          console.log('Deleted blink media file:', filePath);
-        }
+        // Resolve inside uploads and reject traversal (`/uploads/../.env`).
+        const filePath = path.resolve(uploadsRoot, relativePath.slice('/uploads/'.length));
+        if (filePath !== uploadsRoot && !filePath.startsWith(uploadsRoot + path.sep)) return;
+        try {
+          if (fs.lstatSync(filePath).isFile()) {
+            fs.unlinkSync(filePath);
+            console.log('Deleted blink media file:', filePath);
+          }
+        } catch { /* missing file — nothing to delete */ }
       };
 
       deleteFileFromUrl(mediaUrl);

@@ -175,7 +175,9 @@ pageFollowerSchema.statics.isFollowing = async function(pageId, userId) {
 pageFollowerSchema.statics.getPageFollowers = async function(pageId, options = {}) {
   const { limit = 20, skip = 0, sort = '-followedAt' } = options;
   
+  // Never expose follower demographics/location through the public list.
   const followers = await this.find({ pageId })
+    .select('pageId userId followedAt engagement.engagementScore')
     .populate('userId', 'name username profileImage')
     .sort(sort)
     .limit(limit)

@@ -12,6 +12,14 @@ const router = express.Router();
 
 const VALID_CATEGORIES = new Set(Object.keys(CATEGORY_COLORS));
 
+// Mass push notifications are an owner/super_admin action.
+router.use((req, res, next) => {
+  if (req.admin && (req.admin.role === 'owner' || req.admin.role === 'super_admin')) {
+    return next();
+  }
+  return res.status(403).json({ success: false, message: 'Owner or super admin access required' });
+});
+
 // POST /api/admin/notifications/push
 router.post('/notifications/push', asyncHandler(async (req, res) => {
   const {

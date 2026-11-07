@@ -1,4 +1,20 @@
 const storyService = require('../services/storyService');
+const mongoose = require('mongoose');
+const Story = require('../models/storyModel');
+const Friend = require('../models/Friend');
+
+// Stories are visible to their owner and accepted friends only.
+const canAccessStory = async (storyId, userId) => {
+  if (!storyId || !userId || !mongoose.Types.ObjectId.isValid(String(storyId))) return null;
+  const story = await Story.findById(storyId).select('userId');
+  if (!story) return null;
+  if (String(story.userId) === String(userId)) return story;
+  const [forward, reverse] = await Promise.all([
+    Friend.areFriends(userId, story.userId),
+    Friend.areFriends(story.userId, userId),
+  ]);
+  return forward || reverse ? story : null;
+};
 
 class StoryController {
   // GET /api/stories/contacts - Get active stories from user's contacts
@@ -162,14 +178,10 @@ class StoryController {
       
       const { storyId } = req.body;
 
-      if (!storyId) {
-        console.error('❌ No story ID provided');
-        return res.status(400).json({
-          success: false,
-          message: 'Story ID is required'
-        });
+      if (!storyId || !(await canAccessStory(storyId, currentUserId))) {
+        return res.status(404).json({ success: false, message: 'Story not found' });
       }
-      
+
       console.log('✅ Marking story as seen - Story ID:', storyId, 'User ID:', currentUserId);
 
       const result = await storyService.markStorySeen(storyId, currentUserId);
@@ -221,14 +233,10 @@ class StoryController {
       
       const { id } = req.params;
 
-      if (!id) {
-        console.error('❌ No story ID provided');
-        return res.status(400).json({
-          success: false,
-          message: 'Story ID is required'
-        });
+      if (!id || !(await canAccessStory(id, currentUserId))) {
+        return res.status(404).json({ success: false, message: 'Story not found' });
       }
-      
+
       console.log('✅ Toggling like - Story ID:', id, 'User ID:', currentUserId);
 
       const result = await storyService.toggleStoryLike(id, currentUserId);
@@ -268,14 +276,10 @@ class StoryController {
       
       const { id } = req.params;
 
-      if (!id) {
-        console.error('❌ No story ID provided');
-        return res.status(400).json({
-          success: false,
-          message: 'Story ID is required'
-        });
+      if (!id || !(await canAccessStory(id, req.user.userId))) {
+        return res.status(404).json({ success: false, message: 'Story not found' });
       }
-      
+
       console.log('✅ Getting likes for story:', id);
 
       const result = await storyService.getStoryLikes(id);
@@ -320,13 +324,10 @@ class StoryController {
         });
       }
 
-      if (!id) {
-        return res.status(400).json({
-          success: false,
-          message: 'Story ID is required'
-        });
+      if (!id || !(await canAccessStory(id, currentUserId))) {
+        return res.status(404).json({ success: false, message: 'Story not found' });
       }
-      
+
       console.log('✅ Tracking view for story:', id, 'by user:', currentUserId);
 
       // Get io instance from app (set in server.js)
@@ -363,13 +364,10 @@ class StoryController {
       
       const { id } = req.params;
 
-      if (!id) {
-        return res.status(400).json({
-          success: false,
-          message: 'Story ID is required'
-        });
+      if (!id || !(await canAccessStory(id, req.user.userId))) {
+        return res.status(404).json({ success: false, message: 'Story not found' });
       }
-      
+
       console.log('✅ Getting views for story:', id);
 
       const result = await storyService.getStoryViews(id);

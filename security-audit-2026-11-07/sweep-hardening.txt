@@ -1,0 +1,86 @@
+results: 751 {
+  '200': 15,
+  '201': 1,
+  '204': 1,
+  '400': 17,
+  '401': 651,
+  '403': 2,
+  '404': 7,
+  '410': 3,
+  '503': 54
+}
+
+--- 2xx without credentials (17) ---
+GET /agent-dashboard -> 200 text/html; charset=utf-8 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initia
+GET /api/admin/auth/setup/check -> 200 application/json; charset=utf-8 | {"setupRequired":false,"message":"First-time setup is disabled"}
+GET /api/auth/health -> 200 application/json; charset=utf-8 | {"success":true,"status":"healthy","uptime":75.755461418,"timestamp":"2026-11-07T09:01:21.066Z"}
+GET /api/auth/test -> 200 application/json; charset=utf-8 | {"success":true,"message":"Server is running","timestamp":"2026-11-07T09:01:21.065Z"}
+GET /api/hashtags/autocomplete -> 200 application/json; charset=utf-8 | {"success":true,"data":[]}
+GET /api/hashtags/related/auditprobe -> 200 application/json; charset=utf-8 | {"success":true,"data":[],"baseTag":"auditprobe"}
+GET /api/hashtags/stats/auditprobe -> 200 application/json; charset=utf-8 | {"success":true,"data":{"tag":"auditprobe","totalPosts":0,"usageOverTime":[],"topPosts":[]}}
+GET /api/hashtags/trending -> 200 application/json; charset=utf-8 | {"success":true,"data":[],"timeframe":"7 days"}
+GET /api/health -> 200 application/json; charset=utf-8 | {"status":"UP","timestamp":"2026-11-07T09:00:41.355Z","version":"1.0.0","environment":"test","uptime":36.044544665,"chec
+GET /api/waitlist/count -> 200 application/json; charset=utf-8 | {"success":true,"count":0}
+GET /health -> 200 application/json; charset=utf-8 | {"status":"UP","timestamp":"2026-11-07T09:00:17.349Z","version":"1.0.0","environment":"test","uptime":12.038703983,"chec
+GET /health/live -> 200 application/json; charset=utf-8 | {"status":"UP","timestamp":"2026-11-07T09:00:41.357Z","message":"Service is alive"}
+GET /health/ready -> 200 application/json; charset=utf-8 | {"status":"READY","timestamp":"2026-11-07T09:00:41.359Z","message":"Service is ready to accept requests"}
+GET /metrics -> 200 application/json; charset=utf-8 | {"timestamp":"2026-11-07T09:01:21.011Z","process":{"uptime":75.700445103,"version":"v24.22.2"},"memory":{"rss":299962368
+GET /r/507f1f77bcf86cd799439011 -> 200 text/html; charset=utf-8 | <!DOCTYPE html> <html lang="en"><head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial
+POST /api/devices/challenge -> 201 application/json; charset=utf-8 | {"success":true,"data":{"pairingId":"458a9bdf0526e3578cea20d510e3626e","shortCode":"8R8-TQB","pairingUrl":"syncup-desk:/
+GET /.well-known/appspecific/com.chrome.devtools.json -> 204  | 
+
+--- 5xx (54) ---
+GET /oauth/.well-known/openid-configuration -> 503 | Sign in with Syncup is not available yet.
+POST /oauth/activate -> 503 | Sign in with Syncup is not available yet.
+GET /oauth/authorize -> 503 | Sign in with Syncup is not available yet.
+POST /oauth/consent -> 503 | Sign in with Syncup is not available yet.
+GET /oauth/consent -> 503 | Sign in with Syncup is not available yet.
+GET /oauth/jwks -> 503 | Sign in with Syncup is not available yet.
+GET /oauth/login -> 503 | Sign in with Syncup is not available yet.
+POST /oauth/login -> 503 | Sign in with Syncup is not available yet.
+POST /oauth/revoke -> 503 | {"error":"temporarily_unavailable"}
+POST /oauth/token -> 503 | {"error":"temporarily_unavailable"}
+GET /oauth/userinfo -> 503 | {"error":"temporarily_unavailable"}
+POST /oauth/userinfo -> 503 | {"error":"temporarily_unavailable"}
+GET /partners -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners-admin -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners-admin/dashboard -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners-admin/login -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners-admin/login -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners-admin/logout -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners-admin/partners/507f1f77bcf86cd799439011 -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners-admin/partners/507f1f77bcf86cd799439011/review -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners-admin/purge-unverified -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/apps/507f1f77bcf86cd799439011 -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/client-secret -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/apps/507f1f77bcf86cd799439011/connect -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/connect/otp -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/connect/scan -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/connect/verify -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/disable -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/identity-fields -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/keys -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/keys/507f1f77bcf86cd799439011/revoke -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/testers -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/testers/remove -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/update -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/webhook -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/apps/507f1f77bcf86cd799439011/webhook-secret -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/apps/new -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/dashboard -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/forgot -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/forgot -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/login -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/login -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/logout -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/production-request -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/register -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/register -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/resend -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/resend-verification -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/reset -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/reset -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/review -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+GET /partners/verify -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 
+POST /partners/verify -> 503 | <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Something went wrong 

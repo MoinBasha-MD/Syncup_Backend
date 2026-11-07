@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const dns = require('dns').promises;
+const net = require('net');
 const { protect } = require('../middleware/authMiddleware');
 const CalendarAccount = require('../models/CalendarAccount');
 const ExternalCalendarEvent = require('../models/ExternalCalendarEvent');
@@ -14,6 +16,38 @@ const { encryptToken } = require('../utils/tokenCrypto');
 const { mapEventsToStatusSchedules } = require('../utils/calendarIntegration');
 
 const PROVIDERS = { google, microsoft };
+
+// Block IMAP hosts that resolve to loopback/private/link-local addresses so
+// the authenticated endpoint cannot be used to scan the internal network.
+const isPrivateIp = (ip) => {
+  if (net.isIPv4(ip)) {
+    const p = ip.split('.').map(Number);
+    if (p[0] === 10 || p[0] === 127 || p[0] === 0) return true;
+    if (p[0] === 169 && p[1] === 254) return true;
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true;
+    return false;
+  }
+  const lower = String(ip).toLowerCase();
+  // Canonicalise IPv4-mapped IPv6 (::ffff:a.b.c.d) and re-check as IPv4.
+  if (lower.startsWith('::ffff:')) {
+    const mapped = lower.slice(7);
+    if (net.isIPv4(mapped)) return isPrivateIp(mapped);
+  }
+  return lower === '::' || lower === '::1' || lower.startsWith('fc') || lower.startsWith('fd') ||
+    lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') ||
+    lower.startsWith('feb');
+};
+
+const assertPublicMailHost = async (host) => {
+  if (typeof host !== 'string' || !host.trim() || host.length > 253) {
+    return false;
+  }
+  const addresses = await dns.lookup(host.trim(), { all: true, verbatim: true });
+  if (!addresses.length) return false;
+  return addresses.every((a) => !isPrivateIp(a.address));
+};
 const DEEP_LINK_OK = (provider) => `syncup://calendar-connected?provider=${provider}&ok=1`;
 const DEEP_LINK_ERR = (provider, reason) => `syncup://calendar-connected?provider=${provider}&ok=0&reason=${encodeURIComponent(reason)}`;
 
@@ -140,6 +174,9 @@ router.post('/accounts/imap', protect, async (req, res) => {
     if (!host || !email || !password) {
       return res.status(400).json({ message: 'host, email and password are required' });
     }
+    if (!(await assertPublicMailHost(host))) {
+      return res.status(400).json({ message: 'Invalid or disallowed mail host' });
+    }
     await imap.verifyConnection({ host, port, secure, email, password });
     await CalendarAccount.findOneAndUpdate(
       { userId: req.user.userId, provider: 'imap', email: String(email).toLowerCase() },
@@ -160,7 +197,12 @@ router.post('/accounts/imap', protect, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('❌ IMAP connect failed:', error.message);
-    res.status(error.status || 400).json({ message: error.code === 'IMAP_UNAVAILABLE' ? error.message : 'Could not connect to that mailbox', error: error.message });
+    // Do not echo driver details (host/port/timeout distinctions) to the client.
+    res.status(error.status || 400).json({
+      message: error.code === 'IMAP_UNAVAILABLE'
+        ? 'Mailbox provider is temporarily unavailable'
+        : 'Could not connect to that mailbox'
+    });
   }
 });
 

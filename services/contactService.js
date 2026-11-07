@@ -382,7 +382,9 @@ class ContactService {
       
       // Use a try-catch to handle any Redis errors gracefully
       try {
-        const cacheKey = `contact:status:${id}`;
+        // The cached object is already privacy-filtered for one viewer, so the
+        // viewer must be part of the key or another user can read it.
+        const cacheKey = `contact:status:${requestingUserId || 'anon'}:${id}`;
         const cachedData = await getAsync(cacheKey);
         
         if (cachedData) {
@@ -440,7 +442,7 @@ class ContactService {
     // Get contacts with their status information
     const contacts = await User.find(
       query,
-      'name email phoneNumber profileImage userId status customStatus statusUntil isOnline lastSeen mainStatus mainDuration mainDurationLabel mainStartTime mainEndTime subStatus subDuration subDurationLabel subStartTime subEndTime'
+      'name phoneNumber profileImage userId status customStatus statusUntil isOnline lastSeen mainStatus mainDuration mainDurationLabel mainStartTime mainEndTime subStatus subDuration subDurationLabel subStartTime subEndTime'
     );
     
     // Check for expired statuses and reset them
@@ -489,7 +491,6 @@ class ContactService {
         _id: contact._id,
         userId: contact.userId,
         name: contact.name,
-        email: contact.email,
         phoneNumber: contact.phoneNumber,
         profileImage: contact.profileImage,
         status: statusInfo.status,
@@ -514,7 +515,7 @@ class ContactService {
       try {
         // Only cache if we have valid IDs
         if (contact._id) {
-          const cacheKey = `contact:status:${contact._id}`;
+          const cacheKey = `contact:status:${requestingUserId || 'anon'}:${contact._id}`;
           await setAsync(cacheKey, JSON.stringify(contactData), 'EX', 300);
         }
         

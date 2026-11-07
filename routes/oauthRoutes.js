@@ -51,10 +51,19 @@ const OAUTH_SESSION_MS = 15 * 60 * 1000;
 const OAUTH_SESSION_COLLECTION = 'sync_space_oauth_sessions';
 let oauthSession = null;
 app.use((req, res, next) => {
+  // Fail closed: a missing/weak secret must not degrade to a predictable
+  // session-signing key (which would allow session forgery).
+  if (typeof process.env.SYNC_SPACE_SESSION_SECRET !== 'string' ||
+      process.env.SYNC_SPACE_SESSION_SECRET.length < 32) {
+    if (isJsonEndpoint(req)) {
+      return res.status(503).json({ error: 'temporarily_unavailable' });
+    }
+    return res.status(503).send('Sign in with Syncup is not available yet.');
+  }
   if (!oauthSession) {
     oauthSession = session({
       name: 'syncspace.oauth.sid',
-      secret: (process.env.SYNC_SPACE_SESSION_SECRET || '') + ':oauth',
+      secret: process.env.SYNC_SPACE_SESSION_SECRET + ':oauth',
       resave: false,
       saveUninitialized: false,
       proxy: true,

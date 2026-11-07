@@ -190,8 +190,10 @@ async function searchPeople(userId, currentObjectId, query, limit) {
       $or: [
         { name: { $regex: safeQuery, $options: 'i' } },
         { username: { $regex: safeQuery, $options: 'i' } },
-        { email: { $regex: safeQuery, $options: 'i' } }
+        // Exact email match only: substring matching was an account oracle.
+        { email: { $regex: `^${safeQuery}$`, $options: 'i' } }
       ],
+      isPublic: true,
       _id: { $ne: currentObjectId }
     };
 

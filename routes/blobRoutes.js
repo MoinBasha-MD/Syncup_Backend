@@ -14,7 +14,7 @@ const Blob = require('../models/Blob');
 const router = express.Router();
 
 const BLOB_ID_RE = /^[0-9a-f]{32}$/;
-const MAX_BLOB_SIZE = 200 * 1024 * 1024; // 200 MB — matches the upload limit
+const MAX_BLOB_SIZE = 105 * 1024 * 1024; // 105 MB — 100 MB media + encryption overhead
 
 // Blobs live outside uploads/ so no static mount can ever serve them.
 const baseDir = process.env.BLOB_STORAGE_DIR || path.join(__dirname, '..', 'storage', 'blobs');

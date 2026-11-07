@@ -151,6 +151,11 @@ const updateDefaultPrivacySettings = async (req, res) => {
       };
     }
     
+    // Client input must never override identity/ownership fields.
+    for (const key of ['userId', '_id', 'statusId', 'isDefault', 'createdAt', 'updatedAt']) {
+      delete sanitizedSettings[key];
+    }
+
     // Update or create default privacy settings
     const privacySettings = await StatusPrivacy.findOneAndUpdate(
       { userId: req.user._id, isDefault: true },

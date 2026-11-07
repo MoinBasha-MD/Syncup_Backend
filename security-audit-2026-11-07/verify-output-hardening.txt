@@ -1,0 +1,79 @@
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"expiresAt":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"username":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"visibility":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"expiresAt":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"userId":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"userId":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"aiId":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"expiresAt":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:98807) [MONGOOSE] Warning: Duplicate schema index on {"userId":1,"status":1,"isDeleted":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+✅ [FEED POST] Caption saved (encryption disabled)
+✅ [FEED POST] Caption saved (encryption disabled)
+PASS  GET /users/registered without token is 401 — status 401
+PASS  GET /users/registered with token is 200 — status 200
+PASS  registered response omits email/dateOfBirth/gender — id,userId,name,fullName,phoneNumber,profileImage,status,customStatus,statusUntil,isPublic,connectionStatus,canSendRequest
+PASS  private post by id hidden from non-owner — status 404
+PASS  private post visible to owner — status 200
+PASS  user post history hides private posts from non-friend — 1 posts
+PASS  public post still visible — status 200
+PASS  blink mediaUrl traversal does not delete .env — create 201, delete 200
+PASS  cannot add vibes to another user collection — status 200, vibeIds []
+PASS  non-owner cannot follow a private page — status 403
+PASS  private page posts hidden from non-owner — status 403
+PASS  followers-only page post hidden from non-follower — 0 posts
+PASS  story likes hidden from non-friend — status 404
+PASS  story views hidden from non-friend — status 404
+PASS  story likes visible to owner — status 200
+PASS  hashtag autocomplete escapes regex and caps limit — status 200
+PASS  places cleanup requires auth — status 401
+PASS  agent dashboard system info requires admin — status 401
+PASS  ghost delete rejects missing session id — status 400
+PASS  calendar API disabled (404) — status 404
+PASS  Doc Space API disabled (404) — status 404
+PASS  Doc Space categories API disabled (404) — status 404
+PASS  media without credentials is 401 — status 401
+PASS  media with ?mt= token is 200 — status 200
+PASS  media with Bearer JWT is 200 — status 200
+PASS  metrics hides DB host/port/name and process pid — {"db":{"state":1},"process":{"uptime":73.867496977,"version":"v24.22.2"}}
+PASS  non-allowlisted public GET is not response-cached — x-cache=null cc=public, max-age=60, s-maxage=60
+PASS  allowlisted public GET is response-cached — x-cache=HIT
+PASS  private profile hides bio/online/lastSeen from non-friend — status 200
+PASS  friend sees private profile bio — status 200
+PASS  blocked profile returns 404 — status 404
+PASS  accepted participant sees live location — status 200
+PASS  declined participant cannot read meetup — status 403
+PASS  invited participant gets no location — status 200
+⚠️ [SECURITY] Request too large: 120.00MB (max: 110MB)
+PASS  request size limiter rejects >110MB — code 413
+PASS  request size limiter allows normal uploads — code null
+PASS  dead requireScope helper removed — partnerApiAuth,apiKeyLimiter,messageLimiter,pairingLimiter
+PASS  nodemailer upgraded past the high advisory — major 10
+PASS  AI send uses token identity, not body fromUserId — status 200, conv true
+PASS  DocSpace revocation flag persists — {"documentId":"doc-audit","userId":"audit-grantee","userName":"G","isRevoked":true,"revokedAt":null,"expiryDate":null,"_id":"6aeee8df451145cf07651ea7","grantedAt":"2026-11-07T09:01:19.658Z"}
+PASS  DocSpace hasAccess rejects revoked grant — {"hasAccess":false,"accessType":null}
+PASS  owner still sees own email — status 200
+PASS  non-friend cannot see another user email — status 200
+PASS  password change without current password is 403 — status 403
+PASS  password change with wrong current password is 403 — status 403
+PASS  password change with correct current password succeeds — status 200
+PASS  verify-email without email is 400 — status 400
+PASS  verify-email without OTP proof is 403 — status 403
+PASS  verify-email with fresh verified OTP succeeds — status 200
+PASS  pagination clamp caps limit/page/skip — {"limit":"200","page":"1","skip":"0"}
+PASS  oversized JSON body rejected with 413 — status 413
+PASS  viewer cannot list admin users — status 403
+PASS  viewer cannot ban users — status 403
+PASS  viewer cannot read waitlist PII — status 403
+PASS  non-admin cannot read agent system status — status 403
+PASS  non-admin cannot read another user fcm tokens — status 403
+PASS  owner can read dashboard stats — status 200
+PASS  owner can list admin users — status 200
+PASS  non-friend cannot read contact schedules — status 403
+PASS  owner can read own contact schedules — status 200
+PASS  cannot write to a non-friend image space — status 403
+PASS  unfollow does not decrement without a follow — status 200, count 5
+PASS  SOS location update rejects empty contacts — status 400
+PASS  post-media ignores client .html extension — status 200, name post-photo-1794042080792-586824798.jpg
+
+64/64 passed, 0 failed

@@ -79,7 +79,8 @@ const contactRoutes = require('./routes/contactRoutes');
 
 const uploadRoutes = require('./routes/uploadRoutes');
 
-const calendarRoutes = require('./routes/calendarRoutes');
+// Calendar integration disabled (frontend feature removed). Re-enable with the mounts below.
+// const calendarRoutes = require('./routes/calendarRoutes');
 
 const chatRoutes = require('./routes/chatRoutes');
 
@@ -132,17 +133,19 @@ const pagePostRoutes = require('./routes/pagePostRoutes');
 
 const dailyScheduleRoutes = require('./routes/dailyScheduleRoutes');
 
-const docSpaceRoutes = require('./routes/docSpaceRoutes');
+// Doc Space disabled until the feature returns. Re-enable these requires and
+// the matching mounts below together.
+// const docSpaceRoutes = require('./routes/docSpaceRoutes');
 
-const docSpaceSharingRoutes = require('./routes/docSpaceSharingRoutes');
+// const docSpaceSharingRoutes = require('./routes/docSpaceSharingRoutes');
 
-const docSpaceAnalyticsRoutes = require('./routes/docSpaceAnalyticsRoutes');
+// const docSpaceAnalyticsRoutes = require('./routes/docSpaceAnalyticsRoutes');
 
-const docSpaceAccessRequestRoutes = require('./routes/docSpaceAccessRequestRoutes'); // ⚡ FIX: Access requests
+// const docSpaceAccessRequestRoutes = require('./routes/docSpaceAccessRequestRoutes'); // ⚡ FIX: Access requests
 
-const categoryRoutes = require('./routes/categoryRoutes');
+// const categoryRoutes = require('./routes/categoryRoutes');
 
-const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
+// const docSpaceSearchRoutes = require('./routes/docSpaceSearchRoutes');
 
 const otpRoutes = require('./routes/otpRoutes');
 
@@ -287,9 +290,11 @@ app.use(
   require('./middleware/syncSpaceBodyLimit')(64 * 1024)
 );
 
-app.use(express.json({ 
+// JSON/urlencoded/raw bodies are small (metadata, keys, captions). File and
+// video uploads are multipart and handled by multer with their own limits.
+app.use(express.json({
 
-  limit: '200mb', // Increased for video uploads
+  limit: '10mb',
 
   verify: (req, res, buf) => {
 
@@ -301,12 +306,15 @@ app.use(express.json({
 
 })); // Limit request body size
 
-app.use(express.urlencoded({ extended: true, limit: '200mb' })); // Increased for video uploads
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-app.use(express.raw({ limit: '200mb' })); // For raw binary data
+app.use(express.raw({ limit: '10mb' })); // For raw binary data
 
 // NoSQL sanitization must run after the body parsers above (they populate req.body)
 app.use(sanitizeRequestPayload);
+
+// Bound every listing endpoint's page/limit/skip/offset in one place.
+app.use(require('./middleware/paginationClamp'));
 
 
 
@@ -581,7 +589,8 @@ app.use('/api/contacts', contactLimiter, contactRoutes); // Contact management r
 
 app.use('/api/upload', uploadRoutes); // File upload routes (auth + per-user upload limiter applied inside routes)
 
-app.use('/api/calendar', apiLimiter, calendarRoutes); // Calendar integration routes
+// Calendar integration disabled (frontend feature removed).
+// app.use('/api/calendar', apiLimiter, calendarRoutes); // Calendar integration routes
 
 app.use('/api/chat', apiLimiter, chatRoutes); // Chat messaging routes
 
@@ -633,21 +642,24 @@ app.use('/api/pages', apiLimiter, require('./routes/pageChatRoutes')); // Page c
 
 app.use('/api/daily-schedule', apiLimiter, dailyScheduleRoutes); // Daily schedule management routes
 
-app.use('/api/doc-space', apiLimiter, docSpaceRoutes); // Doc Space management routes (Maya AI document sharing)
+// Doc Space disabled until the feature returns (frontend removed). Maya
+// document routes and document categories are Doc Space-backed, so they go
+// with it. Maya-to-Maya requests (/api/maya/requests) are unrelated and stay.
+// app.use('/api/doc-space', apiLimiter, docSpaceRoutes); // Doc Space management routes (Maya AI document sharing)
 
-app.use('/api/doc-space-sharing', apiLimiter, docSpaceSharingRoutes); // Doc Space sharing with people view
+// app.use('/api/doc-space-sharing', apiLimiter, docSpaceSharingRoutes); // Doc Space sharing with people view
 
-app.use('/api/doc-space', apiLimiter, docSpaceAnalyticsRoutes); // Doc Space analytics and access control
+// app.use('/api/doc-space', apiLimiter, docSpaceAnalyticsRoutes); // Doc Space analytics and access control
 
-app.use('/api/doc-space', apiLimiter, docSpaceSearchRoutes); // Doc Space search and collections
+// app.use('/api/doc-space', apiLimiter, docSpaceSearchRoutes); // Doc Space search and collections
 
-app.use('/api/doc-space-download', apiLimiter, require('./routes/docSpaceDownloadRoutes')); // Doc Space file download with proper headers
+// app.use('/api/doc-space-download', apiLimiter, require('./routes/docSpaceDownloadRoutes')); // Doc Space file download with proper headers
 
-app.use('/api/doc-space-access-requests', apiLimiter, docSpaceAccessRequestRoutes); // ⚡ FIX: Doc Space access requests
+// app.use('/api/doc-space-access-requests', apiLimiter, docSpaceAccessRequestRoutes); // ⚡ FIX: Doc Space access requests
 
-app.use('/api/categories', apiLimiter, categoryRoutes); // Document categories
+// app.use('/api/categories', apiLimiter, categoryRoutes); // Document categories
 
-app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
+// app.use('/api/maya', apiLimiter, require('./routes/mayaDocumentRoutes')); // Maya document request routes
 
 app.use('/api/sos', apiLimiter, require('./routes/sosRoutes')); // SOS emergency alert routes
 

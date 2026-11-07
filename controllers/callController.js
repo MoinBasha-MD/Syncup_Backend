@@ -315,9 +315,22 @@ const saveCallToHistory = asyncHandler(async (req, res) => {
   const callerId = direction === 'outgoing' ? userId : contactId;
   const receiverId = direction === 'incoming' ? userId : contactId;
 
+  // A caller may only append history for a real contact.
+  const contact = await User.findOne({ userId: contactId }).select('_id').lean();
+  if (!contact) {
+    res.status(404);
+    throw new Error('Contact not found');
+  }
+
   // Check if call already exists
   const existingCall = await Call.findOne({ callId });
   if (existingCall) {
+    // Only a participant may update a call record.
+    if (String(existingCall.callerId) !== String(userId) &&
+        String(existingCall.receiverId) !== String(userId)) {
+      res.status(403);
+      throw new Error('Not authorized to update this call');
+    }
     // Update existing call
     existingCall.status = status;
     existingCall.endTime = endTime || existingCall.endTime;

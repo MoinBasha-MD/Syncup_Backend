@@ -2,6 +2,7 @@ const FeedPost = require('../models/FeedPost');
 const User = require('../models/userModel');
 const Page = require('../models/Page');
 const { getInstance: getPostEncryption } = require('../utils/postEncryption');
+const { canViewFeedPost, isFriendPair } = require('../utils/feedVisibility');
 
 // Create a new feed post
 const createFeedPost = async (req, res) => {
@@ -302,6 +303,14 @@ const getPost = async (req, res) => {
     const post = await FeedPost.findById(postId);
 
     if (!post || !post.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    // Privacy is enforced on the direct-by-id read, not just the feed query.
+    if (!(await canViewFeedPost(post, req.user.userId))) {
       return res.status(404).json({
         success: false,
         message: 'Post not found'
@@ -638,6 +647,14 @@ const repostPost = async (req, res) => {
       });
     }
 
+    // Reposts are public. Never let a non-owner repost a private/friends post.
+    if (String(originalPost.userId) !== String(userId) && originalPost.privacy !== 'public') {
+      return res.status(404).json({
+        success: false,
+        message: 'Original post not found'
+      });
+    }
+
     // Check if user already reposted this
     const existingRepost = await FeedPost.findOne({
       userId: userId,
@@ -751,10 +768,27 @@ const repostPost = async (req, res) => {
 const getUserPosts = async (req, res) => {
   try {
     const { userId } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
 
-    const posts = await FeedPost.getUserPosts(userId, page, limit);
+    let posts;
+    if (String(userId) === String(req.user.userId)) {
+      posts = await FeedPost.getUserPosts(userId, page, limit);
+    } else {
+      // Other users only see public posts, plus friends-only posts when the
+      // viewer is an accepted friend.
+      const friends = await isFriendPair(req.user.userId, userId);
+      posts = await FeedPost.find({
+        userId,
+        isActive: true,
+        privacy: { $in: friends ? ['public', 'friends'] : ['public'] },
+        $or: [{ isPagePost: false }, { isPagePost: { $exists: false } }],
+      })
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean();
+    }
 
     // ENCRYPTION DISABLED - Posts stored as plain text
     // No decryption needed

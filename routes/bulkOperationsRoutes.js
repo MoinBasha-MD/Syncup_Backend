@@ -143,13 +143,13 @@ router.post(
   (req, res, next) => createController(req, res).bulkCreateSchedules(req, res, next)
 );
 
-// Sync with calendar route
-router.post(
-  '/sync/calendar',
-  protect,
-  invalidateCache('status/schedules*'),
-  (req, res, next) => createController(req, res).syncWithCalendar(req, res, next)
-);
+// Sync with calendar route — calendar integration disabled.
+// router.post(
+//   '/sync/calendar',
+//   protect,
+//   invalidateCache('status/schedules*'),
+//   (req, res, next) => createController(req, res).syncWithCalendar(req, res, next)
+// );
 
 // Get status suggestions route
 router.get(

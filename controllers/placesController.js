@@ -70,10 +70,10 @@ class PlacesController {
     try {
       const { places, region } = req.body;
 
-      if (!places || !region) {
+      if (!Array.isArray(places) || places.length > 200 || !region) {
         return res.status(400).json({
           success: false,
-          error: 'Missing required fields: places, region'
+          error: 'Missing required fields: places (max 200), region'
         });
       }
 

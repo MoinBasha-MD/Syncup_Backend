@@ -108,6 +108,12 @@ router.get('/views/stats', protect, getPostViewStats);
 // @access  Private
 router.get('/user/:userId', protect, getUserPosts);
 
+// @route   GET /api/posts/interests
+// @desc    Get user's learned interests (top hashtags)
+// @access  Private
+// Declared before /:postId so the literal path is not captured as an id.
+router.get('/interests', protect, getUserInterests);
+
 // @route   GET /api/posts/:postId
 // @desc    Get single post
 // @access  Private
@@ -184,11 +190,6 @@ router.delete('/comments/:commentId/replies/:replyId', protect, deleteReply);
 // @desc    Track user interaction with post (for recommendation algorithm)
 // @access  Private
 router.post('/:postId/interaction', protect, trackInteraction);
-
-// @route   GET /api/posts/interests
-// @desc    Get user's learned interests (top hashtags)
-// @access  Private
-router.get('/interests', protect, getUserInterests);
 
 // @route   GET /api/posts/trending/hashtags
 // @desc    Get trending hashtags globally

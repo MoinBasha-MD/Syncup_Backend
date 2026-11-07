@@ -548,6 +548,8 @@ messageSchema.statics.searchMessages = async function(userId1, userId2, searchQu
 
 // Static method to delete Ghost messages by session ID
 messageSchema.statics.deleteGhostMessages = async function(ghostSessionId) {
+  // Never let a missing id collapse the filter to { isGhost: true }.
+  if (!ghostSessionId) return { deletedCount: 0 };
   return this.deleteMany({
     isGhost: true,
     ghostSessionId: ghostSessionId
@@ -565,8 +567,10 @@ messageSchema.statics.deleteExpiredMessages = async function() {
 
 // Static method to mark burn message as viewed
 messageSchema.statics.markBurnViewed = async function(messageId, viewerId) {
-  return this.findByIdAndUpdate(
-    messageId,
+  // The viewer must be the receiver; otherwise anyone with a message id can
+  // mark (and thereby delete) another user's burn message.
+  return this.findOneAndUpdate(
+    { _id: messageId, receiverId: viewerId },
     {
       $set: {
         burnViewedAt: new Date(),

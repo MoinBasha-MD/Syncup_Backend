@@ -33,14 +33,4 @@ router.get('/username-available/:username', checkUsernameAvailability);
 // @access  Private
 router.post('/suggestions', getSearchSuggestions);
 
-// @route   GET /api/search/debug/exclusion-test
-// @desc    Test exclusion logic specifically
-// @access  Private
-router.get('/debug/exclusion-test', testExclusionLogic);
-
-// @route   GET /api/search/debug/connections
-// @desc    Debug user connections data
-// @access  Private
-router.get('/debug/connections', debugUserConnections);
-
 module.exports = router;

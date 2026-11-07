@@ -1,5 +1,23 @@
 const User = require('../models/userModel');
+const Block = require('../models/blockModel');
 const { broadcastToUser } = require('../socketManager');
+
+// Shared recipient validation for every SOS action: 1-20 real users, none of
+// whom has a mutual block with the sender.
+const getValidEmergencyContacts = async (userId, emergencyContacts) => {
+  if (!Array.isArray(emergencyContacts) || emergencyContacts.length === 0 || emergencyContacts.length > 20) {
+    return null;
+  }
+  const valid = [];
+  for (const contact of emergencyContacts) {
+    if (!contact || typeof contact.userId !== 'string') continue;
+    if (!(await User.exists({ userId: contact.userId }))) continue;
+    const blockStatus = await Block.isMutuallyBlocked(userId, contact.userId);
+    if (blockStatus.anyBlocked) continue;
+    valid.push(contact);
+  }
+  return valid.length ? valid : null;
+};
 
 /**
  * Send SOS alert to emergency contacts
@@ -20,8 +38,13 @@ exports.sendSOSAlert = async (req, res) => {
       });
     }
 
+    const validContacts = await getValidEmergencyContacts(userId, emergencyContacts);
+    if (!validContacts) {
+      return res.status(400).json({ success: false, message: 'emergencyContacts must be 1-20 valid, unblocked users' });
+    }
+
     // Send alert to each emergency contact
-    for (const contact of emergencyContacts) {
+    for (const contact of validContacts) {
       const notification = {
         type: 'SOS_ALERT',
         senderId: userId,
@@ -51,7 +74,7 @@ exports.sendSOSAlert = async (req, res) => {
           sosHistory: {
             timestamp: new Date(),
             location: location,
-            emergencyContacts: emergencyContacts.map(c => c.userId),
+            emergencyContacts: validContacts.map(c => c.userId),
             message: message,
           }
         }
@@ -84,8 +107,16 @@ exports.sendLocationUpdate = async (req, res) => {
 
     console.log('📍 [SOS CONTROLLER] Location update from user:', userId);
 
+    if (!location || typeof location !== 'object') {
+      return res.status(400).json({ success: false, message: 'location is required' });
+    }
+    const validContacts = await getValidEmergencyContacts(userId, emergencyContacts);
+    if (!validContacts) {
+      return res.status(400).json({ success: false, message: 'emergencyContacts must be 1-20 valid, unblocked users' });
+    }
+
     // Send location update to each emergency contact
-    for (const contact of emergencyContacts) {
+    for (const contact of validContacts) {
       const update = {
         type: 'SOS_LOCATION_UPDATE',
         senderId: userId,
@@ -126,8 +157,13 @@ exports.stopSOS = async (req, res) => {
 
     console.log('🛑 [SOS CONTROLLER] SOS stopped by user:', userId);
 
+    const validContacts = await getValidEmergencyContacts(userId, emergencyContacts);
+    if (!validContacts) {
+      return res.status(400).json({ success: false, message: 'emergencyContacts must be 1-20 valid, unblocked users' });
+    }
+
     // Notify emergency contacts that SOS has been stopped
-    for (const contact of emergencyContacts) {
+    for (const contact of validContacts) {
       const notification = {
         type: 'SOS_STOPPED',
         senderId: userId,

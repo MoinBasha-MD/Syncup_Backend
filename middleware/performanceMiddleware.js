@@ -69,10 +69,22 @@ const performanceTracker = (req, res, next) => {
 const responseCache = (duration = 300) => { // 5 minutes default
   const cache = new Map();
   const maxCacheSize = 1000; // Maximum number of cached responses
-  
+
+  // Only these public, shared-resource paths may be cached. Everything else
+  // (user data, counts, admin surfaces) stays uncached.
+  const CACHEABLE_PREFIXES = [
+    '/health',
+    '/api/health',
+    '/api/hashtags/',
+    '/api/music/',
+    '/r/'
+  ];
+  const isCacheable = (req) =>
+    CACHEABLE_PREFIXES.some(p => req.path === p || req.path.startsWith(p));
+
   return (req, res, next) => {
-    // Only cache GET requests
-    if (req.method !== 'GET') {
+    // Only cache allowlisted public GETs
+    if (req.method !== 'GET' || !isCacheable(req)) {
       return next();
     }
 

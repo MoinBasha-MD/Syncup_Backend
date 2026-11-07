@@ -90,7 +90,8 @@ router.get('/view/:filename', protect, async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', fileSize);
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    // Private documents must not land in shared/browser caches.
+    res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Access-Control-Allow-Origin', '*');
 
     // Stream the file

@@ -41,8 +41,9 @@ router.post('/vibes/:vibeId/save', protect, async (req, res) => {
 
     // If collectionId provided, add to collection
     if (collectionId) {
-      await Collection.findByIdAndUpdate(
-        collectionId,
+      // Only the collection's owner may add to it.
+      await Collection.findOneAndUpdate(
+        { _id: collectionId, userId },
         { $addToSet: { vibeIds: vibeId } }
       );
     }

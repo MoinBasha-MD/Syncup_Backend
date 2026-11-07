@@ -61,7 +61,7 @@ router.route('/contacts')
 // Public routes
 router.post('/', registerUser);
 router.post('/login', authLimiter, loginUser);
-router.get('/registered', getRegisteredUsers);
+router.get('/registered', protect, getRegisteredUsers);
 
 // Get user by userId (UUID) via query parameter - must be LAST
 router.get('/', protect, getUserByUserId);
@@ -102,17 +102,44 @@ router.route('/verify-email')
   .post(protect, async (req, res) => {
     try {
       const User = require('../models/userModel');
+      const OTP = require('../models/otpModel');
       const userId = req.user.userId;
-      
-      console.log(`✅ [VERIFY EMAIL] Updating verification status for userId: ${userId}`);
-      
+      const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+
+      // Verification must be backed by a recently completed OTP for this
+      // address, not just by holding a bearer token.
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'A valid email is required',
+          code: 'EMAIL_REQUIRED'
+        });
+      }
+
+      const verifiedOtp = await OTP.findOne({
+        identifier: email,
+        type: 'email_change',
+        verified: true,
+        updatedAt: { $gt: new Date(Date.now() - 15 * 60 * 1000) },
+      }).select('_id').lean();
+
+      if (!verifiedOtp) {
+        return res.status(403).json({
+          success: false,
+          message: 'Email verification is required',
+          code: 'EMAIL_VERIFICATION_REQUIRED'
+        });
+      }
+
+      console.log(`✅ [VERIFY EMAIL] OTP-backed verification for userId: ${userId}`);
+
       // Use userId field (UUID) instead of _id (ObjectId)
       const result = await User.findOneAndUpdate(
         { userId: userId },
         { emailVerified: true },
         { new: true }
       );
-      
+
       if (!result) {
         console.error(`❌ [VERIFY EMAIL] User not found: ${userId}`);
         return res.status(404).json({
@@ -120,7 +147,7 @@ router.route('/verify-email')
           message: 'User not found'
         });
       }
-      
+
       console.log(`✅ [VERIFY EMAIL] Email verified for user: ${result.email}`);
       res.json({
         success: true,

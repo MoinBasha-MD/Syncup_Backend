@@ -19,6 +19,13 @@ exports.sendIntentNotification = async (req, res) => {
       });
     }
 
+    // A block must stop intent notifications (which can trigger calls/texts).
+    const Block = require('../models/blockModel');
+    const blockStatus = await Block.isMutuallyBlocked(fromUserId, toUserId);
+    if (blockStatus.anyBlocked) {
+      return res.status(403).json({ success: false, message: 'Cannot contact this user' });
+    }
+
     // Check if target user exists and get their status
     const toUser = await User.findOne({ userId: toUserId });
     if (!toUser) {

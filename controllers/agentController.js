@@ -140,7 +140,10 @@ const getTaskStatus = asyncHandler(async (req, res) => {
         message: 'Task not found'
       });
     }
-    
+    if (String(task.context?.userId) !== String(req.user.userId) && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorized for this task' });
+    }
+
     res.status(200).json({
       success: true,
       data: {
@@ -174,7 +177,11 @@ const getUserTasks = asyncHandler(async (req, res) => {
   try {
     const { userId } = req.params;
     const { status, agentType, limit = 50, page = 1 } = req.query;
-    
+
+    if (String(userId) !== String(req.user.userId) && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorized for these tasks' });
+    }
+
     // Build query
     const query = { 'context.userId': userId };
     if (status) query.status = status;
@@ -237,7 +244,10 @@ const cancelTask = asyncHandler(async (req, res) => {
         message: 'Task not found'
       });
     }
-    
+    if (String(task.context?.userId) !== String(req.user.userId) && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorized for this task' });
+    }
+
     // Check if task can be cancelled
     if (task.status === 'completed' || task.status === 'failed') {
       return res.status(400).json({

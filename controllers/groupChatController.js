@@ -78,6 +78,17 @@ const createGroupChat = asyncHandler(async (req, res) => {
     throw new Error('One or more members not found');
   }
 
+  // Do not let a blocked user be pulled into a group by the blocker's target.
+  const Block = require('../models/blockModel');
+  for (const memberId of memberIds) {
+    if (String(memberId) === String(createdBy)) continue;
+    const blockStatus = await Block.isMutuallyBlocked(createdBy, memberId);
+    if (blockStatus.anyBlocked) {
+      res.status(403);
+      throw new Error('Cannot add a blocked user to the group');
+    }
+  }
+
   try {
     // Create group chat
     const groupChat = await GroupChat.create({

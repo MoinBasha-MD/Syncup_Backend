@@ -7,8 +7,8 @@ let lastGraceLogAt = 0;
 
 /**
  * Media access gate for /uploads. Accepts a signed `?mt=` media token OR a
- * valid Bearer JWT. While MEDIA_AUTH_ENFORCE !== 'true' invalid/missing
- * credentials fall through (grace mode for old app builds).
+ * valid Bearer JWT. Enforcement is on by default; set MEDIA_AUTH_ENFORCE=false
+ * only as a temporary escape hatch (e.g. while an old client build drains).
  */
 const requireMediaAccess = (req, res, next) => {
   let authorized = false;
@@ -35,7 +35,7 @@ const requireMediaAccess = (req, res, next) => {
     return next();
   }
 
-  if (process.env.MEDIA_AUTH_ENFORCE === 'true') {
+  if (process.env.MEDIA_AUTH_ENFORCE !== 'false') {
     return res.status(401).json({
       success: false,
       message: 'Media access requires the Syncup app',

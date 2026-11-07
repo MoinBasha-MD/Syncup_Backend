@@ -18,11 +18,15 @@ router.post('/register-fcm-token', protect, async (req, res) => {
 
     console.log('📱 [FCM] Registering token for user:', userId);
 
-    if (!fcmToken) {
+    if (typeof fcmToken !== 'string' || fcmToken.length < 50 || fcmToken.length > 4096) {
       return res.status(400).json({
         success: false,
-        message: 'FCM token is required'
+        message: 'A valid FCM token is required'
       });
+    }
+    const allowedPlatforms = new Set(['android', 'ios', 'web', 'desktop']);
+    if (platform !== undefined && !allowedPlatforms.has(platform)) {
+      return res.status(400).json({ success: false, message: 'Invalid platform' });
     }
 
     // Update user's FCM token

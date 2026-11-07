@@ -1,6 +1,7 @@
 const PageChat = require('../models/PageChat');
 const PageMessage = require('../models/PageMessage');
 const Page = require('../models/Page');
+const PageFollower = require('../models/PageFollower');
 const User = require('../models/userModel');
 const { broadcastToUser } = require('../socketManager');
 const { constructImageUrl } = require('../middleware/pageImageHandler');
@@ -22,6 +23,19 @@ const getOrCreateChat = async (req, res) => {
     const isOwner = page.isOwner(req.user._id);
     if (isOwner && !requestedTargetUserId) {
       return res.status(400).json({ success: false, message: 'Cannot message your own page without specifying a target user' });
+    }
+
+    // A page owner may only message users who already have a chat with the
+    // page or who follow it — not arbitrary users by UUID.
+    if (isOwner && requestedTargetUserId) {
+      const [existingChat, target] = await Promise.all([
+        PageChat.exists({ pageId, userId: String(requestedTargetUserId) }),
+        User.findOne({ userId: String(requestedTargetUserId) }).select('_id').lean(),
+      ]);
+      const follows = target ? await PageFollower.isFollowing(pageId, target._id) : false;
+      if (!existingChat && !follows) {
+        return res.status(403).json({ success: false, message: 'Cannot message this user' });
+      }
     }
 
     const conversationUserId = isOwner && requestedTargetUserId ? String(requestedTargetUserId) : userId;
@@ -65,6 +79,17 @@ const sendMessage = async (req, res) => {
     const isOwner = page.isOwner(req.user._id);
     if (isOwner && !targetUserId) {
       return res.status(400).json({ success: false, message: 'targetUserId is required when replying as page owner' });
+    }
+
+    if (isOwner && targetUserId) {
+      const [existingChat, target] = await Promise.all([
+        PageChat.exists({ pageId, userId: String(targetUserId) }),
+        User.findOne({ userId: String(targetUserId) }).select('_id').lean(),
+      ]);
+      const follows = target ? await PageFollower.isFollowing(pageId, target._id) : false;
+      if (!existingChat && !follows) {
+        return res.status(403).json({ success: false, message: 'Cannot message this user' });
+      }
     }
 
     const conversationUserId = isOwner && targetUserId ? String(targetUserId) : userId;

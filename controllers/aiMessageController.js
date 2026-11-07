@@ -14,7 +14,10 @@ const aiConversationProcessor = require('../services/aiConversationProcessor'); 
 // Send AI-to-AI message
 const sendAIMessage = async (req, res) => {
   try {
-    const { fromUserId, toUserId, messageType, content, context } = req.body;
+    const { toUserId, messageType, content, context } = req.body;
+    // Sender identity is always the authenticated user; body-supplied IDs are
+    // ignored so one user cannot send AI messages as another.
+    const fromUserId = req.user.userId;
 
     // Get sender and receiver AIs, auto-initialize if needed
     let senderAI = await AIAssistant.findByUserId(fromUserId);
@@ -204,6 +207,18 @@ const processAIMessage = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Conversation not found'
+      });
+    }
+
+    // Only participants may process a conversation.
+    const participantIds = [
+      conversation.participants?.initiatorAI?.userId,
+      conversation.participants?.responderAI?.userId,
+    ].map((id) => (id == null ? '' : String(id)));
+    if (!participantIds.includes(String(userId))) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not a participant in this conversation'
       });
     }
 

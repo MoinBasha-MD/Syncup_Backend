@@ -352,9 +352,11 @@ const updateUserProfile = async (req, res) => {
 // @access  Public (but can accept userId for filtering)
 const getRegisteredUsers = async (req, res) => {
   try {
-    const { userId: requestingUserId } = req.query; // Optional userId for filtering
-    
-    console.log(`🔍 [REGISTERED USERS] Request from userId: ${requestingUserId || 'anonymous'}`);
+    // Always filter for the authenticated caller; a client-supplied userId
+    // would let one user see another user's friendship-filtered directory.
+    const requestingUserId = req.user.userId;
+
+    console.log(`🔍 [REGISTERED USERS] Request from userId: ${requestingUserId}`);
     
     let excludedUserIds = [];
     let friendshipMap = new Map(); // Map of userId -> friendship status
@@ -569,19 +571,7 @@ const getRegisteredUsers = async (req, res) => {
       }))
     }, null, 2));
     
-    // Add debug info to response if userId was provided
-    const responseData = { users: formattedUsers };
-    if (requestingUserId) {
-      responseData.debug = {
-        requestingUserId,
-        totalUsersBeforeFiltering: await User.countDocuments({}),
-        totalUsersAfterFiltering: formattedUsers.length,
-        excludedUsersCount: excludedUserIds.length,
-        filteringApplied: true
-      };
-    }
-    
-    res.json(responseData);
+    res.json({ users: formattedUsers });
   } catch (error) {
     console.error('Error fetching registered users:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -614,6 +604,20 @@ const getUserByUserId = async (req, res) => {
       });
     }
 
+    // Email/DOB/gender are private unless the caller is the owner or an
+    // accepted friend; the rest of the profile stays available.
+    const isSelf = req.user && user.userId === req.user.userId;
+    let isFriend = false;
+    if (!isSelf && req.user) {
+      const Friend = require('../models/Friend');
+      const [forward, reverse] = await Promise.all([
+        Friend.areFriends(req.user.userId, user.userId),
+        Friend.areFriends(user.userId, req.user.userId),
+      ]);
+      isFriend = forward || reverse;
+    }
+    const canSeePrivate = isSelf || isFriend;
+
     // Return user data without sensitive information
     res.json({
       success: true,
@@ -622,14 +626,16 @@ const getUserByUserId = async (req, res) => {
         userId: user.userId,
         name: user.name,
         phoneNumber: user.phoneNumber,
-        email: user.email,
-        emailVerified: user.emailVerified || false,
         status: user.status,
         customStatus: user.customStatus,
         statusUntil: user.statusUntil,
         profileImage: user.profileImage,
-        dateOfBirth: user.dateOfBirth,
-        gender: user.gender,
+        ...(canSeePrivate ? {
+          email: user.email,
+          emailVerified: user.emailVerified || false,
+          dateOfBirth: user.dateOfBirth,
+          gender: user.gender,
+        } : {}),
         // Global discovery fields
         isPublic: user.isPublic,
         username: user.username,
@@ -729,6 +735,20 @@ const getUserByPhone = async (req, res) => {
       await user.save();
     }
 
+    // Email/DOB/gender are private unless the caller is the owner or an
+    // accepted friend.
+    const isSelf = req.user && user.userId === req.user.userId;
+    let isFriend = false;
+    if (!isSelf && req.user) {
+      const Friend = require('../models/Friend');
+      const [forward, reverse] = await Promise.all([
+        Friend.areFriends(req.user.userId, user.userId),
+        Friend.areFriends(user.userId, req.user.userId),
+      ]);
+      isFriend = forward || reverse;
+    }
+    const canSeePrivate = isSelf || isFriend;
+
     // Return user data without sensitive information
     res.json({
       success: true,
@@ -737,13 +757,15 @@ const getUserByPhone = async (req, res) => {
         userId: user.userId,
         name: user.name,
         phoneNumber: user.phoneNumber,
-        email: user.email,
+        ...(canSeePrivate ? {
+          email: user.email,
+          dateOfBirth: user.dateOfBirth,
+          gender: user.gender,
+        } : {}),
         status: user.status,
         customStatus: user.customStatus,
         statusUntil: user.statusUntil,
-        profileImage: user.profileImage,
-        dateOfBirth: user.dateOfBirth,
-        gender: user.gender
+        profileImage: user.profileImage
       }
     });
   } catch (error) {
@@ -763,14 +785,39 @@ const SUPPORTED_LANGUAGES = ['en', 'hi', 'ta', 'te', 'ml', 'kn'];
 
 const updateUserProfileWithDiscovery = async (req, res) => {
   try {
-    const { name, username, bio, isPublic, dateOfBirth, gender, email, phoneNumber, password, language } = req.body;
-    const user = await User.findById(req.user.id);
+    const { name, username, bio, isPublic, dateOfBirth, gender, email, phoneNumber, password, language, currentPassword } = req.body;
+    // Include the hash so sensitive changes can be re-authenticated.
+    const user = await User.findById(req.user.id).select('+password');
 
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
+    }
+
+    const wantsEmailChange = !!email && email !== user.email;
+    const wantsPhoneChange = !!phoneNumber && phoneNumber !== user.phoneNumber;
+    const wantsPasswordChange = !!password;
+
+    // Email, phone and password changes require the current password. This
+    // turns a stolen bearer token into a read-only compromise.
+    if ((wantsEmailChange || wantsPhoneChange || wantsPasswordChange) && user.password) {
+      if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Current password is required to change email, phone, or password',
+          code: 'REAUTH_REQUIRED'
+        });
+      }
+      const reauthOk = await bcrypt.compare(currentPassword, user.password);
+      if (!reauthOk) {
+        return res.status(403).json({
+          success: false,
+          message: 'Current password is incorrect',
+          code: 'INVALID_CURRENT_PASSWORD'
+        });
+      }
     }
 
     // Update basic fields
@@ -817,7 +864,16 @@ const updateUserProfileWithDiscovery = async (req, res) => {
       }
       
       user.email = email;
-      // Note: emailVerified should be set via /users/verify-email endpoint
+      // Only carry the verified badge when this address was actually verified
+      // through the email_change OTP flow in the last 15 minutes.
+      const OTP = require('../models/otpModel');
+      const verifiedOtp = await OTP.findOne({
+        identifier: String(email).trim().toLowerCase(),
+        type: 'email_change',
+        verified: true,
+        updatedAt: { $gt: new Date(Date.now() - 15 * 60 * 1000) },
+      }).select('_id').lean();
+      user.emailVerified = !!verifiedOtp;
     }
     
     // Handle phone number update
@@ -840,13 +896,14 @@ const updateUserProfileWithDiscovery = async (req, res) => {
     
     // Handle password update
     if (password) {
-      if (password.length < 6) {
+      if (typeof password !== 'string' || password.length < 8 || password.length > 20 ||
+          !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
         return res.status(400).json({
           success: false,
-          message: 'Password must be at least 6 characters long'
+          message: 'Password must be 8-20 characters and include uppercase, lowercase, and a number'
         });
       }
-      
+
       // Set the new password directly - the pre-save hook will hash it automatically
       // DO NOT manually hash here to avoid double-hashing
       user.password = password;

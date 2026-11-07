@@ -211,7 +211,14 @@ class FriendService {
       if (!friendUser) {
         throw new Error('Friend user not found');
       }
-      
+
+      // A block must prevent new friend requests in either direction.
+      const Block = require('../models/blockModel');
+      const blockStatus = await Block.isMutuallyBlocked(userId, friendUserId);
+      if (blockStatus.anyBlocked) {
+        throw new Error('Cannot send friend request to blocked user');
+      }
+
       // CRITICAL FIX: Check BOTH directions in a single query to prevent race conditions
       // Also check for removed friendships to allow re-adding
       const [existingFriendship, reverseRequest, removedFriendship] = await Promise.all([
@@ -1118,6 +1125,9 @@ class FriendService {
   async searchUsers(userId, query, limit = 20) {
     try {
       console.log(`🔍 [FRIEND SERVICE] Searching users: "${query}" for user: ${userId}`);
+      const escapeRegex = require('../utils/escapeRegex');
+      const safeQuery = escapeRegex(String(query || '').slice(0, 50));
+      const cappedLimit = Math.min(50, Math.max(1, parseInt(limit) || 20));
       
       // Get current friends to exclude from results
       const currentFriends = await Friend.find({
@@ -1125,22 +1135,36 @@ class FriendService {
         status: { $in: ['accepted', 'pending'] },
         isDeleted: false
       }).distinct('friendUserId');
-      
+
+      // Blocked users (either direction) must never appear in search.
+      const Block = require('../models/blockModel');
+      const blocks = await Block.find({
+        $or: [{ blockerId: userId }, { blockedUserId: userId }],
+      }).select('blockerId blockedUserId').lean();
+      const blockedIds = new Set();
+      for (const b of blocks) {
+        blockedIds.add(String(b.blockerId));
+        blockedIds.add(String(b.blockedUserId));
+      }
+      blockedIds.delete(String(userId));
+      const excludedIds = [...currentFriends, ...blockedIds];
+
       // Search users by username, name, or phone
       const users = await User.find({
         $and: [
-          { userId: { $ne: userId, $nin: currentFriends } }, // Exclude self and current friends
+          { userId: { $ne: userId, $nin: excludedIds } }, // Exclude self, friends, blocked
+          { isPublic: true },
           {
             $or: [
-              { username: new RegExp(query, 'i') },
-              { name: new RegExp(query, 'i') },
+              { username: new RegExp(safeQuery, 'i') },
+              { name: new RegExp(safeQuery, 'i') },
               { phoneNumber: query }
             ]
           }
         ]
       })
       .select('userId name username profileImage phoneNumber')
-      .limit(limit)
+      .limit(cappedLimit)
       .lean();
       
       // Get mutual friends for each result

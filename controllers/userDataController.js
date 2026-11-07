@@ -278,8 +278,28 @@ const getContactSchedules = async (req, res) => {
       }
     }
 
+    // Only the owner, an accepted friend, or a saved contact may read
+    // another user's schedule (the route is documented as contacts-only).
+    const requesterId = req.user.userId;
+    const isSelf = String(targetUser.userId) === String(requesterId);
+    let isAllowed = isSelf;
+    if (!isAllowed) {
+      const Friend = require('../models/Friend');
+      const [forward, reverse] = await Promise.all([
+        Friend.areFriends(requesterId, targetUser.userId),
+        Friend.areFriends(targetUser.userId, requesterId),
+      ]);
+      const requester = await User.findOne({ userId: requesterId }).select('contacts').lean();
+      const isSavedContact = !!requester &&
+        (requester.contacts || []).some((id) => String(id) === String(targetUser._id));
+      isAllowed = forward || reverse || isSavedContact;
+    }
+    if (!isAllowed) {
+      return res.status(403).json({ message: 'Not authorized to view these schedules' });
+    }
+
     // Build query using the target user's ID
-    const query = { 
+    const query = {
       userId: targetUser.userId, // Use the found user's ID
       active: active === 'true' || active === true
     };

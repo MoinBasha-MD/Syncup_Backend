@@ -6,6 +6,19 @@ const { recordAdminAction } = require('../../services/adminAudit');
 
 const VALID_ROLES = ['super_admin', 'admin', 'moderator', 'viewer'];
 const PERMISSION_SET = new Set(PERMISSIONS);
+const OWNER_ONLY_GRANTS = new Set(['system.restart', 'ops.control', 'ops.deploy', 'ops.power']);
+
+// A requester can never grant more than they hold, and only the owner may
+// grant owner-reserved operations permissions.
+const constrainGrants = (requester, grants) => {
+  const held = effectivePermissions(requester);
+  const canAll = held.includes('*');
+  return (Array.isArray(grants) ? grants : []).filter((grant) =>
+    PERMISSION_SET.has(grant) &&
+    (canAll || held.includes(grant)) &&
+    (requester.role === 'owner' || !OWNER_ONLY_GRANTS.has(grant))
+  );
+};
 
 const publicAdmin = (a) => ({
   id: a._id,
@@ -66,7 +79,7 @@ const createAdmin = handle(async (req, res) => {
   if (typeof password !== 'string' || password.length < 12) {
     return fail(res, 400, 'PASSWORD_TOO_SHORT', 'Password must be at least 12 characters');
   }
-  const cleanGrants = Array.isArray(grants) ? grants.filter(g => PERMISSION_SET.has(g)) : [];
+  const cleanGrants = constrainGrants(req.admin, grants);
 
   let admin;
   try {
@@ -116,7 +129,7 @@ const patchAdmin = handle(async (req, res) => {
   }
 
   if (grants !== undefined) {
-    target.grants = Array.isArray(grants) ? grants.filter(g => PERMISSION_SET.has(g)) : [];
+    target.grants = constrainGrants(req.admin, grants);
   }
   if (isActive !== undefined) {
     if (typeof isActive !== 'boolean') return fail(res, 400, 'BAD_REQUEST', 'isActive must be a boolean');

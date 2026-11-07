@@ -95,10 +95,11 @@ const getMusicLibrary = async (req, res) => {
     }
 
     if (search && search.trim()) {
+      const safeSearch = require('../utils/escapeRegex')(search.trim().slice(0, 100));
       filter.$or = [
-        { title: { $regex: search.trim(), $options: 'i' } },
-        { artist: { $regex: search.trim(), $options: 'i' } },
-        { tags: { $regex: search.trim(), $options: 'i' } }
+        { title: { $regex: safeSearch, $options: 'i' } },
+        { artist: { $regex: safeSearch, $options: 'i' } },
+        { tags: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 

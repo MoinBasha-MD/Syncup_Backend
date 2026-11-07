@@ -66,6 +66,8 @@ const createConnectSession = async ({ app, key }, body) => {
     if (!app.requestedScopes.includes(scope)) {
       throw new BadRequestError(`Scope ${scope} is not requested by this integration`);
     }
+    // A key may never provision scopes it does not itself hold.
+    if (!key.scopes.includes(scope)) throw insufficientScope();
     if (requested.includes(scope)) throw new BadRequestError('Duplicate scopes are not allowed');
     requested.push(scope);
   }

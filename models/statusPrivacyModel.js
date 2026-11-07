@@ -281,10 +281,9 @@ statusPrivacySchema.statics.canUserSeeStatus = async function(statusUserId, view
     }
   } catch (error) {
     console.error('Error checking status visibility:', error);
-    // ✅ FIX Bug #3: Default to TRUE (public) on error instead of FALSE
-    // Returning false was silently blocking ALL broadcasts whenever a DB error occurred
-    console.warn('⚠️ [Privacy] Defaulting to ALLOW due to error (fail-open for status visibility)');
-    return true;
+    // Fail closed: an unknown privacy state must not disclose status data.
+    console.warn('⚠️ [Privacy] Defaulting to DENY due to error (fail-closed for status visibility)');
+    return false;
   }
 };
 

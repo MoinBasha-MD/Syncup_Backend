@@ -59,9 +59,7 @@ router.get('/test', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    server: 'Syncup Backend'
+    timestamp: new Date().toISOString()
   });
 });
 

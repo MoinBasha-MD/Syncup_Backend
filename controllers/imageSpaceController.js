@@ -1,5 +1,20 @@
 const ImageSpace = require('../models/ImageSpace');
+const Friend = require('../models/Friend');
+const Block = require('../models/blockModel');
 const { v4: uuidv4 } = require('uuid');
+
+// A shared space may only be created between accepted friends, and never
+// across a block. Existing spaces remain usable.
+const canWriteToSpace = async (senderId, receiverId, chatId) => {
+  if (await ImageSpace.exists({ chatId })) return true;
+  const blockStatus = await Block.isMutuallyBlocked(senderId, receiverId);
+  if (blockStatus.anyBlocked) return false;
+  const [forward, reverse] = await Promise.all([
+    Friend.areFriends(senderId, receiverId),
+    Friend.areFriends(receiverId, senderId),
+  ]);
+  return forward || reverse;
+};
 
 // Upload image to Your Space
 exports.uploadImage = async (req, res) => {
@@ -16,6 +31,9 @@ exports.uploadImage = async (req, res) => {
 
     // Generate chatId (sorted user IDs)
     const chatId = ImageSpace.generateChatId(senderId, receiverId);
+    if (!(await canWriteToSpace(senderId, receiverId, chatId))) {
+      return res.status(403).json({ success: false, message: 'Not allowed to send to this user' });
+    }
     const [userId1, userId2] = [senderId, receiverId].sort();
 
     // Find or create ImageSpace document
@@ -119,6 +137,9 @@ exports.saveText = async (req, res) => {
 
     // Generate chatId (sorted user IDs)
     const chatId = ImageSpace.generateChatId(senderId, receiverId);
+    if (!(await canWriteToSpace(senderId, receiverId, chatId))) {
+      return res.status(403).json({ success: false, message: 'Not allowed to send to this user' });
+    }
     const [userId1, userId2] = [senderId, receiverId].sort();
 
     // Find or create ImageSpace document

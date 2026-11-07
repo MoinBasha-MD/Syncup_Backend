@@ -712,9 +712,17 @@ router.delete('/:id', protect, async (req, res) => {
 // @route   GET /api/pages/user/:userId
 // @desc    Get user's pages
 // @access  Public
-router.get('/user/:userId', async (req, res) => {
+router.get('/user/:userId', optionalProtect, async (req, res) => {
   try {
-    const pages = await Page.find({ owner: req.params.userId })
+    // A public profile listing must not reveal the owner's private pages.
+    const isSelf = !!req.user && (
+      String(req.user._id) === String(req.params.userId) ||
+      String(req.user.userId) === String(req.params.userId)
+    );
+    const pages = await Page.find({
+      owner: req.params.userId,
+      ...(isSelf ? {} : { isPublic: true }),
+    })
       .sort('-createdAt')
       .select('-team -analytics');
 
@@ -743,6 +751,17 @@ router.post('/:id/follow', protect, followLimiter, async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Page not found'
+      });
+    }
+
+    // Self-follow must not become an authorization bypass for a private page.
+    // Private pages are readable only by the owner/team until an approval flow
+    // exists.
+    const canFollowPrivate = page.isOwner(req.user._id) || page.isTeamMember(req.user._id);
+    if (!page.isPublic && !canFollowPrivate) {
+      return res.status(403).json({
+        success: false,
+        message: 'This page is private'
       });
     }
 
@@ -898,9 +917,20 @@ router.post('/:id/unfollow', protect, followLimiter, async (req, res) => {
 // @route   GET /api/pages/:id/followers
 // @desc    Get page followers
 // @access  Public
-router.get('/:id/followers', async (req, res) => {
+router.get('/:id/followers', optionalProtect, async (req, res) => {
   try {
     const { limit = 20, skip = 0 } = req.query;
+
+    const page = await Page.findById(req.params.id).select('isPublic owner team');
+    if (!page) {
+      return res.status(404).json({ success: false, message: 'Page not found' });
+    }
+    const canManage = !!req.user && (
+      page.isOwner(req.user._id) || page.isTeamMember(req.user._id)
+    );
+    if (!page.isPublic && !canManage) {
+      return res.status(403).json({ success: false, message: 'This page is private' });
+    }
 
     const followers = await PageFollower.getPageFollowers(req.params.id, {
       limit: parseInt(limit),

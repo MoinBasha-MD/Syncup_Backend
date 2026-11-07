@@ -141,9 +141,23 @@ const docSpaceSchema = new mongoose.Schema(
       grantedAt: {
         type: Date,
         default: Date.now
+      },
+      // These must be declared or Mongoose strict mode drops them on save,
+      // which silently turns revocation into a no-op.
+      isRevoked: {
+        type: Boolean,
+        default: false
+      },
+      revokedAt: {
+        type: Date,
+        default: null
+      },
+      expiryDate: {
+        type: Date,
+        default: null
       }
     }],
-    
+
     // ⚡ FIX: Access requests (when users request more access)
     accessRequests: [{
       documentId: {
@@ -273,12 +287,15 @@ docSpaceSchema.statics.hasAccess = async function(ownerId, requesterId, document
     return { hasAccess: true, accessType: 'general' };
   }
   
-  // Check document-specific access
+  // Check document-specific access (revoked and expired grants do not count)
   if (documentId) {
     const specificAccess = docSpace.documentSpecificAccess.find(
-      access => access.documentId === documentId && access.userId === requesterId
+      access => access.documentId === documentId &&
+        access.userId === requesterId &&
+        !access.isRevoked &&
+        (!access.expiryDate || new Date() <= new Date(access.expiryDate))
     );
-    
+
     if (specificAccess) {
       return { hasAccess: true, accessType: 'document-specific', accessDetails: specificAccess };
     }

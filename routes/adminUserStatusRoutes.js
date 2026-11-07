@@ -15,6 +15,14 @@ const { verifyToken } = require('./adminAuthRoutes');
 // Apply JWT authentication to all routes
 router.use(verifyToken);
 
+// User-status data is PII; keep it to owner/super_admin.
+router.use((req, res, next) => {
+  if (req.admin && (req.admin.role === 'owner' || req.admin.role === 'super_admin')) {
+    return next();
+  }
+  return res.status(403).json({ success: false, message: 'Owner or super admin access required' });
+});
+
 /**
  * @route   GET /admin/api/users/all-with-status
  * @desc    Get all users with their current status

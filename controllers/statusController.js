@@ -701,11 +701,33 @@ const getNearbyUsers = async (req, res) => {
       'statusLocation.coordinates.longitude': { $exists: true },
       'statusLocation.shareWithContacts': true, // Only users who share location
       statusUntil: { $gt: new Date() } // Status not expired
-    }).select('name profileImage status customStatus statusLocation statusUntil');
+    }).select('userId name profileImage status customStatus statusLocation statusUntil');
+
+    // Only accepted friends may appear, and each must also pass the owner's
+    // status-privacy check. Without this, anyone could grid-scan all users.
+    const Friend = require('../models/Friend');
+    const StatusPrivacy = require('../models/statusPrivacyModel');
+    const friendships = await Friend.find({
+      $or: [{ userId: req.user.userId }, { friendUserId: req.user.userId }],
+      status: 'accepted',
+      isDeleted: false,
+    }).select('userId friendUserId').lean();
+    const friendIds = new Set();
+    for (const f of friendships) {
+      friendIds.add(String(f.userId));
+      friendIds.add(String(f.friendUserId));
+    }
+
+    const visibleUsers = [];
+    for (const user of nearbyUsers) {
+      if (!friendIds.has(String(user.userId))) continue;
+      const canSee = await StatusPrivacy.canUserSeeStatus(user._id, req.user._id);
+      if (canSee) visibleUsers.push(user);
+    }
 
     // Filter by distance and calculate distance for each user
     const locationService = require('../services/locationService');
-    const usersWithDistance = nearbyUsers
+    const usersWithDistance = visibleUsers
       .map(user => {
         if (!user.statusLocation || !user.statusLocation.coordinates) {
           return null;

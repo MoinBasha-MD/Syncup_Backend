@@ -187,10 +187,7 @@ const metrics = (req, res) => {
     timestamp: new Date().toISOString(),
     process: {
       uptime: process.uptime(),
-      pid: process.pid,
-      version: process.version,
-      platform: process.platform,
-      arch: process.arch
+      version: process.version
     },
     memory: {
       rss: memUsage.rss,
@@ -203,11 +200,9 @@ const metrics = (req, res) => {
       user: cpuUsage.user,
       system: cpuUsage.system
     },
+    // Connection details (host/port/name) stay internal — this endpoint is public.
     database: {
-      state: mongoose.connection.readyState,
-      host: mongoose.connection.host,
-      port: mongoose.connection.port,
-      name: mongoose.connection.name
+      state: mongoose.connection.readyState
     }
   };
 

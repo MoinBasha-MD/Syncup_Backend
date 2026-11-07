@@ -35,6 +35,12 @@ const createAvailabilityRequest = async (req, res) => {
       });
     }
 
+    const Block = require('../models/blockModel');
+    const blockStatus = await Block.isMutuallyBlocked(requesterId, targetUserId);
+    if (blockStatus.anyBlocked) {
+      return res.status(403).json({ success: false, message: 'Cannot contact this user' });
+    }
+
     // Create the request
     const diyaRequest = new DiyaRequest({
       requesterId: requesterId,

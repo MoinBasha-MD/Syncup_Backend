@@ -984,6 +984,25 @@ const sendReply = async (req, res) => {
       });
     }
 
+    // Same block rule as sendMessage — a reply must not bypass a block.
+    const replyBlockStatus = await Block.isMutuallyBlocked(senderId, receiverId);
+    if (replyBlockStatus.anyBlocked) {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot send message to this user'
+      });
+    }
+
+    // The quoted message must belong to this exact conversation pair.
+    const replyParticipants = [String(replyToMessage.senderId), String(replyToMessage.receiverId)].sort();
+    const thisPair = [String(senderId), String(receiverId)].sort();
+    if (replyParticipants[0] !== thisPair[0] || replyParticipants[1] !== thisPair[1]) {
+      return res.status(404).json({
+        success: false,
+        message: 'Reply-to message not found'
+      });
+    }
+
     const receiverObjectId = receiver._id.toString();
 
     // Create new reply message
@@ -1509,9 +1528,24 @@ const getPublicKey = async (req, res) => {
 const deleteGhostMessages = async (req, res) => {
   try {
     const { ghostSessionId } = req.body;
-    
+    const userId = req.user.userId;
+
+    // A missing session id would make the delete filter match every ghost
+    // message in the database, and a supplied one must belong to the caller.
+    if (!ghostSessionId || typeof ghostSessionId !== 'string') {
+      return res.status(400).json({ success: false, message: 'ghostSessionId is required' });
+    }
+    const ownsSession = await Message.exists({
+      isGhost: true,
+      ghostSessionId,
+      $or: [{ senderId: userId }, { receiverId: userId }],
+    });
+    if (!ownsSession) {
+      return res.status(404).json({ success: false, message: 'Ghost session not found' });
+    }
+
     console.log('👻 [GHOST MODE] Deleting messages for session:', ghostSessionId);
-    
+
     const result = await Message.deleteGhostMessages(ghostSessionId);
     
     console.log('👻 [GHOST MODE] Deleted', result.deletedCount, 'messages');
@@ -1533,17 +1567,27 @@ const deleteGhostMessages = async (req, res) => {
 // ✅ FIX #3: Mark ghost messages as viewed
 const markGhostMessagesViewed = async (req, res) => {
   try {
-    const { ghostSessionId, userId } = req.body;
-    
+    const { ghostSessionId } = req.body;
+    // Always act as the authenticated user, never the body-supplied userId.
+    const userId = req.user.userId;
+
     console.log('👁️ [GHOST MODE] Marking messages as viewed:', { ghostSessionId, userId });
-    
-    if (!ghostSessionId || !userId) {
+
+    if (!ghostSessionId || typeof ghostSessionId !== 'string') {
       return res.status(400).json({
         success: false,
-        message: 'Missing ghostSessionId or userId'
+        message: 'Missing ghostSessionId'
       });
     }
-    
+    const ownsSession = await Message.exists({
+      isGhost: true,
+      ghostSessionId,
+      $or: [{ senderId: userId }, { receiverId: userId }],
+    });
+    if (!ownsSession) {
+      return res.status(404).json({ success: false, message: 'Ghost session not found' });
+    }
+
     const result = await Message.updateMany(
       {
         isGhost: true,
@@ -1575,17 +1619,27 @@ const markGhostMessagesViewed = async (req, res) => {
 // ✅ FIX #3: Delete viewed ghost messages
 const deleteViewedGhostMessages = async (req, res) => {
   try {
-    const { ghostSessionId, userId } = req.body;
-    
+    const { ghostSessionId } = req.body;
+    // Always act as the authenticated user, never the body-supplied userId.
+    const userId = req.user.userId;
+
     console.log('🗑️ [GHOST MODE] Deleting viewed messages:', { ghostSessionId, userId });
-    
-    if (!ghostSessionId || !userId) {
+
+    if (!ghostSessionId || typeof ghostSessionId !== 'string') {
       return res.status(400).json({
         success: false,
-        message: 'Missing ghostSessionId or userId'
+        message: 'Missing ghostSessionId'
       });
     }
-    
+    const ownsSession = await Message.exists({
+      isGhost: true,
+      ghostSessionId,
+      $or: [{ senderId: userId }, { receiverId: userId }],
+    });
+    if (!ownsSession) {
+      return res.status(404).json({ success: false, message: 'Ghost session not found' });
+    }
+
     const result = await Message.deleteMany({
       isGhost: true,
       ghostSessionId: ghostSessionId,

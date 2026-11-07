@@ -64,6 +64,15 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // Body-parser limits (JSON/urlencoded/raw) must be a 413, not a 500.
+  if (err.type === 'entity.too.large' || err.name === 'PayloadTooLargeError' || err.status === 413) {
+    return res.status(413).json({
+      success: false,
+      message: 'Request body is too large',
+      error: 'PayloadTooLargeError'
+    });
+  }
+
   // ✅ FIX: Multer file-size/type errors previously fell through to the
   // generic 500 handler below, giving clients a confusing "Internal Server
   // Error" instead of a clear, actionable message when a file/video/image

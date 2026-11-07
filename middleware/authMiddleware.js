@@ -145,7 +145,7 @@ const requireAdmin = (req, res, next) => {
   if (req.user && req.user.role === 'admin') {
     next();
   } else {
-    next(new UnauthorizedError('Admin access required'));
+    next(new ForbiddenError('Admin access required'));
   }
 };
 

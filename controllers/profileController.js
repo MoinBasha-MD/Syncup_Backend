@@ -6,6 +6,7 @@
 const User = require('../models/userModel');
 const Friend = require('../models/Friend');
 const FeedPost = require('../models/FeedPost');
+const Block = require('../models/blockModel');
 const LogSanitizer = require('../utils/logSanitizer');
 
 /**
@@ -39,21 +40,21 @@ exports.getPublicProfile = async (req, res) => {
     if (isUUID) {
       // UUID format - search by userId field
       user = await User.findOne({ userId }).select(
-        'userId name username profileImage bio isOnline lastSeen following'
+        'userId name username profileImage bio isOnline lastSeen following isPublic'
       );
     } else if (isObjectId) {
       // MongoDB ObjectId format - search by _id
       user = await User.findById(userId).select(
-        'userId name username profileImage bio isOnline lastSeen following'
+        'userId name username profileImage bio isOnline lastSeen following isPublic'
       );
     } else {
       // Try both methods as fallback
       user = await User.findOne({ userId }).select(
-        'userId name username profileImage bio isOnline lastSeen following'
+        'userId name username profileImage bio isOnline lastSeen following isPublic'
       );
       if (!user) {
         user = await User.findById(userId).select(
-          'userId name username profileImage bio isOnline lastSeen following'
+          'userId name username profileImage bio isOnline lastSeen following isPublic'
         ).catch(() => null); // Catch casting errors
       }
     }
@@ -70,6 +71,20 @@ exports.getPublicProfile = async (req, res) => {
 
     // Use the correct userId field for Friend model (UUID string, not MongoDB ObjectId)
     const targetUserId = user.userId || user._id.toString();
+    const isSelf = currentUserId === targetUserId;
+
+    // Blocked in either direction: behave as if the profile does not exist.
+    if (!isSelf) {
+      const block = await Block.findOne({
+        $or: [
+          { blockerId: currentUserId, blockedUserId: targetUserId },
+          { blockerId: targetUserId, blockedUserId: currentUserId }
+        ]
+      }).select('_id').lean();
+      if (block) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+    }
     
     console.log('🔍 [PROFILE] Target userId for Friend queries:', targetUserId);
     console.log('🔍 [PROFILE] Checking friendship between:', currentUserId, 'and', targetUserId);
@@ -101,6 +116,9 @@ exports.getPublicProfile = async (req, res) => {
         (reverseFriendship && reverseFriendship.status === 'accepted'));
 
     console.log('🤝 [PROFILE] Are friends?', isFriend);
+
+    // Private accounts hide bio/online/lastSeen from non-friends.
+    const canSeePrivate = isSelf || isFriend || user.isPublic !== false;
 
     // Determine detailed connection status from the current user's POV
     let canSendRequest = true;
@@ -181,7 +199,7 @@ exports.getPublicProfile = async (req, res) => {
       name: user.name,
       username: user.username,
       profileImage: user.profileImage,
-      bio: user.bio,
+      bio: canSeePrivate ? user.bio : undefined,
       postsCount,
       friendsCount,
       followersCount,
@@ -194,8 +212,8 @@ exports.getPublicProfile = async (req, res) => {
       hasReceivedRequest,
       connectionStatus,
       requestId,
-      isOnline: user.isOnline,
-      lastSeen: user.lastSeen
+      isOnline: canSeePrivate ? user.isOnline : undefined,
+      lastSeen: canSeePrivate ? user.lastSeen : undefined
     };
 
     // Include posts if requested
@@ -452,17 +470,19 @@ exports.unfollowUser = async (req, res) => {
       });
     }
 
-    // Remove from following list
-    await User.findOneAndUpdate(
-      { userId: currentUserId },
-      { $pull: { following: userId } }
+    // Remove from following list. Only adjust the target's counter when a
+    // follow actually existed, otherwise repeated calls could drive it negative.
+    const wasFollowing = await User.findOneAndUpdate(
+      { userId: currentUserId, following: userId },
+      { $pull: { following: userId } },
+      { new: true }
     );
-
-    // Decrement follower count for target user
-    await User.findOneAndUpdate(
-      { userId: userId },
-      { $inc: { followersCount: -1 } }
-    );
+    if (wasFollowing) {
+      await User.findOneAndUpdate(
+        { userId: userId },
+        { $inc: { followersCount: -1 } }
+      );
+    }
 
     console.log('✅ [PROFILE] User unfollowed successfully');
 

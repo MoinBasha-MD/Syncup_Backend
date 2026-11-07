@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
+const { verifyToken: adminVerifyToken } = require('./adminAuthRoutes');
 
 // Serve the advanced agent dashboard HTML page
 router.get('/', (req, res) => {
@@ -8,7 +9,7 @@ router.get('/', (req, res) => {
 });
 
 // API endpoint for real-time agent data
-router.get('/api/agents/status', async (req, res) => {
+router.get('/api/agents/status', adminVerifyToken, async (req, res) => {
   try {
     const agentService = req.app.get('agentService');
     
@@ -125,7 +126,7 @@ router.get('/api/agents/status', async (req, res) => {
 });
 
 // API endpoint for real-time communication logs
-router.get('/api/agents/communications', async (req, res) => {
+router.get('/api/agents/communications', adminVerifyToken, async (req, res) => {
   try {
     const agentService = req.app.get('agentService');
     const orchestrator = agentService?.getOrchestrator();
@@ -255,7 +256,7 @@ function getAgentConnections(agentType) {
 }
 
 // API endpoint for system resources (real server data)
-router.get('/api/advanced/system-resources', async (req, res) => {
+router.get('/api/advanced/system-resources', adminVerifyToken, async (req, res) => {
   try {
     const os = require('os');
     
