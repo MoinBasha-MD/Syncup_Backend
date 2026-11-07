@@ -11,7 +11,10 @@ const moderatedContentSchema = new mongoose.Schema({
   contentType: {
     type: String,
     required: true,
-    enum: ['posts', 'ripples', 'shorts', 'comments', 'stories', 'ripple_events']
+    enum: [
+      'posts', 'ripples', 'shorts', 'comments', 'stories', 'ripple_events',
+      'display_pictures', 'profiles', 'groups',
+    ]
   },
   originalId: {
     type: mongoose.Schema.Types.ObjectId,

@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const { recordJobRun } = require('../services/jobRun');
 const PagePost = require('../models/PagePost');
 const Page = require('../models/Page');
 const { distributePagePost } = require('../controllers/pagePostController');
@@ -10,6 +11,7 @@ const { broadcastToUser } = require('../socketManager');
  */
 function initializeScheduledPagePostPublisher() {
   cron.schedule('* * * * *', async () => {
+    const started = Date.now();
     try {
       const now = new Date();
       const scheduledPosts = await PagePost.find({
@@ -18,7 +20,10 @@ function initializeScheduledPagePostPublisher() {
         scheduledFor: { $lte: now }
       }).populate('page', 'name username profileImage followerCount');
 
-      if (scheduledPosts.length === 0) return;
+      if (scheduledPosts.length === 0) {
+        await recordJobRun('scheduled-page-posts', 'success', Date.now() - started);
+        return;
+      }
 
       console.log(`📅 [CRON] Publishing ${scheduledPosts.length} scheduled page post(s)`);
 
@@ -65,7 +70,9 @@ function initializeScheduledPagePostPublisher() {
           console.error(`❌ [CRON] Error publishing scheduled post ${post._id}:`, postError);
         }
       }
+      await recordJobRun('scheduled-page-posts', 'success', Date.now() - started);
     } catch (error) {
+      await recordJobRun('scheduled-page-posts', 'failure', Date.now() - started, error.message);
       console.error('❌ [CRON] Error running scheduled page post publisher:', error);
     }
   });

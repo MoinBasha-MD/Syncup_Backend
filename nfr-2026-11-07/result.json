@@ -1,0 +1,64 @@
+{
+  "target": "https://api.crackman.in",
+  "at": "2026-11-07T16:32:57.707Z",
+  "endpoints": [
+    {
+      "path": "/health/live",
+      "n": 15,
+      "p50_ms": 31.6,
+      "p95_ms": 221.9,
+      "max_ms": 221.9,
+      "errors": 0,
+      "codes": "200"
+    },
+    {
+      "path": "/health/ready",
+      "n": 15,
+      "p50_ms": 31,
+      "p95_ms": 34.6,
+      "max_ms": 34.6,
+      "errors": 0,
+      "codes": "200"
+    },
+    {
+      "path": "/health",
+      "n": 15,
+      "p50_ms": 29.8,
+      "p95_ms": 37.3,
+      "max_ms": 37.3,
+      "errors": 0,
+      "codes": "200"
+    },
+    {
+      "path": "/api/health",
+      "n": 15,
+      "p50_ms": 30,
+      "p95_ms": 94.7,
+      "max_ms": 94.7,
+      "errors": 0,
+      "codes": "200"
+    }
+  ],
+  "checks": {
+    "burst10_liveness": {
+      "ok": 10,
+      "total_ms": 198.6
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self';style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;script-src 'self' 'unsafe-inline' 'unsafe-eval';img-src 'self' data: https:;connect-src 'self';font-src 'self' https://cdnjs.cloudflare.com;object-src 'none';media-src 'self';frame-src 'none';base-uri 'self';form-action 'self';frame-ancestors 'self';script-src-attr 'none';upgrade-insecure-requests",
+      "server": "nginx/1.18.0 (Ubuntu)",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN"
+    },
+    "metrics_public": {
+      "status": 200,
+      "leaks_memory": true,
+      "leaks_version": true
+    },
+    "unknown_route": {
+      "status": 404,
+      "json": true
+    }
+  }
+}

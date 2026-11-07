@@ -6,7 +6,7 @@
 const WINDOW_MS = 60 * 1000;
 const PRUNE_INTERVAL_MS = 10 * 1000;
 
-// [{t, ms, status5xx}]
+// [{t, ms, status5xx, status4xx}]
 let samples = [];
 let lastPrune = 0;
 
@@ -25,7 +25,12 @@ const requestCounter = (req, res, next) => {
   res.on('finish', () => {
     const ms = Number(process.hrtime.bigint() - start) / 1e6;
     const now = Date.now();
-    samples.push({ t: now, ms, status5xx: res.statusCode >= 500 });
+    samples.push({
+      t: now,
+      ms,
+      status5xx: res.statusCode >= 500,
+      status4xx: res.statusCode >= 400 && res.statusCode < 500,
+    });
     prune(now);
   });
   next();
@@ -43,11 +48,26 @@ const snapshot = () => {
   prune(now);
   const cutoff = now - WINDOW_MS;
   const window = samples.filter(s => s.t >= cutoff);
+  const latencies = window.map(s => s.ms);
+  const errors5xx = window.filter(s => s.status5xx).length;
+  const errors4xx = window.filter(s => s.status4xx).length;
+
+  let activeSockets = 0;
+  try {
+    const io = require('../socketManager').getSocketManager();
+    activeSockets = io?.engine?.clientsCount || 0;
+  } catch { /* socket layer optional */ }
+
   return {
     windowSeconds: WINDOW_MS / 1000,
     requestsPerMinute: window.length,
-    errors5xxPerMinute: window.filter(s => s.status5xx).length,
-    p95LatencyMs: Math.round(percentile(window.map(s => s.ms), 95) * 100) / 100,
+    errors5xxPerMinute: errors5xx,
+    errors4xxPerMinute: errors4xx,
+    errorRatePct: window.length ? Math.round((errors5xx / window.length) * 10000) / 100 : 0,
+    p50LatencyMs: Math.round(percentile(latencies, 50) * 100) / 100,
+    p95LatencyMs: Math.round(percentile(latencies, 95) * 100) / 100,
+    p99LatencyMs: Math.round(percentile(latencies, 99) * 100) / 100,
+    activeSockets,
     at: new Date(now).toISOString(),
   };
 };

@@ -116,6 +116,22 @@ const patchAdmin = handle(async (req, res) => {
   const { role, grants, isActive } = req.body || {};
   const requesterIsOwner = req.admin.role === 'owner';
 
+  // Never let the platform lose its last active super admin (owner excluded —
+  // owner accounts are immutable and cannot reach this handler).
+  const losingPrivilege =
+    (role !== undefined && role !== target.role && target.role === 'super_admin') ||
+    (isActive === false && target.isActive === true);
+  if (losingPrivilege) {
+    const remaining = await Admin.countDocuments({
+      _id: { $ne: target._id },
+      isActive: true,
+      role: { $in: ['owner', 'super_admin'] },
+    });
+    if (remaining === 0) {
+      return fail(res, 409, 'LAST_SUPER_ADMIN', 'Cannot remove the last active super admin');
+    }
+  }
+
   if (role !== undefined) {
     if (role === 'owner') return fail(res, 403, 'FORBIDDEN', 'The owner role cannot be assigned');
     if (!VALID_ROLES.includes(role)) return fail(res, 400, 'BAD_REQUEST', 'Invalid role');

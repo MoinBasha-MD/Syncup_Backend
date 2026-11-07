@@ -39,9 +39,28 @@ const rippleReportSchema = new mongoose.Schema(
     },
     details: { type: String, default: '', maxlength: 1000 },
 
+    // Triage fields. Severity defaults are derived from `reason` at read time
+    // when this is unset (see moderationController).
+    severity: {
+      type: String,
+      enum: ['low', 'medium', 'high', 'critical'],
+      default: 'medium',
+      index: true,
+    },
+    assignedTo: { type: String, default: null, index: true },
+    assignedAt: { type: Date, default: null },
+    notes: [
+      {
+        by: String,
+        at: { type: Date, default: Date.now },
+        text: { type: String, maxlength: 2000 },
+      },
+    ],
+    appealId: { type: mongoose.Schema.Types.ObjectId, ref: 'ModerationAppeal', default: null },
+
     status: {
       type: String,
-      enum: ['open', 'reviewing', 'actioned', 'dismissed'],
+      enum: ['open', 'reviewing', 'escalated', 'actioned', 'dismissed'],
       default: 'open',
       index: true,
     },

@@ -10,6 +10,7 @@
     "admin:dev": "nodemon admin-server.js",
     "both": "concurrently \"npm run dev\" \"npm run admin:dev\"",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:admin": "node --test tests/*.node.test.js",
     "create-admin": "node scripts/create-admin.js",
     "reset-admin-password": "node scripts/reset-admin-password.js",
     "monitor:ai": "node scripts/monitor-ai-logs.js",
@@ -26,7 +27,9 @@
     "agent:log-monitor": "node agents/logMonitorAgent.js",
     "agent:health-check": "node agents/healthCheckAgent.js",
     "agent:memory-monitor": "node agents/memoryMonitorAgent.js",
-    "agent:performance": "node agents/performanceAnalyzerAgent.js"
+    "agent:performance": "node agents/performanceAnalyzerAgent.js",
+    "create-owner": "node createOwner.js",
+    "owner-recovery": "node ownerRecovery.js"
   },
   "keywords": [],
   "author": "",

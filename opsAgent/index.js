@@ -12,6 +12,7 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const express = require('express');
+const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
@@ -229,9 +230,27 @@ const waitForBackendStatus = async (wanted, timeoutMs = 15000) => {
 
 // ---- app -------------------------------------------------------------------
 
+// Browser origins allowed to call the ops agent directly. Requests without an
+// Origin header (curl, server-to-server) are always allowed; this is a CORS
+// gate, not authentication — the admin JWT still has to pass.
+const ADMIN_ORIGINS = [
+  'https://admin.crackman.in',
+  'https://crackman.in',
+  'https://www.crackman.in',
+  ...((process.env.ALLOWED_ORIGINS || '').split(',').map((origin) => origin.trim()).filter(Boolean)),
+];
+
+const resolveOrigin = (origin) => !origin || ADMIN_ORIGINS.includes(origin);
+
 const createApp = () => {
   const app = express();
   app.disable('x-powered-by');
+  app.use(cors({
+    origin: (origin, callback) => callback(null, resolveOrigin(origin)),
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['authorization', 'content-type', 'x-admin-stepup', 'idempotency-key'],
+    credentials: true,
+  }));
   app.use(helmet());
   app.use(express.json({ limit: '32kb' }));
   app.use(rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false }));
@@ -546,6 +565,38 @@ const createApp = () => {
       setTimeout(() => { run('pm2', ['restart', 'ops-agent'], { timeoutMs: 30000 }).catch(() => {}); }, 500);
     }));
 
+  // --------------------------------------------------------------- livekit
+  app.get('/ops/livekit', opsPerm('ops.read'), wrap(async (_req, res) => {
+    const url = process.env.LIVEKIT_URL;
+    if (!url) return ok(res, { available: false, reason: 'LIVEKIT_URL is not configured' });
+
+    const start = Date.now();
+    try {
+      const parsed = new URL(url.replace(/^ws/, 'http'));
+      const mod = parsed.protocol === 'https:' ? https : http;
+      const reachable = await new Promise((resolve) => {
+        const probe = mod.request(
+          {
+            host: parsed.hostname,
+            port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+            path: '/',
+            timeout: 3000,
+          },
+          (response) => {
+            response.resume();
+            resolve(response.statusCode >= 200 && response.statusCode < 500);
+          },
+        );
+        probe.on('error', () => resolve(false));
+        probe.on('timeout', () => { probe.destroy(); resolve(false); });
+        probe.end();
+      });
+      return ok(res, { available: true, reachable, latencyMs: Date.now() - start, url });
+    } catch (error) {
+      return ok(res, { available: true, reachable: false, error: redact(error.message), url });
+    }
+  }));
+
   // 404 + error handler
   app.use((_req, res) => fail(res, 404, 'NOT_FOUND', 'Not found'));
   app.use((error, _req, res, _next) => {
@@ -560,7 +611,7 @@ const main = async () => {
   await connectMongo();
   const app = createApp();
   app.listen(PORT, '127.0.0.1', () => {
-    console.log(`🛰️  Ops agent listening on http://127.0.0.1:${PORT}/ops (mongo: ${mongoConnected ? 'connected' : 'degraded'})`);
+    console.log(`🛰️  Ops agent listening on http://127.0.0.1:${PORT}/ops (mongo: ${isMongoConnected() ? 'connected' : 'degraded'})`);
   });
 };
 
@@ -568,4 +619,13 @@ if (require.main === module) {
   main().catch((e) => { console.error('[OPS] fatal:', e); process.exit(1); });
 }
 
-module.exports = { createApp, connectMongo, isMongoConnected, SERVICE_ALLOWLIST, LOG_SOURCES, DEGRADED_ALLOWED };
+module.exports = {
+  createApp,
+  connectMongo,
+  isMongoConnected,
+  resolveOrigin,
+  ADMIN_ORIGINS,
+  SERVICE_ALLOWLIST,
+  LOG_SOURCES,
+  DEGRADED_ALLOWED,
+};

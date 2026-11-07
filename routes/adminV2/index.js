@@ -7,10 +7,16 @@ const {
   audit,
   ipAllowlist,
 } = require('../../middleware/adminV2Auth');
+const { idempotency } = require('../../middleware/idempotency');
 const { adminV2ErrorHandler } = require('../../utils/adminV2Response');
 
 const authRoutes = require('./auth');
 const me = require('../../controllers/adminV2/meController');
+const meta = require('../../controllers/adminV2/metaController');
+const waitlistCtl = require('../../controllers/adminV2/waitlistController');
+const userStatus = require('../../controllers/adminV2/userStatusController');
+const observability = require('../../controllers/adminV2/observabilityController');
+const alerts = require('../../controllers/adminV2/alertsController');
 const admins = require('../../controllers/adminV2/adminsController');
 const dashboard = require('../../controllers/adminV2/dashboardController');
 const users = require('../../controllers/adminV2/usersController');
@@ -52,6 +58,13 @@ router.use('/auth', authRoutes);
 
 // ---- everything below requires an admin access token ----
 router.use(requireAdminV2);
+router.use(idempotency);
+
+// Catalog for the admin UI (permissions, roles, grant restrictions).
+router.get('/meta', meta.getMeta);
+
+// Launch waitlist — owner/super_admin enforced inside the controller.
+router.get('/waitlist', waitlistCtl.listWaitlist);
 
 // Me
 router.get('/me', me.getMe);
@@ -78,6 +91,17 @@ router.post('/devices/:adminId/:deviceId/revoke', requirePermission('admins.mana
 // Dashboard & analytics
 router.get('/dashboard/overview', requirePermission('system.read'), dashboard.getOverview);
 router.get('/analytics/timeseries', requirePermission('system.read'), dashboard.getTimeseries);
+
+// User status management — declared before the generic /users routes.
+router.get('/status/users', requirePermission('users.status'), userStatus.listStatusUsers);
+router.get('/status/stats', requirePermission('users.status'), userStatus.statusStats);
+router.post('/users/status/bulk', requirePermission('users.status'), requireReason,
+  audit('user.status_bulk', { targetType: 'users', getTargetId: req => `bulk:${req.body?.userIds?.length ?? 0}` }),
+  userStatus.bulkUpdateStatus);
+router.get('/users/:userId/status/history', requirePermission('users.status'), userStatus.statusHistory);
+router.patch('/users/:userId/status', requirePermission('users.status'),
+  audit('user.status_update', { targetType: 'user', getTargetId: req => req.params.userId }),
+  userStatus.updateUserStatus);
 
 // Users — order matters: /users/sync before /users/:userId
 router.get('/users', requirePermission('users.read'), users.listUsers);
@@ -110,8 +134,25 @@ router.post('/users/:userId/notify', requirePermission('broadcasts.send'),
 
 // Moderation
 router.get('/reports', requirePermission('reports.read'), moderation.listReports);
+router.get('/reports/:reportId/evidence', requirePermission('reports.read'), moderation.getEvidence);
+router.patch('/reports/:reportId', requirePermission('reports.resolve'),
+  audit('report.update', { targetType: 'report', getTargetId: req => req.params.reportId }), moderation.patchReport);
+router.post('/reports/:reportId/notes', requirePermission('reports.resolve'),
+  audit('report.note', { targetType: 'report', getTargetId: req => req.params.reportId }), moderation.addNote);
+router.post('/reports/:reportId/escalate', requirePermission('reports.resolve'), requireReason,
+  audit('report.escalate', { targetType: 'report', getTargetId: req => req.params.reportId }), moderation.escalateReport);
 router.post('/reports/:rippleId/resolve', requirePermission('reports.resolve'), requireReason,
   audit('report.resolve', { targetType: 'ripple', getTargetId: req => req.params.rippleId }), moderation.resolveReports);
+
+// Appeals — record and decide. Overturn restores the quarantined content.
+router.get('/appeals', requirePermission('reports.read'), moderation.listAppeals);
+router.post('/appeals', requirePermission('reports.resolve'),
+  audit('appeal.record'), moderation.recordAppeal);
+router.post('/appeals/:id/decide', requirePermission('reports.resolve'), requireReason,
+  audit('appeal.decide', { targetType: 'appeal', getTargetId: req => req.params.id }), moderation.decideAppeal);
+
+// Repeat-offender / action history for a user.
+router.get('/users/:userId/moderation-history', requirePermission('reports.read'), moderation.moderationHistory);
 router.get('/content', requirePermission('content.read'), moderation.listContent);
 router.post('/content/:type/:id/takedown', requirePermission('content.moderate'), requireReason,
   audit('content.takedown', { targetType: 'content', getTargetId: req => `${req.params.type}:${req.params.id}` }), moderation.takedown);
@@ -148,6 +189,14 @@ router.post('/system/fcm/cleanup', requirePermission('system.write'), requireSte
   audit('system.fcm_cleanup'), system.fcmCleanupRoute);
 router.post('/system/restart', requirePermission('system.restart'), requireStepUp, requireReason,
   audit('system.restart'), system.restartServer);
+
+// Observability: metric history, alerts, background jobs, backups.
+router.get('/system/metrics/history', requirePermission('system.read'), observability.getMetricHistory);
+router.get('/system/jobs', requirePermission('system.read'), observability.getJobs);
+router.get('/system/backups', requirePermission('system.read'), observability.getBackups);
+router.get('/system/alerts', requirePermission('system.read'), alerts.listAlerts);
+router.post('/system/alerts/:id/ack', requirePermission('system.write'), alerts.ackAlert);
+router.post('/system/alerts/:id/resolve', requirePermission('system.write'), alerts.resolveAlert);
 
 // Audit
 router.get('/audit', requirePermission('audit.read'), auditCtl.listAudit);

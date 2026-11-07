@@ -55,7 +55,17 @@ const verifyTotp = (secret, token) => {
  */
 const checkTotp = async (admin, secretEnc, code) => {
   const secret = secretEnc ? decrypt(secretEnc) : null;
-  const result = secret ? verifyTotp(secret, code.trim()) : { valid: false };
+  if (!secret) {
+    // A key mismatch is not a bad code. Reporting it as one used to burn
+    // loginAttempts and lock the account; surface it clearly instead.
+    console.error('❌ [ADMIN MFA] stored TOTP secret could not be decrypted — ADMIN_TOTP_ENC_KEY likely changed');
+    return {
+      status: 500,
+      code: 'MFA_SECRET_UNREADABLE',
+      message: 'The authenticator secret cannot be read. Reset MFA for this account.',
+    };
+  }
+  const result = verifyTotp(secret, code.trim());
   const lastUsedStep = admin.totp?.lastUsedStep ?? -1;
   if (!result.valid || result.step <= lastUsedStep) {
     await admin.incLoginAttempts();
@@ -450,5 +460,8 @@ router.post('/step-up', adminSessionLimiter, requireAdminV2, handle(async (req, 
 
   return fail(res, 400, 'BAD_REQUEST', 'challengeToken+signature or totpCode is required');
 }));
+
+// Test hooks for the TOTP verification contract.
+router._internal = { checkTotp, verifyTotp };
 
 module.exports = router;

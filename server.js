@@ -416,6 +416,7 @@ app.use(cors({
     const allowedOrigins = [
       'https://crackman.in',
       'https://www.crackman.in',
+      'https://admin.crackman.in',
       ...(process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) || []),
     ];
 
@@ -986,6 +987,13 @@ if (process.env.NODE_ENV === 'production' && fs.existsSync('./ssl/key.pem') && f
 // Initialize Socket.IO with our custom manager
 
 const io = initializeSocketIO(server);
+
+// Observability sampler: 30s process/request samples, 7-day retention.
+setTimeout(() => {
+  require('./services/metricsSampler')
+    .startMetricsSampler()
+    .catch((error) => console.error('⚠️ [METRICS] sampler failed to start:', error.message));
+}, 5000).unref();
 
 
 

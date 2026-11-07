@@ -71,6 +71,19 @@ const getHealth = handle(async (req, res) => {
 
   const [mongo, redis, pm2] = await Promise.all([mongoPing(), redisPing(), pm2Info()]);
 
+  const mongoInfo = { ...mongo };
+  if (mongo.ok) {
+    try {
+      const status = await mongoose.connection.db.admin().command({ serverStatus: 1 });
+      mongoInfo.connections = {
+        current: status.connections?.current ?? null,
+        available: status.connections?.available ?? null,
+      };
+    } catch {
+      // serverStatus may be restricted; current/latency still render.
+    }
+  }
+
   return ok(res, {
     uptime: process.uptime(),
     node: process.version,
@@ -89,7 +102,7 @@ const getHealth = handle(async (req, res) => {
       p50: loopHistogram.percentile(50) / 1e6,
       p99: loopHistogram.percentile(99) / 1e6,
     },
-    mongo,
+    mongo: mongoInfo,
     redis,
     sockets,
     pm2,

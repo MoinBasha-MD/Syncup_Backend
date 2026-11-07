@@ -7,6 +7,7 @@ const PERMISSIONS = [
   'users.forceLogout',
   'users.impersonate',
   'users.export',
+  'users.status',
   'content.read',
   'content.moderate',
   'reports.read',

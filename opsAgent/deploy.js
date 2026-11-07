@@ -17,6 +17,16 @@ const MAX_OUTPUT_LINES = 200;
 const jobs = new Map(); // jobId → job
 let running = false;
 
+// Reload the last 10 jobs so deployment history survives agent restarts.
+try {
+  const persisted = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+  for (const job of Array.isArray(persisted) ? persisted : []) {
+    if (job?.jobId) jobs.set(job.jobId, job);
+  }
+} catch {
+  // first run or unreadable file
+}
+
 const tailLines = (text, n = MAX_OUTPUT_LINES) =>
   String(text || '').split('\n').filter(Boolean).slice(-n).join('\n');
 

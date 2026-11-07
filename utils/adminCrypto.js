@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 let generatedKey = null;
 
@@ -8,6 +10,9 @@ let generatedKey = null;
  * missing or malformed, other envs fall back to a per-process random key
  * (encrypted secrets become unreadable after restart — dev only).
  */
+const TOTP_KEY_FILE = process.env.ADMIN_TOTP_KEY_FILE
+  || path.join(__dirname, '..', '.admin-totp-key');
+
 const getTotpEncKey = () => {
   const hex = process.env.ADMIN_TOTP_ENC_KEY;
   if (/^[0-9a-fA-F]{64}$/.test(hex || '')) {
@@ -17,8 +22,23 @@ const getTotpEncKey = () => {
     throw new Error('ADMIN_TOTP_ENC_KEY must be set in production (64 hex chars)');
   }
   if (!generatedKey) {
-    generatedKey = crypto.randomBytes(32);
-    console.warn('⚠️ [ADMIN AUTH] ADMIN_TOTP_ENC_KEY is not set; using a random per-process key. Enrolled TOTP secrets will not survive restarts.');
+    // Dev fallback: persist one key so the API, createOwner and ownerRecovery
+    // all encrypt/decrypt with the same value across processes and restarts.
+    try {
+      const saved = fs.readFileSync(TOTP_KEY_FILE, 'utf8').trim();
+      if (/^[0-9a-fA-F]{64}$/.test(saved)) generatedKey = Buffer.from(saved, 'hex');
+    } catch {
+      // no key file yet
+    }
+    if (!generatedKey) {
+      generatedKey = crypto.randomBytes(32);
+      try {
+        fs.writeFileSync(TOTP_KEY_FILE, generatedKey.toString('hex'), { mode: 0o600 });
+      } catch (error) {
+        console.warn('⚠️ [ADMIN AUTH] could not persist the dev TOTP key:', error.message);
+      }
+      console.warn(`⚠️ [ADMIN AUTH] ADMIN_TOTP_ENC_KEY is not set; using a persisted dev key at ${TOTP_KEY_FILE}. Set ADMIN_TOTP_ENC_KEY in production.`);
+    }
   }
   return generatedKey;
 };
