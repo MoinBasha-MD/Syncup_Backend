@@ -5,6 +5,7 @@ const GroupMember = require('../models/groupMemberModel');
 const User = require('../models/userModel');
 const mongoose = require('mongoose');
 const { broadcastToUser } = require('../socketManager');
+const { dispatchNotification } = require('../services/notificationDispatcher');
 
 /**
  * Notify every current member (plus affected user(s), e.g. just-removed/left)
@@ -412,14 +413,9 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
     await groupChat.updateLastMessage(groupMessage);
     await groupChat.save();
 
-    // Mark as delivered to all active members
+    // Sender is already in the message record; only recipients need delivery
+    // tracking, and only connected recipients can be marked delivered.
     const activeMembers = allActiveMembers.filter((m) => m.userId !== senderId);
-
-    const deliveryPromises = activeMembers.map(member =>
-      groupMessage.markAsDelivered(member.userId)
-    );
-    await Promise.all(deliveryPromises);
-    await groupMessage.save();
 
     console.log(`💬 [GROUP MESSAGE] Message sent to group ${groupId} by ${sender.name}`);
 
@@ -446,6 +442,7 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
       };
 
       let successfulBroadcasts = 0;
+      const deliveredUserIds = [];
       
       // Broadcast to each active member (except sender)
       for (const member of activeMembers) {
@@ -453,6 +450,7 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
           const broadcastSuccess = broadcastToUser(member.userId, 'message:new', broadcastData);
           if (broadcastSuccess) {
             successfulBroadcasts++;
+            deliveredUserIds.push(member.userId);
             console.log(`✅ [GROUP MESSAGE] Broadcasted to member: ${member.userId}`);
           } else {
             console.log(`⚠️ [GROUP MESSAGE] Member ${member.userId} offline, message saved for later`);
@@ -463,6 +461,15 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
       }
       
       console.log(`📊 [GROUP MESSAGE] Successfully broadcast to ${successfulBroadcasts}/${activeMembers.length} members`);
+
+      if (deliveredUserIds.length > 0) {
+        deliveredUserIds.forEach((userId) => groupMessage.markAsDelivered(userId));
+        // Delivery metadata is secondary to the send acknowledgement; persist
+        // it in the background so group size does not add a write to send time.
+        void groupMessage.save().catch((deliveryError) => {
+          console.warn('⚠️ [GROUP MESSAGE] Failed to persist delivery receipts:', deliveryError.message);
+        });
+      }
       
       // 🔔 Send notifications to group members via socket
       console.log('🔔 [GROUP MESSAGE] Sending notifications to group members...');
@@ -503,6 +510,47 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
       }
       
       console.log(`🔔 [GROUP MESSAGE] Sent ${notificationsSent}/${activeMembers.length} notifications`);
+
+      // Unlike a socket-only notification, the dispatcher also persists the
+      // notification and sends FCM for members who are offline. Keep this
+      // fan-out off the message acknowledgement path.
+      setImmediate(() => {
+        const body = isE2eeV2(groupMessage.e2ee)
+          ? 'New message'
+          : (groupMessage.message || `Sent a ${groupMessage.messageType}`);
+        const dispatches = activeMembers.map((member) => dispatchNotification({
+          toUserId: member.userId,
+          fromUserId: senderId,
+          type: 'group_message',
+          category: 'message',
+          title: `${groupChat.groupName} - ${sender.name}`,
+          body,
+          groupKey: `group:${groupId}`,
+          action: {
+            kind: 'open_chat',
+            groupId: String(groupId),
+            groupName: groupChat.groupName,
+            senderId,
+            senderName: sender.name,
+            isGroupMessage: true,
+          },
+          inApp: 'none',
+          socket: false,
+          push: member.notificationSettings?.muted !== true,
+          data: {
+            groupId: String(groupId),
+            groupName: groupChat.groupName,
+            senderId,
+            senderName: sender.name,
+            messageId: groupMessage._id.toString(),
+            chatId: String(groupId),
+            isGroupMessage: true,
+          },
+        }));
+        void Promise.all(dispatches).catch((notificationError) => {
+          console.warn('⚠️ [GROUP MESSAGE] Notification fan-out failed:', notificationError.message);
+        });
+      });
       
     } catch (broadcastError) {
       console.error('❌ [GROUP MESSAGE] Error broadcasting group message:', broadcastError);
