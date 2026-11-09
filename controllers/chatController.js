@@ -1,6 +1,7 @@
 const Message = require('../models/Message');
 const User = require('../models/userModel');
 const Block = require('../models/blockModel');
+const ChatMute = require('../models/ChatMute');
 const { validateDmEnvelope, isE2eeV2, e2eeEnforced } = require('../utils/e2eeEnvelope');
 // const ContinuousTimerState = require('../models/ContinuousTimerState'); // ⚠️ DISABLED: File not on server
 const { broadcastToUser } = require('../socketManager');
@@ -1913,10 +1914,48 @@ const getConversations = async (req, res) => {
   }
 };
 
+// PUT /api/chat/mute/:contactId  body: { muted: boolean }
+const setChatMute = async (req, res) => {
+  try {
+    const currentUserId = req.user.userId;
+    const { contactId } = req.params;
+    const muted = req.body?.muted === true;
+    if (!contactId || contactId === currentUserId) {
+      return res.status(400).json({ success: false, message: 'Invalid contact' });
+    }
+    if (muted) {
+      await ChatMute.updateOne(
+        { userId: currentUserId, mutedUserId: contactId },
+        { $setOnInsert: { userId: currentUserId, mutedUserId: contactId, createdAt: new Date() } },
+        { upsert: true },
+      );
+    } else {
+      await ChatMute.deleteOne({ userId: currentUserId, mutedUserId: contactId });
+    }
+    res.json({ success: true, muted });
+  } catch (error) {
+    console.error('❌ [CHAT] setChatMute failed:', LogSanitizer.sanitizeError(error));
+    res.status(500).json({ success: false, message: 'Failed to update mute' });
+  }
+};
+
+// GET /api/chat/mutes — contact ids this user has muted (synced across devices)
+const getChatMutes = async (req, res) => {
+  try {
+    const rows = await ChatMute.find({ userId: req.user.userId }).select('mutedUserId').lean();
+    res.json({ success: true, data: rows.map(r => r.mutedUserId) });
+  } catch (error) {
+    console.error('❌ [CHAT] getChatMutes failed:', LogSanitizer.sanitizeError(error));
+    res.status(500).json({ success: false, message: 'Failed to load mutes' });
+  }
+};
+
 module.exports = {
   sendMessage,
   getConversations,
   getChatHistory,
+  setChatMute,
+  getChatMutes,
   markMessagesAsRead,
   getUnreadCount,
   getAllUnreadCounts,

@@ -24,7 +24,9 @@ const {
   markBurnViewed,
   cleanupExpiredMessages,
   clearMessages,
-  deleteConversation
+  deleteConversation,
+  setChatMute,
+  getChatMutes
 } = require('../controllers/chatController');
 
 // All chat routes require authentication
@@ -81,5 +83,9 @@ router.delete('/clear/:contactId', clearMessages);
 
 // Delete entire conversation from chat list
 router.delete('/conversation/:contactId', deleteConversation);
+
+// Chat notification mute (suppresses push for this sender)
+router.put('/mute/:contactId', setChatMute);
+router.get('/mutes', getChatMutes);
 
 module.exports = router;

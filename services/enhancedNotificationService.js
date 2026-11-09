@@ -1,5 +1,6 @@
 const User = require('../models/userModel');
 const Notification = require('../models/Notification');
+const ChatMute = require('../models/ChatMute');
 // Lazy require to break circular dependency with socketManager
 const getSocketManager = () => require('../socketManager');
 const fcmNotificationService = require('./fcmNotificationService');
@@ -141,6 +142,13 @@ class EnhancedNotificationService {
         console.log('✅ Chat message notification sent via WebSocket');
       } else {
         console.log('⚠️ WebSocket failed - user may be offline');
+      }
+
+      // Receiver muted this sender: keep the socket update and the stored
+      // notification, but don't ring their device.
+      if (await ChatMute.exists({ userId: receiverId, mutedUserId: senderId })) {
+        console.log('🔕 [NOTIFICATION] Receiver muted this sender — push skipped');
+        return socketSuccess;
       }
 
       // CRITICAL FIX: Always send FCM notification regardless of WebSocket status

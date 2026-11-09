@@ -1819,9 +1819,8 @@ const initializeSocketIO = (server) => {
       }
     };
 
-    /** Ends the call when no 'joined' participants remain. */
-    const endGroupCallIfEmpty = async (call) => {
-      if ((call.participants || []).some(p => p.status === 'joined')) return false;
+    /** Ends the call for everyone: marks it ended, drops the room and notifies all participants. */
+    const endGroupCallNow = async (call) => {
       call.status = 'ended';
       call.endedAt = new Date();
       await call.save();
@@ -1832,6 +1831,12 @@ const initializeSocketIO = (server) => {
       for (const p of call.participants || []) {
         emitToUser(p.userId, 'groupcall:ended', { callId: call.callId });
       }
+    };
+
+    /** Ends the call when no 'joined' participants remain. */
+    const endGroupCallIfEmpty = async (call) => {
+      if ((call.participants || []).some(p => p.status === 'joined')) return false;
+      await endGroupCallNow(call);
       return true;
     };
 
@@ -2015,6 +2020,50 @@ const initializeSocketIO = (server) => {
         await endGroupCallIfEmpty(call);
       } catch (e) {
         console.error('❌ [GCALL] leave failed:', e);
+      }
+    });
+
+    // Host-only: end the group call for every participant.
+    socket.on('groupcall:end', async (data, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const callId = typeof data?.callId === 'string' ? data.callId.trim() : '';
+        const call = await GroupCall.findOne({ callId, status: 'active' });
+        if (!call) return reply({ ok: false, reason: 'inactive' });
+        if (call.hostId !== userId) return reply({ ok: false, reason: 'host only' });
+        await endGroupCallNow(call);
+        reply({ ok: true });
+      } catch (e) {
+        console.error('❌ [GCALL] end failed:', e);
+        reply({ ok: false, reason: 'end failed' });
+      }
+    });
+
+    // Host-only: remove one participant (they get groupcall:ended and leave the room).
+    socket.on('groupcall:remove', async (data, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const callId = typeof data?.callId === 'string' ? data.callId.trim() : '';
+        const targetId = typeof data?.userId === 'string' ? data.userId.trim() : '';
+        const call = await GroupCall.findOne({ callId, status: 'active' });
+        if (!call) return reply({ ok: false, reason: 'inactive' });
+        if (call.hostId !== userId) return reply({ ok: false, reason: 'host only' });
+        if (!targetId || targetId === userId) return reply({ ok: false, reason: 'bad target' });
+        const p = call.participants.find(x => x.userId === targetId && (x.status === 'joined' || x.status === 'invited'));
+        if (!p) return reply({ ok: false, reason: 'not in call' });
+        rosterTransition(call, targetId, 'left');
+        await call.save();
+        const g = activeGroupCalls.get(callId);
+        const t = g?.ringTimers.get(targetId);
+        if (t) { clearTimeout(t); g.ringTimers.delete(targetId); }
+        g?.liveUsers?.delete(targetId);
+        broadcastRoster(call, targetId, 'left');
+        emitToUser(targetId, 'groupcall:ended', { callId });
+        liveKitService.removeParticipant(call.roomName, targetId);
+        reply({ ok: true });
+      } catch (e) {
+        console.error('❌ [GCALL] remove failed:', e);
+        reply({ ok: false, reason: 'remove failed' });
       }
     });
 

@@ -102,4 +102,15 @@ const deleteRoom = async (room) => {
   }
 };
 
-module.exports = { isConfigured, createToken, createRoom, deleteRoom };
+/** Removes one participant from a room (host removing someone from a group call). */
+const removeParticipant = async (room, identity) => {
+  const svc = getRoomService();
+  if (!svc) return;
+  try {
+    await svc.removeParticipant(room, identity);
+  } catch (e) {
+    console.warn('⚠️ [LiveKit] removeParticipant failed:', e.message);
+  }
+};
+
+module.exports = { isConfigured, createToken, createRoom, deleteRoom, removeParticipant };
