@@ -67,14 +67,23 @@ const getViewerContext = async (userId, userObjectId = null) => {
  * NOTE: Ripples the viewer is already a Rippler of are added by the caller
  * (requires a Rippler lookup) — not expressible here.
  */
-const buildVisibilityFilter = (viewerUserId, ctx) => ({
+const buildVisibilityFilter = (viewerUserId, ctx, ongoingMembershipIds = [], includeLocal = false) => ({
   $and: [
     {
       $or: [
         { visibility: 'public', discoverability: 'listed' },
-        { visibility: 'friends', hostUserId: { $in: [...ctx.friendIds] } },
+        { visibility: 'friends', discoverability: { $ne: 'unlisted' }, hostUserId: { $in: [...ctx.friendIds] } },
+        ...(includeLocal ? [
+          { visibility: 'public', discoverability: 'unlisted' },
+          { visibility: 'friends', discoverability: 'unlisted', hostUserId: { $in: [...ctx.friendIds] } },
+        ] : []),
         { visibility: 'page_followers', hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
         { hostUserId: viewerUserId },
+        ...(ongoingMembershipIds.length ? [{
+          _id: { $in: ongoingMembershipIds },
+          durationMode: 'ongoing',
+          hostPageId: null,
+        }] : []),
       ],
     },
     { hostUserId: { $nin: [...ctx.blockedIds] } },

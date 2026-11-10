@@ -303,9 +303,10 @@ const leaveRipple = asyncHandler(async (req, res) => {
 });
 
 // @route POST /api/ripples/:id/follow — allowed even when capacity-full
-const followRipple = asyncHandler(async (req, res) => {
+const followRipple = asyncHandler(async (req, res, next) => {
   const userId = req.user.userId;
   const ripple = await loadRipple(req);
+  if (ripple.durationMode === 'ongoing') return joinRipple(req, res, next);
   const existing = await getMember(ripple._id, userId);
   await assertCanViewRipple(userId, req.user._id, ripple, existing);
 

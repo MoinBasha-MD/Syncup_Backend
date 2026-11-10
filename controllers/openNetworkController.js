@@ -168,7 +168,14 @@ const midLng = (swLng, neLng) => {
  * Apply the optional `section` param as extra match clauses.
  * Returns extra clauses array (possibly empty).
  */
-const sectionClauses = async (section, userId, ctx) => {
+const ongoingMembershipIds = async (userId) => {
+  const rows = await Rippler.find({ userId, status: 'approved', role: { $ne: 'follower' } })
+    .select('rippleId')
+    .lean();
+  return rows.map((r) => r.rippleId);
+};
+
+const sectionClauses = async (section, userId, ctx, followingIds = []) => {
   switch (section) {
     case 'live':
       // Shorts are posts, not happenings — they never read as "live".
@@ -195,6 +202,7 @@ const sectionClauses = async (section, userId, ctx) => {
           $or: [
             { hostUserId: { $in: [...(ctx?.friendIds ?? []), userId] } },
             { visibility: 'page_followers', hostPageId: { $in: [...(ctx?.pageIds ?? [])] } },
+            { _id: { $in: followingIds }, durationMode: 'ongoing', hostPageId: null },
           ],
         },
       ];
@@ -245,13 +253,18 @@ const getViewport = asyncHandler(async (req, res) => {
   }));
 
   const ctx = await getViewerContext(userId, req.user._id);
+  const followingIds = req.query.section === 'forYou' ? await ongoingMembershipIds(userId) : [];
   const baseMatch = {
-    $and: [buildVisibilityFilter(userId, ctx), { $or: bboxOr }],
+    $and: [
+      buildVisibilityFilter(userId, ctx, followingIds),
+      { $or: bboxOr },
+      ...(req.query.excludePageHosted === '1' ? [{ hostPageId: null, hostIsPage: { $ne: true } }] : []),
+    ],
   };
 
   const typeList = parseRippleTypes(req.query.types);
 
-  const clauses = await sectionClauses(req.query.section, userId, ctx);
+  const clauses = await sectionClauses(req.query.section, userId, ctx, followingIds);
   const match = { $and: [...baseMatch.$and, ...clauses] };
   if (typeList.length) match.$and.push({ type: { $in: typeList } });
 
@@ -410,6 +423,7 @@ const getPulse = asyncHandler(async (req, res) => {
     discoverability: 'listed',
     lifecycle: { $ne: 'removed' },
     'moderation.reviewStatus': { $ne: 'under_review' },
+    ...(req.query.excludePageHosted === '1' ? { hostPageId: null, hostIsPage: { $ne: true } } : {}),
     ...(country ? { 'place.countryCode': country } : {}),
   };
   // Active/scheduled is the set "activity" claims are made over.
@@ -522,7 +536,7 @@ const getNearby = asyncHandler(async (req, res) => {
   const typeList = parseRippleTypes(req.query.type);
 
   const ctx = await getViewerContext(userId, req.user._id);
-  const visibility = buildVisibilityFilter(userId, ctx);
+  const visibility = buildVisibilityFilter(userId, ctx, [], true);
 
   const rows = await Ripple.aggregate([
     {
@@ -535,9 +549,33 @@ const getNearby = asyncHandler(async (req, res) => {
           $and: [
             visibility,
             { lifecycle: { $in: DISCOVERABLE_LIFECYCLES } },
+            ...(req.query.excludePageHosted === '1' ? [{ hostPageId: null, hostIsPage: { $ne: true } }] : []),
             ...(typeList.length ? [{ type: { $in: typeList } }] : []),
           ],
         },
+      },
+    },
+    {
+      $match: {
+        $or: [
+          { reach: { $in: ['global', 'online'] } },
+          {
+            $expr: {
+              $lte: [
+                '$distMeters',
+                { $multiply: [{ $ifNull: ['$reachKm', {
+                  $switch: {
+                    branches: [
+                      { case: { $eq: ['$reach', 'neighborhood'] }, then: 5 },
+                      { case: { $eq: ['$reach', 'region'] }, then: 500 },
+                    ],
+                    default: 50,
+                  },
+                }] }, 1000] },
+              ],
+            },
+          },
+        ],
       },
     },
     { $limit: 100 },
@@ -582,9 +620,10 @@ const getFeed = asyncHandler(async (req, res) => {
   const typeList = parseRippleTypes(req.query.type);
 
   const ctx = await getViewerContext(userId, req.user._id);
-  const visibility = buildVisibilityFilter(userId, ctx);
+  const followingIds = section === 'forYou' ? await ongoingMembershipIds(userId) : [];
+  const visibility = buildVisibilityFilter(userId, ctx, followingIds);
 
-  const clauses = [];
+  const clauses = req.query.excludePageHosted === '1' ? [{ hostPageId: null, hostIsPage: { $ne: true } }] : [];
 
   // Country scope applies to public Explore results only; the query is
   // ignored for friends, personal, and other section feeds.
@@ -657,6 +696,7 @@ const getFeed = asyncHandler(async (req, res) => {
         $or: [
           { hostUserId: { $in: [...ctx.friendIds, userId] } },
           { visibility: 'page_followers', hostPageId: { $in: [...(ctx.pageIds ?? [])] } },
+          { _id: { $in: followingIds }, durationMode: 'ongoing', hostPageId: null },
         ],
       });
       break;

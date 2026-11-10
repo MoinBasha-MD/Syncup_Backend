@@ -75,6 +75,11 @@ const rippleSchema = new mongoose.Schema(
       enum: ['ripple', 'short'],
       default: 'ripple',
     },
+    durationMode: {
+      type: String,
+      enum: ['timed', 'ongoing'],
+      default: 'timed',
+    },
     reach: {
       type: String,
       enum: ['neighborhood', 'city', 'region', 'global', 'online'],

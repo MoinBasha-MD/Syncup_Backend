@@ -3,6 +3,9 @@ logs/
 storage/
 scripts/
 tests/
+!tests/
+tests/*
+!tests/rippleOngoing.node.test.js
 components.zip
 *.md
 

@@ -122,21 +122,22 @@ const buildViewerBlock = (ripple, member, userId, extras = {}) => {
   const joinable = JOINABLE_LIFECYCLES.includes(ripple.lifecycle);
   const isParticipant = relationship === 'host' || relationship === 'cohost' || relationship === 'rippler';
   const isManager = relationship === 'host' || relationship === 'cohost';
+  const canJoin =
+    !isShort &&
+    joinable &&
+    !isFull &&
+    ((relationship === 'none' &&
+      (ripple.joinPolicy === 'open' || ripple.joinPolicy === 'approval')) ||
+      relationship === 'invited');
 
   return {
     userId,
     relationship,
     // Shorts have no membership — viewers Support + Comment, never join.
     // An invitee's join accepts the invite regardless of joinPolicy.
-    canJoin:
-      !isShort &&
-      joinable &&
-      !isFull &&
-      ((relationship === 'none' &&
-        (ripple.joinPolicy === 'open' || ripple.joinPolicy === 'approval')) ||
-        relationship === 'invited'),
+    canJoin,
     // Invited viewers are expected to accept-or-decline, not follow.
-    canFollow: !isShort && joinable && relationship === 'none',
+    canFollow: ripple.durationMode === 'ongoing' ? canJoin : !isShort && joinable && relationship === 'none',
     // Managers can always pull people in; on a public Ripple any approved
     // (non-follower) participant can too. Mirrors canInviteTo in
     // rippleParticipationController.
@@ -183,6 +184,13 @@ const createRipple = asyncHandler(async (req, res) => {
 
   enumCheck(body.kind, KINDS, 'kind');
   const kind = body.kind === 'short' ? 'short' : 'ripple';
+  enumCheck(body.durationMode, ['timed', 'ongoing'], 'durationMode');
+  const durationMode = kind === 'short' ? 'timed' : body.durationMode || 'timed';
+  if (durationMode === 'ongoing' && body.expiresAt) {
+    const err = new BadRequestError('An ongoing Ripple cannot have an end time');
+    err.code = 'VALIDATION';
+    throw err;
+  }
 
   const title = String(body.title || '').trim();
   if (title.length < 3 || title.length > 120) {
@@ -300,11 +308,11 @@ const createRipple = asyncHandler(async (req, res) => {
 
   const startAt = body.startAt ? new Date(body.startAt) : null;
   const lifecycle = body.publish === true ? lifecycleForPublish(startAt) : 'draft';
-  // Published full Ripples always end. Shorts have no time window, and a
+  // Published timed Ripples always end. Shorts have no time window, and a
   // draft gets its default at publish time so it can't inherit a stale end.
   const expiresAt = body.expiresAt
     ? new Date(body.expiresAt)
-    : kind !== 'short' && lifecycle !== 'draft'
+    : kind !== 'short' && durationMode !== 'ongoing' && lifecycle !== 'draft'
       ? defaultExpiresAt(lifecycle === 'scheduled' ? startAt : null)
       : null;
   if (startAt && expiresAt && expiresAt <= startAt) {
@@ -329,6 +337,7 @@ const createRipple = asyncHandler(async (req, res) => {
     description: String(body.description || ''),
     type,
     kind,
+    durationMode,
     media,
     music: sanitizeMusic(body.music),
     reach,
@@ -391,7 +400,7 @@ const getRipple = asyncHandler(async (req, res) => {
     throw err;
   }
   const ripple = await Ripple.findById(req.params.id);
-  if (!ripple) {
+  if (!ripple || (req.query?.excludePageHosted === '1' && (ripple.hostPageId || ripple.hostIsPage))) {
     const err = new NotFoundError('Ripple not found');
     err.code = 'NOT_FOUND';
     throw err;
@@ -484,6 +493,11 @@ const updateRipple = asyncHandler(async (req, res) => {
   enumCheck(body.joinPolicy, JOIN_POLICIES, 'joinPolicy');
   enumCheck(body.visibility, VISIBILITIES, 'visibility');
   enumCheck(body.discoverability, DISCOVERABILITIES, 'discoverability');
+  if (ripple.durationMode === 'ongoing' && body.expiresAt) {
+    const err = new BadRequestError('An ongoing Ripple cannot have an end time');
+    err.code = 'VALIDATION';
+    throw err;
+  }
   if (body.visibility === 'page_followers' && !ripple.hostPageId) {
     const err = new BadRequestError('page_followers visibility requires a Page host');
     err.code = 'VALIDATION';
@@ -529,7 +543,7 @@ const updateRipple = asyncHandler(async (req, res) => {
     }
   }
 
-  if (!ripple.expiresAt && ripple.kind !== 'short' && ['active', 'scheduled'].includes(ripple.lifecycle)) {
+  if (!ripple.expiresAt && ripple.kind !== 'short' && ripple.durationMode !== 'ongoing' && ['active', 'scheduled'].includes(ripple.lifecycle)) {
     ripple.expiresAt = defaultExpiresAt(ripple.lifecycle === 'scheduled' ? ripple.startAt : null);
   }
   if (
@@ -577,7 +591,7 @@ const publishRipple = asyncHandler(async (req, res) => {
     throw err;
   }
   ripple.lifecycle = lifecycleForPublish(ripple.startAt);
-  if (ripple.kind !== 'short' && (!ripple.expiresAt || ripple.expiresAt <= new Date())) {
+  if (ripple.kind !== 'short' && ripple.durationMode !== 'ongoing' && (!ripple.expiresAt || ripple.expiresAt <= new Date())) {
     ripple.expiresAt = defaultExpiresAt(ripple.lifecycle === 'scheduled' ? ripple.startAt : null);
   }
   await syncPageRippleVisibility(ripple);

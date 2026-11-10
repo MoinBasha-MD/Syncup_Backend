@@ -42,6 +42,7 @@ const toRippleSummary = (ripple, opts = {}) => {
     title: ripple.title,
     type: ripple.type,
     kind: ripple.kind || 'ripple',
+    durationMode: ripple.durationMode || 'timed',
     state,
     lifecycle: ripple.lifecycle,
     ownerId: ripple.hostIsPage ? String(ripple.hostPageId) : ripple.hostUserId,
