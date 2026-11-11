@@ -17,6 +17,9 @@ const messageSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  broadcastRequestId: {
+    type: String
+  },
   message: {
     type: String,
     required: true
@@ -369,6 +372,10 @@ const messageSchema = new mongoose.Schema({
 
 // Compound indexes for efficient querying
 messageSchema.index({ senderId: 1, receiverId: 1, timestamp: -1 });
+messageSchema.index(
+  { senderId: 1, broadcastRequestId: 1 },
+  { unique: true, name: 'chat_broadcast_idempotency', partialFilterExpression: { broadcastRequestId: { $type: 'string' } } }
+);
 messageSchema.index({ receiverId: 1, senderId: 1, timestamp: -1 });
 messageSchema.index({ receiverId: 1, status: 1 });
 // Search optimization indexes

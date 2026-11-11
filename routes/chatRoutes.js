@@ -1,8 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const rateLimit = require('express-rate-limit');
+const broadcastLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `broadcast:${req.user.userId}`,
+  message: { success: false, message: 'Too many broadcast messages, please try again later', code: 'BROADCAST_RATE_LIMIT' },
+});
 const {
   sendMessage,
+  sendBroadcastMessage,
+  broadcastCapability,
+  broadcastRecipients,
   getConversations,
   getChatHistory,
   markMessagesAsRead,
@@ -34,6 +46,9 @@ router.use(protect);
 
 // Send a message
 router.post('/send', sendMessage);
+router.get('/broadcast-capability', broadcastCapability);
+router.get('/broadcast/recipients', broadcastRecipients);
+router.post('/broadcast/send', broadcastLimiter, sendBroadcastMessage);
 
 router.get('/conversations', getConversations);
 

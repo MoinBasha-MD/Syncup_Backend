@@ -1,6 +1,8 @@
 const Message = require('../models/Message');
 const User = require('../models/userModel');
 const Block = require('../models/blockModel');
+const Friend = require('../models/Friend');
+const friendService = require('../services/friendService');
 const ChatMute = require('../models/ChatMute');
 const { validateDmEnvelope, isE2eeV2, e2eeEnforced } = require('../utils/e2eeEnvelope');
 // const ContinuousTimerState = require('../models/ContinuousTimerState'); // ⚠️ DISABLED: File not on server
@@ -34,9 +36,22 @@ const sendMessage = async (req, res) => {
       isForwarded,     // ✅ For forwarded messages
       forwardedFrom,   // ✅ Original sender userId
       // E2EE Phase 2 - Encrypted payload
-      e2ee             // Encrypted message payload
+      e2ee,             // Encrypted message payload
+      broadcastRequestId,
+      broadcastSenderId
     } = req.body;
     const senderId = req.user.userId;
+
+    if (req.broadcastSend) {
+      if (typeof broadcastRequestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(broadcastRequestId) ||
+          !receiverId || receiverId === senderId || broadcastSenderId !== senderId ||
+          !['text', 'image', 'video'].includes(messageType) || !isE2eeV2(e2ee)) {
+        return res.status(400).json({ success: false, message: 'Invalid encrypted broadcast message' });
+      }
+      if (!(await Message.collection.indexExists('chat_broadcast_idempotency'))) {
+        return res.status(503).json({ success: false, message: 'Broadcast is temporarily unavailable', code: 'BROADCAST_UNAVAILABLE' });
+      }
+    }
     
     console.log('[CHAT] Send message:', {
       messageLength: message?.length,
@@ -113,6 +128,14 @@ const sendMessage = async (req, res) => {
       });
     }
 
+    if (req.broadcastSend) {
+      const existing = await Message.findOne({ senderId, broadcastRequestId });
+      if (existing) return replayBroadcast(res, existing, receiverId, messageType);
+      if (!(await Friend.areFriends(senderId, receiverId))) {
+        return res.status(403).json({ success: false, message: 'Recipient is unavailable' });
+      }
+    }
+
     // Check if users have blocked each other
     const blockStatus = await Block.isMutuallyBlocked(senderId, receiverId);
     if (blockStatus.anyBlocked) {
@@ -129,7 +152,10 @@ const sendMessage = async (req, res) => {
     }
     
     // ⚡ PERFORMANCE OPTIMIZATION: Direct query with lean() - removed debug query that loaded ALL users
-    const receiver = await User.findOne({ userId: receiverId }).select('_id userId name phoneNumber').lean();
+    const receiver = await User.findOne({
+      userId: receiverId,
+      ...(req.broadcastSend ? { 'accountStatus.state': { $nin: ['suspended', 'banned', 'deleted'] } } : {}),
+    }).select('_id userId name phoneNumber').lean();
     if (!receiver) {
       console.log('❌ Receiver not found in database');
       return res.status(404).json({
@@ -167,6 +193,7 @@ const sendMessage = async (req, res) => {
       // E2EE Phase 2 - Include encrypted payload if present
       e2ee: e2ee || { enabled: false }
     };
+    if (req.broadcastSend) messageData.broadcastRequestId = broadcastRequestId;
     
     // E2EE Phase 2 - Log if message is encrypted
     if (e2ee && e2ee.enabled) {
@@ -208,7 +235,16 @@ const sendMessage = async (req, res) => {
     const newMessage = new Message(messageData);
 
     // Save message to database
-    const savedMessage = await newMessage.save();
+    let savedMessage;
+    try {
+      savedMessage = await newMessage.save();
+    } catch (error) {
+      if (req.broadcastSend && error.code === 11000) {
+        const existing = await Message.findOne({ senderId, broadcastRequestId });
+        if (existing) return replayBroadcast(res, existing, receiverId, messageType);
+      }
+      throw error;
+    }
     console.log('✅ Message saved to database');
 
     // ENHANCED: Multi-device notification broadcast
@@ -324,6 +360,48 @@ const sendMessage = async (req, res) => {
       message: 'Failed to send message',
       error: error.message
     });
+  }
+};
+
+const replayBroadcast = (res, existing, receiverId, messageType) => {
+  if (existing.receiverId !== receiverId || existing.messageType !== messageType) {
+    return res.status(409).json({ success: false, message: 'Broadcast identifier already used' });
+  }
+  return res.status(200).json({ success: true, data: existing, replayed: true });
+};
+
+const sendBroadcastMessage = (req, res) => {
+  req.broadcastSend = true;
+  return sendMessage(req, res);
+};
+
+const broadcastCapability = async (req, res) => {
+  try {
+    const ready = await Message.collection.indexExists('chat_broadcast_idempotency');
+    return res.status(ready ? 200 : 503).json({ success: ready });
+  } catch {
+    return res.status(503).json({ success: false });
+  }
+};
+
+const broadcastRecipients = async (req, res) => {
+  try {
+    const friends = await friendService.getFriends(req.user.userId, {
+      status: 'accepted',
+      includeDeviceContacts: true,
+      includeAppConnections: true,
+      limit: 0,
+    });
+    const users = await User.find({
+      userId: { $in: friends.map((friend) => friend.friendUserId) },
+      'accountStatus.state': { $nin: ['suspended', 'banned', 'deleted'] },
+    }).select('userId').lean();
+    const activeIds = new Set(users.map((user) => user.userId));
+    return res.json({ success: true, data: friends.filter((friend) => activeIds.has(friend.friendUserId) && friend.friendUserId !== req.user.userId)
+      .map(({ friendUserId, name, username, profileImage, status }) =>
+      ({ friendUserId, name, username, profileImage, status })) });
+  } catch {
+    return res.status(503).json({ success: false, message: 'Unable to load friends' });
   }
 };
 
@@ -1951,6 +2029,9 @@ const getChatMutes = async (req, res) => {
 };
 
 module.exports = {
+  sendBroadcastMessage,
+  broadcastCapability,
+  broadcastRecipients,
   sendMessage,
   getConversations,
   getChatHistory,
