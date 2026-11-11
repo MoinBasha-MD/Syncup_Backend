@@ -2,6 +2,8 @@ const PrimaryTimeProfile = require('../models/PrimaryTimeProfile');
 const User = require('../models/userModel');
 const StatusHistory = require('../models/statusHistoryModel');
 const cron = require('node-cron');
+const { activeWindow } = require('../utils/primaryTimeClock');
+const saveStatusIfUnchanged = require('./statusCompareAndSet');
 
 /**
  * Primary Time Scheduler Service
@@ -19,53 +21,13 @@ class PrimaryTimeSchedulerService {
    * Check if a profile should be active at the given time
    */
   shouldProfileBeActive(profile, now = new Date()) {
-    // Convert UTC server time to user's local time using profile's timezoneOffset
-    // timezoneOffset is from JS getTimezoneOffset(): negative means ahead of UTC
-    // e.g., IST (UTC+05:30) → offset = -330
-    // To get local time: UTC - offset (since offset is negative for ahead)
-    const offsetMs = (profile.timezoneOffset || 0) * 60 * 1000;
-    const localNow = new Date(now.getTime() - offsetMs);
+    // Convert UTC to the profile's timezone, falling back to legacy offsets.
+    // Check the date range and both ordinary and overnight windows.
+    return Boolean(activeWindow(profile, now));
+  }
 
-    const currentDay = localNow.getDay(); // 0-6 (Sun-Sat)
-    const currentTime = `${String(localNow.getHours()).padStart(2, '0')}:${String(localNow.getMinutes()).padStart(2, '0')}`;
-
-    console.log(`   🕐 [TIME CHECK] Profile "${profile.name}": serverUTC=${now.toISOString()}, offset=${profile.timezoneOffset || 0}min, localTime=${currentTime}, window=${profile.startTime}-${profile.endTime}, day=${currentDay}, days=${profile.days}`);
-
-    // Check date range if applicable
-    if (profile.recurrence.type === 'date_range') {
-      if (profile.recurrence.startDate && localNow < new Date(profile.recurrence.startDate)) {
-        return false;
-      }
-      if (profile.recurrence.endDate && localNow > new Date(profile.recurrence.endDate)) {
-        return false;
-      }
-    }
-
-    // Check time range. Two shapes:
-    //  - Normal window (start < end): today must be an active day and
-    //    startTime <= now < endTime.
-    //  - Overnight window (end <= start, e.g. 22:00 → 06:00): the evening
-    //    half requires TODAY in days (window started today); the
-    //    post-midnight half requires YESTERDAY in days (window started
-    //    yesterday and crosses midnight).
-    let isInWindow = false;
-    if (profile.endTime > profile.startTime) {
-      if (!profile.days.includes(currentDay)) {
-        console.log(`   ❌ [TIME CHECK] Day ${currentDay} not in profile days [${profile.days}]`);
-        return false;
-      }
-      isInWindow = currentTime >= profile.startTime && currentTime < profile.endTime;
-      console.log(`   ${isInWindow ? '✅' : '❌'} [TIME CHECK] ${currentTime} >= ${profile.startTime} && ${currentTime} < ${profile.endTime} → ${isInWindow}`);
-    } else {
-      if (currentTime >= profile.startTime) {
-        isInWindow = profile.days.includes(currentDay);
-      } else if (currentTime < profile.endTime) {
-        const yesterday = (currentDay + 6) % 7;
-        isInWindow = profile.days.includes(yesterday);
-      }
-      console.log(`   ${isInWindow ? '✅' : '❌'} [TIME CHECK] Overnight window ${profile.startTime}→${profile.endTime}, now=${currentTime}, day=${currentDay}, days=[${profile.days}] → ${isInWindow}`);
-    }
-    return isInWindow;
+  getProfileEndTime(profile, now = new Date()) {
+    return activeWindow(profile, now)?.endAt || null;
   }
 
   /**
@@ -123,8 +85,11 @@ class PrimaryTimeSchedulerService {
         if (user && user.primaryTimeProfileId &&
             user.primaryTimeProfileId.toString() === targetProfile._id.toString()) {
           const expired = user.statusUntil && new Date(user.statusUntil) <= now;
+          const expectedEnd = this.getProfileEndTime(targetProfile, now);
           const drifted = user.status !== targetProfile.status ||
                           user.customStatus !== targetProfile.status ||
+                          (expectedEnd && (!user.statusUntil ||
+                           Math.abs(new Date(user.statusUntil).getTime() - expectedEnd.getTime()) > 1000)) ||
                           (targetProfile.location && targetProfile.location.placeName &&
                            (!user.statusLocation || user.statusLocation.placeName !== targetProfile.location.placeName));
           if (!expired && drifted) {
@@ -171,21 +136,10 @@ class PrimaryTimeSchedulerService {
     try {
       const now = new Date();
 
-      // Calculate duration until end time using profile's timezone offset
-      // Profile stores local times (e.g., "17:00" IST). Server runs in UTC.
-      const [endHours, endMinutes] = profile.endTime.split(':').map(Number);
-      const offsetMs = (profile.timezoneOffset || 0) * 60 * 1000;
-      const localNow = new Date(now.getTime() - offsetMs);
-      const localEnd = new Date(localNow);
-      localEnd.setHours(endHours, endMinutes, 0, 0);
-
-      // If local end time is before local now, it's tomorrow
-      if (localEnd <= localNow) {
-        localEnd.setDate(localEnd.getDate() + 1);
-      }
-
-      // Convert local end back to UTC for storage
-      const endTime = new Date(localEnd.getTime() + offsetMs);
+      // Calculate the active window's end in UTC using the profile's timezone.
+      // Overnight windows and offset transitions are handled by the shared clock.
+      const endTime = this.getProfileEndTime(profile, now);
+      if (!endTime) return;
       const durationMinutes = Math.round((endTime.getTime() - now.getTime()) / (1000 * 60));
 
       console.log(`   ⏰ Duration: ${durationMinutes} minutes (until ${profile.endTime})`);
@@ -195,7 +149,7 @@ class PrimaryTimeSchedulerService {
       await profile.save();
 
       // Update user status
-      const user = await User.findById(userId);
+      let user = await User.findById(userId);
       if (!user) {
         console.error(`   ❌ User ${userId} not found`);
         return;
@@ -238,9 +192,12 @@ class PrimaryTimeSchedulerService {
           shareWithContacts: true,
           timestamp: now,
         };
+      } else {
+        user.statusLocation = { placeName: '', coordinates: {}, address: '', shareWithContacts: false, timestamp: now };
       }
 
-      await user.save();
+      user = await saveStatusIfUnchanged(user, {}, now);
+      if (!user) return;
 
       console.log(`   ✅ Status updated: "${oldStatus}" → "${profile.status}"`);
 
@@ -320,9 +277,13 @@ class PrimaryTimeSchedulerService {
       await profile.save();
 
       // Update user status back to Available
-      const user = await User.findById(userId);
+      let user = await User.findById(userId);
       if (!user) {
         console.error(`   ❌ User ${userId} not found`);
+        return;
+      }
+
+      if (!user.primaryTimeProfileId || user.primaryTimeProfileId.toString() !== profile._id.toString()) {
         return;
       }
 
@@ -363,7 +324,8 @@ class PrimaryTimeSchedulerService {
         };
       }
 
-      await user.save();
+      user = await saveStatusIfUnchanged(user, { primaryTimeProfileId: profile._id }, now);
+      if (!user) return;
 
       console.log(`   ✅ Status cleared to "Available"`);
 
@@ -472,16 +434,16 @@ class PrimaryTimeSchedulerService {
   async sendNotification(userId, notification) {
     try {
       const fcmService = require('./fcmNotificationService');
-      
+
       // Check if FCM is enabled
       if (!fcmService.isEnabled()) {
         console.log(`   ⚠️ FCM is disabled - skipping notification`);
         return;
       }
-      
+
       // Send visible notification
       const result = await fcmService.sendVisibleNotification(userId, notification);
-      
+
       if (result.success) {
         console.log(`   🔔 Notification sent successfully (${result.successCount} device(s))`);
       } else {
@@ -605,7 +567,6 @@ class PrimaryTimeSchedulerService {
     // Run migration + initial check on startup
     console.log('🚀 [PRIMARY TIME SCHEDULER] Running initial check...');
     this.initialCheckTimeout = setTimeout(async () => {
-      await this.migrateLegacyTimezones();
       await this.checkAllUsers();
     }, 10000); // Wait 10 seconds after server start
   }
@@ -618,13 +579,13 @@ class PrimaryTimeSchedulerService {
       this.cronJob.stop();
       this.cronJob = null;
     }
-    
+
     // Clear the initial check timeout to prevent memory leak
     if (this.initialCheckTimeout) {
       clearTimeout(this.initialCheckTimeout);
       this.initialCheckTimeout = null;
     }
-    
+
     this.isRunning = false;
     console.log('🛑 [PRIMARY TIME SCHEDULER] Cron job stopped');
   }

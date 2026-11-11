@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { activeWindow, isValidTimezone } = require('../utils/primaryTimeClock');
 
 const primaryTimeProfileSchema = new mongoose.Schema({
   userId: {
@@ -58,6 +59,11 @@ const primaryTimeProfileSchema = new mongoose.Schema({
   timezoneOffset: {
     type: Number,
     default: 0, // Minutes offset from UTC (e.g., -330 for IST/UTC+05:30)
+  },
+  timezone: {
+    type: String,
+    default: null,
+    validate: { validator: value => value == null || isValidTimezone(value), message: 'Invalid timezone' },
   },
   isEnabled: {
     type: Boolean,
@@ -120,39 +126,10 @@ primaryTimeProfileSchema.index({ userId: 1, days: 1 });
 
 // Method to check if profile should be active at a given time
 primaryTimeProfileSchema.methods.shouldBeActive = function(date = new Date()) {
-  // Convert UTC to user's local time using stored timezoneOffset
-  const offsetMs = (this.timezoneOffset || 0) * 60 * 1000;
-  const localDate = new Date(date.getTime() - offsetMs);
-
-  const currentDay = localDate.getDay();
-  const currentTime = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
-
-  // Check date range if applicable
-  if (this.recurrence.type === 'date_range') {
-    if (this.recurrence.startDate && localDate < this.recurrence.startDate) {
-      return false;
-    }
-    if (this.recurrence.endDate && localDate > this.recurrence.endDate) {
-      return false;
-    }
-  }
-
-  // Check time range (overnight windows like 22:00 → 06:00 supported:
-  // the evening half needs TODAY in days, the post-midnight half needs
-  // YESTERDAY in days since the window started yesterday)
-  if (this.endTime > this.startTime) {
-    if (!this.days.includes(currentDay)) {
-      return false;
-    }
-    return currentTime >= this.startTime && currentTime < this.endTime;
-  }
-  if (currentTime >= this.startTime) {
-    return this.days.includes(currentDay);
-  }
-  if (currentTime < this.endTime) {
-    return this.days.includes((currentDay + 6) % 7);
-  }
-  return false;
+  // Convert UTC to the profile's local time, accounting for timezone transitions.
+  // Check date range if applicable.
+  // Overnight windows are associated with the day on which they start.
+  return Boolean(activeWindow(this, date));
 };
 
 const PrimaryTimeProfile = mongoose.model('PrimaryTimeProfile', primaryTimeProfileSchema);

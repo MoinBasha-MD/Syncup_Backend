@@ -129,8 +129,8 @@ publicStatusCacheSchema.statics.removePublicStatus = async function(phoneNumber)
 publicStatusCacheSchema.statics.getPublicStatus = async function(phoneNumber) {
   try {
     const normalizedPhone = phoneNumber.replace(/[\s\-\(\)\+]/g, '');
-    
-    const cached = await this.findOne({ 
+
+    const cached = await this.findOne({
       phoneNumber: normalizedPhone,
       isActive: true,
     });
@@ -156,10 +156,10 @@ publicStatusCacheSchema.statics.getPublicStatus = async function(phoneNumber) {
       status: cached.status,
       customStatus: cached.customStatus,
       mainStatus: cached.mainStatus,
-      subStatus: cached.subStatus,
+      subStatus: cached.subEndTime && new Date(cached.subEndTime) <= now ? null : cached.subStatus,
       statusUntil: cached.statusUntil,
       mainEndTime: cached.mainEndTime,
-      subEndTime: cached.subEndTime,
+      subEndTime: cached.subEndTime && new Date(cached.subEndTime) <= now ? null : cached.subEndTime,
       lastUpdated: cached.lastUpdated,
       isExpired: false,
     };
@@ -176,11 +176,11 @@ publicStatusCacheSchema.statics.cleanupExpired = async function() {
     const result = await this.deleteMany({
       statusUntil: { $lte: now },
     });
-    
+
     if (result.deletedCount > 0) {
       console.log(`🧹 [PUBLIC STATUS CACHE] Cleaned up ${result.deletedCount} expired entries`);
     }
-    
+
     return result.deletedCount;
   } catch (error) {
     console.error('❌ [PUBLIC STATUS CACHE] Error cleaning up:', error);

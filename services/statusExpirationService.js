@@ -23,32 +23,39 @@ class StatusExpirationService {
 
       // CRITICAL FIX: Check for expired MAIN statuses
       const usersWithExpiredMainStatus = await User.find({
-        mainStatus: { $ne: null, $ne: 'Available' },
-        mainEndTime: { $lte: now }
+        $or: [
+          { mainStatus: { $nin: [null, 'Available'] }, mainEndTime: { $lte: now } },
+          { mainEndTime: null, status: { $nin: [null, 'Available', 'available'] }, statusUntil: { $lte: now } }
+        ]
       });
 
       console.log(`📊 [STATUS EXPIRATION] Found ${usersWithExpiredMainStatus.length} users with expired main statuses`);
 
       let mainStatusCleared = 0;
 
-      for (const user of usersWithExpiredMainStatus) {
+      for (let user of usersWithExpiredMainStatus) {
         const oldMainStatus = user.mainStatus;
-        
+
         console.log(`🔍 [STATUS EXPIRATION] User ${user.name} (${user.phoneNumber}):`);
         console.log(`   - Old main status: "${oldMainStatus}"`);
         console.log(`   - Main end time: ${user.mainEndTime}`);
         console.log(`   - Current time: ${now}`);
-        
-        // Clear main status fields
-        user.status = 'Available';
-        user.customStatus = '';
-        user.mainStatus = 'Available';
-        user.mainDuration = 0;
-        user.mainDurationLabel = '';
-        user.mainStartTime = null;
-        user.mainEndTime = null;
 
-        await user.save();
+        // Clear main status fields
+        user = await User.findOneAndUpdate(
+          { _id: user._id, mainEndTime: user.mainEndTime || null, statusUntil: user.statusUntil || null, statusChangedAt: user.statusChangedAt || null },
+          { $set: {
+            status: 'Available', customStatus: '', statusUntil: null,
+            mainStatus: 'Available', mainDuration: 0, mainDurationLabel: '',
+            mainStartTime: null, mainEndTime: null,
+            subStatus: null, subDuration: 0, subDurationLabel: '',
+            subStartTime: null, subEndTime: null,
+            statusLocation: { placeName: '', coordinates: {}, address: '', shareWithContacts: false, timestamp: now },
+            statusChangedAt: now,
+          } },
+          { new: true }
+        );
+        if (!user) continue;
 
         console.log(`✅ [STATUS EXPIRATION] Cleared main status for ${user.name}: "${oldMainStatus}" → "Available"`);
 
@@ -59,12 +66,14 @@ class StatusExpirationService {
           name: user.name,
           status: 'Available', // Cleared!
           customStatus: '',
+          statusUntil: null,
+          statusLocation: user.statusLocation,
           mainStatus: 'Available', // Cleared!
           mainDuration: 0,
           mainDurationLabel: '',
           mainStartTime: null,
           mainEndTime: null,
-          subStatus: user.subStatus, // Keep sub-status if exists
+          subStatus: user.subStatus, // Main expiry also clears any sub-status
           subDuration: user.subDuration,
           subDurationLabel: user.subDurationLabel,
           subStartTime: user.subStartTime,
@@ -90,22 +99,24 @@ class StatusExpirationService {
 
       let subStatusCleared = 0;
 
-      for (const user of usersWithExpiredSubStatus) {
+      for (let user of usersWithExpiredSubStatus) {
         const oldSubStatus = user.subStatus;
-        
+
         console.log(`🔍 [STATUS EXPIRATION] User ${user.name} (${user.phoneNumber}):`);
         console.log(`   - Old sub-status: "${oldSubStatus}"`);
         console.log(`   - Sub end time: ${user.subEndTime}`);
         console.log(`   - Current time: ${now}`);
-        
-        // Clear sub-status fields
-        user.subStatus = null;
-        user.subDuration = 0;
-        user.subDurationLabel = '';
-        user.subStartTime = null;
-        user.subEndTime = null;
 
-        await user.save();
+        // Clear sub-status fields
+        user = await User.findOneAndUpdate(
+          { _id: user._id, subEndTime: user.subEndTime, statusChangedAt: user.statusChangedAt || null },
+          { $set: {
+            subStatus: null, subDuration: 0, subDurationLabel: '',
+            subStartTime: null, subEndTime: null, statusChangedAt: now,
+          } },
+          { new: true }
+        );
+        if (!user) continue;
 
         console.log(`✅ [STATUS EXPIRATION] Cleared sub-status for ${user.name}: "${oldSubStatus}"`);
 
@@ -116,6 +127,7 @@ class StatusExpirationService {
           name: user.name,
           status: user.status,
           customStatus: user.customStatus,
+          statusUntil: user.statusUntil,
           mainStatus: user.mainStatus,
           mainDuration: user.mainDuration,
           mainDurationLabel: user.mainDurationLabel,

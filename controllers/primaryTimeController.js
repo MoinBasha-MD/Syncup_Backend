@@ -3,6 +3,8 @@ const User = require('../models/userModel');
 const primaryTimeScheduler = require('../services/primaryTimeScheduler');
 const fcmService = require('../services/fcmNotificationService');
 const socketManager = require('../socketManager');
+const { isValidTimezone, localDate } = require('../utils/primaryTimeClock');
+const saveStatusIfUnchanged = require('../services/statusCompareAndSet');
 
 /**
  * Push a lightweight "resync your alarms/profile cache" signal to the owner's
@@ -29,7 +31,7 @@ async function pushProfileSyncSignal(userId) {
 // Create a new Primary Time profile
 exports.createProfile = async (req, res) => {
   try {
-    const { name, status, days, startTime, endTime, location, timezoneOffset, notifications, recurrence, priority } = req.body;
+    const { name, status, days, startTime, endTime, location, timezoneOffset, timezone, notifications, recurrence, priority } = req.body;
     const userId = req.user._id;
 
     // Validate required fields
@@ -38,6 +40,9 @@ exports.createProfile = async (req, res) => {
         success: false,
         message: 'Missing required fields: name, status, days, startTime, endTime',
       });
+    }
+    if (timezone != null && !isValidTimezone(timezone)) {
+      return res.status(400).json({ success: false, message: 'Invalid timezone' });
     }
 
     // Create profile
@@ -50,6 +55,7 @@ exports.createProfile = async (req, res) => {
       endTime,
       location,
       timezoneOffset: timezoneOffset != null ? timezoneOffset : new Date().getTimezoneOffset(),
+      timezone: timezone || null,
       notifications: notifications || {
         beforeStart: true,
         onStart: true,
@@ -90,15 +96,24 @@ exports.getProfiles = async (req, res) => {
     // client's — covers legacy offset=0 rows, DST shifts, and timezone travel.
     // The frontend sends its real offset via query param so we can backfill.
     const clientOffset = req.query.timezoneOffset != null ? Number(req.query.timezoneOffset) : null;
-    if (clientOffset != null && clientOffset !== 0) {
-      const needsPatch = profiles.filter(p => p.timezoneOffset !== clientOffset);
+    const clientTimezone = isValidTimezone(req.query.timezone) ? req.query.timezone : null;
+    const validOffset = Number.isFinite(clientOffset) && Math.abs(clientOffset) <= 840 ? clientOffset : null;
+    if (validOffset != null || clientTimezone) {
+      const changes = {
+        ...(validOffset != null ? { timezoneOffset: validOffset } : {}),
+        ...(clientTimezone ? { timezone: clientTimezone } : {}),
+      };
+      const needsPatch = profiles.filter(p =>
+        (validOffset != null && p.timezoneOffset !== validOffset) ||
+        (clientTimezone && p.timezone !== clientTimezone)
+      );
       if (needsPatch.length > 0) {
         await PrimaryTimeProfile.updateMany(
           { _id: { $in: needsPatch.map(p => p._id) } },
-          { $set: { timezoneOffset: clientOffset } }
+          { $set: changes }
         );
-        needsPatch.forEach(p => { p.timezoneOffset = clientOffset; });
-        console.log(`🔧 [PRIMARY TIME] Auto-patched timezoneOffset=${clientOffset} on ${needsPatch.length} legacy profile(s)`);
+        needsPatch.forEach(p => Object.assign(p, changes));
+        console.log(`🔧 [PRIMARY TIME] Updated timezone on ${needsPatch.length} profile(s)`);
       }
     }
 
@@ -147,6 +162,9 @@ exports.updateProfile = async (req, res) => {
     const { id } = req.params;
     const userId = req.user._id;
     const updates = req.body;
+    if (updates.timezone != null && !isValidTimezone(updates.timezone)) {
+      return res.status(400).json({ success: false, message: 'Invalid timezone' });
+    }
 
     // Don't allow updating userId
     delete updates.userId;
@@ -278,17 +296,12 @@ exports.activateProfile = async (req, res) => {
 
         // Calculate end time in UTC using the profile's timezone offset
         // Profile stores local times (e.g., "17:00" IST). Convert to UTC for statusUntil.
-        const [endH, endM] = profile.endTime.split(':').map(Number);
-        const offsetMs = (profile.timezoneOffset || 0) * 60 * 1000;
-        const localNow = new Date(now.getTime() - offsetMs);
-        const localEnd = new Date(localNow);
-        localEnd.setHours(endH, endM, 0, 0);
-        if (localEnd <= localNow) localEnd.setDate(localEnd.getDate() + 1);
+        const endTime = primaryTimeScheduler.getProfileEndTime(profile, now);
         // Convert local end back to UTC for storage
-        const endTime = new Date(localEnd.getTime() + offsetMs);
+        if (!endTime) throw new Error('Primary Time window is no longer active');
         const durationMinutes = Math.round((endTime.getTime() - now.getTime()) / (1000 * 60));
 
-        const user = await User.findById(userId);
+        let user = await User.findById(userId);
         if (user) {
           user.status = profile.status;
           user.customStatus = profile.status;
@@ -303,6 +316,11 @@ exports.activateProfile = async (req, res) => {
           user.mainDurationLabel = `${durationMinutes} minutes`;
           user.mainStartTime = now;
           user.mainEndTime = endTime;
+          user.subStatus = null;
+          user.subDuration = 0;
+          user.subDurationLabel = '';
+          user.subStartTime = null;
+          user.subEndTime = null;
 
           if (profile.location && profile.location.placeName) {
             user.statusLocation = {
@@ -312,8 +330,14 @@ exports.activateProfile = async (req, res) => {
               shareWithContacts: true,
               timestamp: now,
             };
+          } else {
+            user.statusLocation = { placeName: '', coordinates: {}, address: '', shareWithContacts: false, timestamp: now };
           }
-          await user.save();
+          user = await saveStatusIfUnchanged(user, {}, now);
+          if (!user) {
+            pushProfileSyncSignal(req.user.userId).catch(() => {});
+            return res.json({ success: true, profile, statusApplied: false });
+          }
           statusApplied = true;
 
           // Broadcast via socketManager (contact-filtered, same as Quick tab)
@@ -400,8 +424,9 @@ exports.deactivateProfile = async (req, res) => {
     if (wasActive) {
       try {
         const now = new Date();
-        const user = await User.findById(userId);
-        if (user) {
+        let user = await User.findById(userId);
+        if (user && user.primaryTimeProfileId &&
+            user.primaryTimeProfileId.toString() === profile._id.toString()) {
           user.status = 'Available';
           user.customStatus = '';
           user.statusUpdatedAt = now;
@@ -421,7 +446,11 @@ exports.deactivateProfile = async (req, res) => {
           user.subStartTime = null;
           user.subEndTime = null;
 
-          await user.save();
+          user = await saveStatusIfUnchanged(user, { primaryTimeProfileId: profile._id }, now);
+          if (!user) {
+            pushProfileSyncSignal(req.user.userId).catch(() => {});
+            return res.json({ success: true, message: 'Schedule disabled', profile });
+          }
 
           // Broadcast via socketManager (contact-filtered, same as Quick tab)
           try {
@@ -494,9 +523,8 @@ exports.getActiveProfile = async (req, res) => {
       // Find the next upcoming profile based on user's local time
       const now = new Date();
       // Use the first profile's timezoneOffset as reference (all profiles for same user share timezone)
-      const offsetMs = (enabledProfiles[0].timezoneOffset || 0) * 60 * 1000;
-      const localNow = new Date(now.getTime() - offsetMs);
-      const currentTime = `${String(localNow.getHours()).padStart(2, '0')}:${String(localNow.getMinutes()).padStart(2, '0')}`;
+      const localNow = localDate(enabledProfiles[0], now);
+      const currentTime = `${String(localNow.getUTCHours()).padStart(2, '0')}:${String(localNow.getUTCMinutes()).padStart(2, '0')}`;
       const nextProfile = enabledProfiles.find(p => p.startTime > currentTime) || enabledProfiles[0];
       return res.json(nextProfile);
     }

@@ -1,5 +1,6 @@
 const User = require('../models/userModel');
 const StatusHistory = require('../models/statusHistoryModel');
+const readableStatus = require('../utils/readableStatus');
 const StatusPrivacy = require('../models/statusPrivacyModel');
 const PublicStatusCache = require('../models/PublicStatusCache');
 const socketManager = require('../socketManager');
@@ -15,77 +16,85 @@ const updateUserStatus = async (req, res) => {
     const user = await User.findById(req.user._id);
 
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
     }
 
-    const { 
+    const {
       status, customStatus, duration, location,
       // NEW: Hierarchical status fields
-      mainStatus, mainDuration, mainDurationLabel,
-      subStatus, subDuration, subDurationLabel
+      mainStatus, mainDuration, mainDurationLabel, mainEndTime,
+      subStatus, subDuration, subDurationLabel, subEndTime
     } = req.body;
-    
+
     console.log('📥 [BACKEND] Received status update request');
     console.log('📥 [BACKEND] Location data:', JSON.stringify(location));
     console.log('📥 [BACKEND] shareWithContacts:', location?.shareWithContacts);
-    
+
     // Check if status is provided
-    if (!status) {
+    if (typeof status !== 'string' || !status.trim()) {
       return res.status(400).json({
         success: false,
         message: 'Status is required',
         details: 'Please provide a valid status value'
       });
     }
-    
+    if ([duration, mainDuration, subDuration].some(value =>
+      value != null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+    )) {
+      return res.status(400).json({ success: false, message: 'Invalid status duration' });
+    }
+
     // Log the status being used
     console.log(`[STATUS UPDATE] Received status update request with status: '${status}', customStatus: '${customStatus || ""}', duration: ${duration || "null"}, location: ${location ? JSON.stringify(location) : "null"}`);
-    
+
     // No status mapping or normalization - use the status value as provided
-    
+
     // Store previous status for history tracking
     const previousStatus = user.status;
     const previousCustomStatus = user.customStatus || '';
     const statusChangeTime = new Date();
-    
+    const mainDeadline = mainEndTime == null ? null : new Date(mainEndTime);
+    const subDeadline = subEndTime == null ? null : new Date(subEndTime);
+    if ([mainDeadline, subDeadline].some(date => date && (!Number.isFinite(date.getTime()) || date <= statusChangeTime)) ||
+        (mainDeadline && subDeadline && subDeadline > mainDeadline)) {
+      return res.status(400).json({ success: false, message: 'Invalid status end time' });
+    }
+
     // ✅ NEW: Save current status as previous status when changing to a new status
     // Only save if current status is not "Available" or empty
-    if (user.status && user.status.toLowerCase() !== 'available' && user.status !== '') {
+    if (user.status && user.status.toLowerCase() !== 'available' &&
+        (user.status !== (mainStatus || status) || previousCustomStatus !== (mainStatus || customStatus || ''))) {
       user.previousStatus = user.customStatus || user.status;
-      user.previousStatusEndTime = user.statusUntil || new Date();
+      user.previousStatusEndTime = statusChangeTime;
       console.log(`💾 [PREVIOUS STATUS] Saved: "${user.previousStatus}" ended at ${user.previousStatusEndTime}`);
     }
-    
+
     // ✅ NEW: Clear previous status when setting a new non-Available status
     if (status && status.toLowerCase() !== 'available') {
       // Previous status will be saved above, now we're starting a new status
       console.log(`🔄 [STATUS CHANGE] Changing from "${user.status}" to "${status}"`);
     }
-    
+
     // NEW: Update hierarchical status if provided
     if (mainStatus) {
       user.mainStatus = mainStatus;
       user.mainDuration = mainDuration || 0;
       user.mainDurationLabel = mainDurationLabel || '';
       user.mainStartTime = new Date();
-      
-      if (mainDuration) {
-        user.mainEndTime = new Date(Date.now() + mainDuration * 60000);
-      }
-      
+
+      user.mainEndTime = mainDuration > 0 ? (mainDeadline || new Date(statusChangeTime.getTime() + mainDuration * 60000)) : null;
+
       // Update sub-status if provided
       if (subStatus) {
         user.subStatus = subStatus;
         user.subDuration = subDuration || 0;
         user.subDurationLabel = subDurationLabel || '';
         user.subStartTime = new Date();
-        
-        if (subDuration) {
-          user.subEndTime = new Date(Date.now() + subDuration * 60000);
-        }
+
+        user.subEndTime = subDuration > 0 ? (subDeadline || new Date(statusChangeTime.getTime() + subDuration * 60000)) : null;
       } else {
         // Clear sub-status
         user.subStatus = null;
@@ -94,7 +103,7 @@ const updateUserStatus = async (req, res) => {
         user.subStartTime = null;
         user.subEndTime = null;
       }
-      
+
       // BACKWARD COMPATIBILITY: Map to old fields
       user.status = mainStatus;
       user.customStatus = mainStatus;
@@ -104,52 +113,53 @@ const updateUserStatus = async (req, res) => {
     } else {
       // OLD FORMAT: Update status fields with the original status
       user.status = status;
-      
+
       // Update custom status if provided
       if (customStatus) {
         user.customStatus = customStatus;
       } else {
         user.customStatus = '';
       }
-      
+
       // Map old to new for consistency
       user.mainStatus = customStatus || status;
-      if (duration) {
-        user.mainDuration = duration;
-        user.mainStartTime = new Date();
-        user.mainEndTime = new Date(Date.now() + duration * 60000);
-      }
+      user.mainDuration = duration > 0 ? duration : 0;
+      user.mainDurationLabel = '';
+      user.mainStartTime = duration > 0 ? statusChangeTime : null;
+      user.mainEndTime = duration > 0 ? new Date(statusChangeTime.getTime() + duration * 60000) : null;
+      user.subStatus = null;
+      user.subDuration = 0;
+      user.subDurationLabel = '';
+      user.subStartTime = null;
+      user.subEndTime = null;
     }
-    
+
     // Update location data if provided - CHECK if location has actual data
     if (location && location.placeName && location.placeName.trim() !== '') {
       console.log(`[LOCATION UPDATE] Processing location data:`, JSON.stringify(location));
-      
+
       // Initialize statusLocation if it doesn't exist
       if (!user.statusLocation) {
         user.statusLocation = {};
       }
-      
+
       // Update location fields
       user.statusLocation.placeName = location.placeName;
-      
-      if (location.coordinates) {
-        user.statusLocation.coordinates = {
+
+      user.statusLocation.coordinates = location.coordinates
+        ? {
           latitude: location.coordinates.latitude,
           longitude: location.coordinates.longitude
-        };
-      }
-      
-      if (location.address) {
-        user.statusLocation.address = location.address;
-      }
-      
+        } : {};
+
+      user.statusLocation.address = location.address || '';
+
       // Always set to TRUE - no restrictions
       user.statusLocation.shareWithContacts = true;
-      
+
       // Update timestamp
       user.statusLocation.timestamp = new Date();
-      
+
       console.log(`[LOCATION SAVED] Location data saved to user:`, JSON.stringify(user.statusLocation));
     } else {
       // Clear location data if no valid location provided
@@ -164,7 +174,7 @@ const updateUserStatus = async (req, res) => {
         };
       }
     }
-    
+
     // A manual status update detaches any Primary Time attribution — the user
     // overrode the schedule, so the primary-time cron must not re-apply the
     // profile's status on top of this manual choice.
@@ -173,38 +183,42 @@ const updateUserStatus = async (req, res) => {
 
     // Set status expiration if duration provided (in minutes)
     let expirationTime = null;
-    if (duration && duration > 0) {
-      expirationTime = new Date();
-      expirationTime.setMinutes(expirationTime.getMinutes() + duration);
+    const effectiveDuration = mainStatus ? mainDuration : duration;
+    if (effectiveDuration && effectiveDuration > 0) {
+      expirationTime = mainStatus ? user.mainEndTime : new Date(statusChangeTime.getTime() + effectiveDuration * 60000);
       user.statusUntil = expirationTime;
     } else {
       user.statusUntil = null; // No expiration
     }
-    
+
     // Log the status data before saving to the database
     console.log(`[STATUS DB SAVE] Saving to database - User: ${user.userId}, Status: '${user.status}', CustomStatus: '${user.customStatus || ""}', StatusUntil: ${user.statusUntil ? user.statusUntil.toISOString() : "null"}`);
-    
+
     const updatedUser = await user.save();
-    
+
     // Log the status data after saving to the database
     console.log(`[STATUS DB SAVED] Successfully saved to database - User: ${updatedUser.userId}, Status: '${updatedUser.status}', CustomStatus: '${updatedUser.customStatus || ""}', StatusUntil: ${updatedUser.statusUntil ? updatedUser.statusUntil.toISOString() : "null"}`);
-    
+
     // Create status history entry if status has changed
-    if (previousStatus !== status || 
+    if (previousStatus !== status ||
         previousCustomStatus !== user.customStatus) {
-      
+
       // Create a new status history entry
-      await StatusHistory.create({
-        user: user._id,
-        userId: user.userId,
-        status: status,
-        customStatus: user.customStatus || '',
-        startTime: statusChangeTime,
-        endTime: expirationTime || new Date(statusChangeTime.getTime() + 24 * 60 * 60 * 1000), // Default to 24 hours if no expiration
-        duration: duration || 1440, // Default to 24 hours (1440 minutes) if no duration specified
-      });
+      try {
+        await StatusHistory.create({
+          user: user._id,
+          userId: user.userId,
+          status: status,
+          customStatus: user.customStatus || '',
+          startTime: statusChangeTime,
+          endTime: expirationTime || new Date(statusChangeTime.getTime() + 24 * 60 * 60 * 1000), // Default to 24 hours if no expiration
+          duration: effectiveDuration || 1440, // Default to 24 hours (1440 minutes) if no duration specified
+        });
+      } catch (historyErr) {
+        console.error('Status history save failed:', historyErr.message);
+      }
     }
-    
+
     // Broadcast status update to all users who have this user in their contacts
     const statusData = {
       // OLD FORMAT (backward compatibility)
@@ -213,23 +227,23 @@ const updateUserStatus = async (req, res) => {
       statusUntil: updatedUser.statusUntil,
       statusChangedAt: updatedUser.statusChangedAt,
       statusLocation: updatedUser.statusLocation,
-      
+
       // NEW: Hierarchical status
       mainStatus: updatedUser.mainStatus,
       mainDuration: updatedUser.mainDuration,
       mainDurationLabel: updatedUser.mainDurationLabel,
       mainStartTime: updatedUser.mainStartTime,
       mainEndTime: updatedUser.mainEndTime,
-      
+
       subStatus: updatedUser.subStatus,
       subDuration: updatedUser.subDuration,
       subDurationLabel: updatedUser.subDurationLabel,
       subStartTime: updatedUser.subStartTime,
       subEndTime: updatedUser.subEndTime
     };
-    
+
     console.log('📡 [SOCKET BROADCAST] Broadcasting hierarchical status:', JSON.stringify(statusData));
-    
+
     // ✅ FIX Bug #2: Fetch privacy settings and pass them as validatedPrivacySettings
     // so broadcastStatusUpdate uses the fast validated path instead of the slow
     // per-user canUserSeeStatus path that silently fails on errors.
@@ -245,13 +259,13 @@ const updateUserStatus = async (req, res) => {
         console.log(`🔒 [SOCKET BROADCAST] Using validated privacy: ${validatedPrivacySettings.visibility}`);
       }
     } catch (privacyErr) {
-      console.warn('⚠️ [SOCKET BROADCAST] Could not load privacy settings, defaulting to public:', privacyErr.message);
-      validatedPrivacySettings = { visibility: 'public', allowedGroups: [], allowedContacts: [] };
+      console.warn('⚠️ [SOCKET BROADCAST] Could not load privacy settings, withholding update:', privacyErr.message);
+      validatedPrivacySettings = { visibility: 'private', allowedGroups: [], allowedContacts: [] };
     }
-    
+
     // Use the enhanced socketManager to broadcast the status update
     socketManager.broadcastStatusUpdate(updatedUser, statusData, validatedPrivacySettings);
-    
+
     // ✅ AUTO-SYNC: Update PublicStatusCache if user has enabled public dialer lookup
     try {
       const privacyDoc = await StatusPrivacy.findOne({ userId: updatedUser._id, isDefault: true });
@@ -271,7 +285,7 @@ const updateUserStatus = async (req, res) => {
     } catch (cacheErr) {
       console.error('⚠️ [PUBLIC STATUS CACHE] Auto-sync failed (non-critical):', cacheErr.message);
     }
-    
+
     res.json({
       success: true,
       data: {
@@ -297,21 +311,21 @@ const updateUserStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('Status update error:', error);
-    
+
     // Check if it's a rate limit error
     if (error.message && error.message.includes('Rate limit')) {
-      return res.status(429).json({ 
+      return res.status(429).json({
         success: false,
-        message: 'Too many status updates. Please wait a moment and try again.', 
+        message: 'Too many status updates. Please wait a moment and try again.',
         error: error.message,
         retryAfter: 60 // Suggest retry after 60 seconds
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
-      message: 'Server error during status update', 
-      error: error.message 
+      message: 'Server error during status update',
+      error: error.message
     });
   }
 };
@@ -326,48 +340,45 @@ const getUserStatus = async (req, res) => {
     const user = await User.findById(req.user._id);
 
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
     }
 
     // Check if status timer has expired
-    if (user.statusUntil && new Date() > new Date(user.statusUntil)) {
-      user.status = 'available';
-      user.customStatus = '';
-      user.statusUntil = null;
-      await user.save();
-    }
+    const currentStatus = readableStatus(user);
 
     res.json({
       success: true,
       data: {
         userId: user.userId,
-        status: user.status,
-        customStatus: user.customStatus,
-        statusUntil: user.statusUntil,
+        status: currentStatus.status,
+        customStatus: currentStatus.customStatus,
+        statusUntil: currentStatus.statusUntil,
+        statusChangedAt: user.statusChangedAt,
+        statusLocation: currentStatus.statusLocation,
         // Hierarchical status fields for sub-activity persistence
-        mainStatus: user.mainStatus,
-        mainDuration: user.mainDuration,
-        mainDurationLabel: user.mainDurationLabel,
-        mainStartTime: user.mainStartTime,
-        mainEndTime: user.mainEndTime,
-        subStatus: user.subStatus,
-        subDuration: user.subDuration,
-        subDurationLabel: user.subDurationLabel,
-        subStartTime: user.subStartTime,
-        subEndTime: user.subEndTime,
+        mainStatus: currentStatus.mainStatus,
+        mainDuration: currentStatus.mainDuration,
+        mainDurationLabel: currentStatus.mainDurationLabel,
+        mainStartTime: currentStatus.mainStartTime,
+        mainEndTime: currentStatus.mainEndTime,
+        subStatus: currentStatus.subStatus,
+        subDuration: currentStatus.subDuration,
+        subDurationLabel: currentStatus.subDurationLabel,
+        subStartTime: currentStatus.subStartTime,
+        subEndTime: currentStatus.subEndTime,
         // Primary Time tracking
-        primaryTimeProfileId: user.primaryTimeProfileId || null,
+        primaryTimeProfileId: currentStatus.primaryTimeProfileId,
       }
     });
   } catch (error) {
     console.error('Get status error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Server error while getting status', 
-      error: error.message 
+      message: 'Server error while getting status',
+      error: error.message
     });
   }
 };
@@ -382,22 +393,22 @@ const getSpecificUserStatus = async (req, res) => {
     const { userId } = req.params;
     const viewerUserId = req.user._id;
     console.log(`🔍 Getting status for user: ${userId}, viewer: ${viewerUserId}`);
-    
+
     const user = await User.findOne({ userId: userId });
     if (!user) {
       console.log(`❌ User not found: ${userId}`);
-      return res.status(404).json({ 
-        success: false, 
-        message: 'User not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
       });
     }
 
     console.log(`✅ Found user: ${user.name} (${user.phoneNumber})`);
-    
+
     // Check privacy permissions - can the viewer see this user's status?
     const canSeeStatus = await StatusPrivacy.canUserSeeStatus(userId, viewerUserId);
     console.log(`🔒 Privacy check - Can viewer see status: ${canSeeStatus}`);
-    
+
     if (!canSeeStatus) {
       console.log(`🚫 Privacy denied - viewer ${viewerUserId} cannot see status of user ${userId}`);
       return res.status(403).json({
@@ -418,7 +429,7 @@ const getSpecificUserStatus = async (req, res) => {
     }
 
     console.log(`📊 User status: ${user.status}, Custom: ${user.customStatus}`);
-    
+
     // Get the latest status history entry for this user
     const latestStatusHistory = await StatusHistory.findOne({ userId })
       .sort({ createdAt: -1 })
@@ -426,12 +437,13 @@ const getSpecificUserStatus = async (req, res) => {
 
     console.log(`📈 Latest status history:`, latestStatusHistory);
 
+    const currentStatus = readableStatus(user);
     const statusData = {
       userId: user._id,
       name: user.name,
       phoneNumber: user.phoneNumber,
-      status: user.status,
-      customStatus: user.customStatus || '',
+      status: currentStatus.status,
+      customStatus: currentStatus.customStatus || '',
       lastSeen: user.lastSeen,
       isOnline: user.isOnline,
       location: user.location || null,
@@ -439,7 +451,7 @@ const getSpecificUserStatus = async (req, res) => {
     };
 
     console.log(`📤 Sending status data:`, statusData);
-    
+
     // Return response with full status data
     res.json({
       success: true,
@@ -447,21 +459,21 @@ const getSpecificUserStatus = async (req, res) => {
         userId: user._id,
         name: user.name,
         phoneNumber: user.phoneNumber,
-        status: user.status,
-        customStatus: user.customStatus,
+        status: currentStatus.status,
+        customStatus: currentStatus.customStatus,
         lastSeen: user.lastSeen,
         isOnline: user.isOnline,
         location: user.location,
         statusHistory: user.statusHistory,
-        statusUntil: user.statusUntil
+        statusUntil: currentStatus.statusUntil
       }
     });
   } catch (error) {
     console.error('❌ Error getting user status:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Server error getting user status',
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -474,46 +486,46 @@ const getSpecificUserStatus = async (req, res) => {
 const forceSyncStatus = async (req, res) => {
   try {
     const { status, customStatus, statusUntil } = req.body;
-    
+
     if (!status) {
       return res.status(400).json({
         success: false,
         message: 'Status is required'
       });
     }
-    
+
     console.log(`Force syncing status: ${status}, custom: ${customStatus}, until: ${statusUntil}`);
-    
+
     // Get the user
     const user = await User.findById(req.user._id);
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-    
+
     // Update the status directly
     user.status = status;
     user.customStatus = customStatus || '';
-    
+
     // Parse statusUntil if provided
     if (statusUntil) {
       user.statusUntil = new Date(statusUntil);
     } else {
       user.statusUntil = null;
     }
-    
+
     // Save to database
     // Log the status data before saving to the database
     console.log(`[STATUS DB SAVE] Saving to database - User: ${user.userId}, Status: '${user.status}', CustomStatus: '${user.customStatus || ""}', StatusUntil: ${user.statusUntil ? user.statusUntil.toISOString() : "null"}`);
-    
+
     const updatedUser = await user.save();
-    
+
     // Log the status data after saving to the database
     console.log(`[STATUS DB SAVED] Successfully saved to database - User: ${updatedUser.userId}, Status: '${updatedUser.status}', CustomStatus: '${updatedUser.customStatus || ""}', StatusUntil: ${updatedUser.statusUntil ? updatedUser.statusUntil.toISOString() : "null"}`);
-    
+
     // Clear any Redis cache for this user's status
     if (redisClient && redisClient.isReady) {
       try {
@@ -524,14 +536,14 @@ const forceSyncStatus = async (req, res) => {
         console.error('Redis cache clear error:', redisError);
       }
     }
-    
+
     // Broadcast the status update
     const statusData = {
       status: updatedUser.status,
       customStatus: updatedUser.customStatus,
       statusUntil: updatedUser.statusUntil
     };
-    
+
     // ✅ FIX Bug D: Pass validatedPrivacySettings to avoid slow per-user canUserSeeStatus path
     let syncPrivacySettings = { visibility: 'public', allowedGroups: [], allowedContacts: [] };
     try {
@@ -547,7 +559,7 @@ const forceSyncStatus = async (req, res) => {
       console.warn('⚠️ [FORCE SYNC] Could not load privacy settings, defaulting to public');
     }
     socketManager.broadcastStatusUpdate(updatedUser, statusData, syncPrivacySettings);
-    
+
     res.status(200).json({
       success: true,
       message: 'Status synced successfully',
@@ -580,13 +592,13 @@ const getUserStatusByPhone = async (req, res) => {
     const { phoneNumber } = req.params;
     const viewerUserId = req.user._id;
     console.log(`Getting status for phone number: ${phoneNumber}, viewer: ${viewerUserId}`);
-    
+
     // Simple security check - ensure the phone number is properly formatted
     if (!phoneNumber || phoneNumber.length < 5) {
       console.log('Invalid phone number format');
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid phone number format' 
+        message: 'Invalid phone number format'
       });
     }
 
@@ -595,18 +607,18 @@ const getUserStatusByPhone = async (req, res) => {
 
     if (!user) {
       console.log(`No user found with phone number: ${phoneNumber}`);
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found with this phone number' 
+        message: 'User not found with this phone number'
       });
     }
 
     console.log(`Found user: ${user.name}, current status: ${user.status}, statusUntil: ${user.statusUntil}`);
-    
+
     // Check privacy permissions - can the viewer see this user's status?
     const canSeeStatus = await StatusPrivacy.canUserSeeStatus(user._id, viewerUserId);
     console.log(`🔒 Privacy check - Can viewer see status: ${canSeeStatus}`);
-    
+
     if (!canSeeStatus) {
       console.log(`🚫 Privacy denied - viewer ${viewerUserId} cannot see status of user ${user._id}`);
       return res.status(403).json({
@@ -623,14 +635,10 @@ const getUserStatusByPhone = async (req, res) => {
     // Check if status timer has expired
     const currentTime = new Date();
     console.log(`Current time: ${currentTime.toISOString()}`);
-    
+
+    const currentStatus = readableStatus(user, currentTime);
     if (user.statusUntil && currentTime > new Date(user.statusUntil)) {
-      console.log(`Status expired at ${user.statusUntil}, resetting to Available`);
-      user.status = 'Available';  // ✅ FIXED: Capitalized to match app convention
-      user.customStatus = '';
-      user.statusUntil = null;
-      await user.save();
-      console.log('Status reset to Available');
+      console.log(`Status expired at ${user.statusUntil}, returning Available`);
     } else if (user.statusUntil) {
       console.log(`Status until: ${user.statusUntil}`);
     } else {
@@ -639,11 +647,11 @@ const getUserStatusByPhone = async (req, res) => {
 
     // Prepare response data
     const responseData = {
-      status: user.status,
-      customStatus: user.customStatus,
-      statusUntil: user.statusUntil
+      status: currentStatus.status,
+      customStatus: currentStatus.customStatus,
+      statusUntil: currentStatus.statusUntil
     };
-    
+
     console.log('[STATUS BY PHONE] Returning status data:', JSON.stringify(responseData, null, 2));
     console.log(`[STATUS BY PHONE] Status value type: ${typeof user.status}, Raw value: '${user.status}'`);
     console.log(`[STATUS BY PHONE] Status comparison: user.status === 'available': ${user.status === 'available'}, user.status === 'At mail': ${user.status === 'At mail'}`);
@@ -655,10 +663,10 @@ const getUserStatusByPhone = async (req, res) => {
     });
   } catch (error) {
     console.error('Get user status by phone error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Server error while getting user status by phone', 
-      error: error.message 
+      message: 'Server error while getting user status by phone',
+      error: error.message
     });
   }
 };

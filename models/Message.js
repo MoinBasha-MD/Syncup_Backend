@@ -22,7 +22,7 @@ const messageSchema = new mongoose.Schema({
   },
   message: {
     type: String,
-    required: true
+    required: function() { return this.e2ee?.v !== 2; }
   },
   messageType: {
     type: String,

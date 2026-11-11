@@ -32,9 +32,8 @@ class MasterScheduler {
       try {
         // Run all 1-minute tasks in parallel
         await Promise.allSettled([
-          this.runPrimaryTimeScheduler(),
+          this.runStatusExpiration().then(() => this.runPrimaryTimeScheduler()),
           this.runLocationSharingCleanup(),
-          this.runStatusExpiration(),
           this.runRippleLifecycle(),
           this.runMeetupExpiry(),
           this.runPartnerWebhookDeliveries(),
