@@ -85,7 +85,10 @@ const updateUserStatus = async (req, res) => {
       user.mainDurationLabel = mainDurationLabel || '';
       user.mainStartTime = new Date();
 
-      user.mainEndTime = mainDuration > 0 ? (mainDeadline || new Date(statusChangeTime.getTime() + mainDuration * 60000)) : null;
+      // Honour an explicit end time even when no duration was sent; previously
+      // the end time was silently dropped and the status became permanent.
+      user.mainEndTime = mainDeadline ||
+        (mainDuration > 0 ? new Date(statusChangeTime.getTime() + mainDuration * 60000) : null);
 
       // Update sub-status if provided
       if (subStatus) {
@@ -94,7 +97,8 @@ const updateUserStatus = async (req, res) => {
         user.subDurationLabel = subDurationLabel || '';
         user.subStartTime = new Date();
 
-        user.subEndTime = subDuration > 0 ? (subDeadline || new Date(statusChangeTime.getTime() + subDuration * 60000)) : null;
+        user.subEndTime = subDeadline ||
+          (subDuration > 0 ? new Date(statusChangeTime.getTime() + subDuration * 60000) : null);
       } else {
         // Clear sub-status
         user.subStatus = null;

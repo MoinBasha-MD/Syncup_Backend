@@ -1,6 +1,12 @@
 module.exports = function readableStatus(user, now = new Date()) {
-  const mainEnd = user.mainEndTime || user.statusUntil;
-  const mainExpired = mainEnd && new Date(mainEnd) <= now;
+  // The status expires at the earliest deadline either field provides; a
+  // stale mainEndTime must not outlive a shorter statusUntil (the old
+  // `mainEndTime || statusUntil` preferred the longer/stale one).
+  const mainEndMs = [user.mainEndTime, user.statusUntil]
+    .map(value => (value ? new Date(value).getTime() : null))
+    .filter(value => Number.isFinite(value))
+    .reduce((min, value) => (min === null || value < min ? value : min), null);
+  const mainExpired = mainEndMs !== null && mainEndMs <= now.getTime();
   const subExpired = mainExpired || (user.subEndTime && new Date(user.subEndTime) <= now);
   return {
     status: mainExpired ? 'Available' : user.status,

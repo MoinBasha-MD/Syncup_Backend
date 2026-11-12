@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const User = require('./models/userModel');
 const Friend = require('./models/Friend');
+const Block = require('./models/blockModel');
 const StatusPrivacy = require('./models/statusPrivacyModel');
 const Call = require('./models/callModel');
 const GroupCall = require('./models/GroupCall');
@@ -304,6 +305,9 @@ const initializeSocketIO = (server) => {
     
     // Store user socket connection using userId (NOT MongoDB _id)
     userSockets.set(userId, socket);
+    // Also join a room named after the userId so existing `io.to(userId)`
+    // emitters (e.g. chat-game events) actually reach the user's devices.
+    if (userId) socket.join(userId);
     console.log(`\n${'='.repeat(80)}`);
     console.log(`🔗 [USER CONNECTED] User registered in userSockets Map`);
     console.log(`🔗 [USER CONNECTED] Name: ${userName}`);
@@ -724,7 +728,7 @@ const initializeSocketIO = (server) => {
       try {
         const { chatId, sessionId } = data;
         
-        if (!chatId) {
+        if (typeof chatId !== 'string' || !chatId) {
           console.error(`❌ [GHOST MODE ENTER] Missing chatId in request data`);
           return;
         }
@@ -778,7 +782,7 @@ const initializeSocketIO = (server) => {
       try {
         const { chatId, sessionId } = data;
         
-        if (!chatId) {
+        if (typeof chatId !== 'string' || !chatId) {
           console.error(`❌ [GHOST MODE EXIT] Missing chatId in request data`);
           return;
         }
@@ -829,7 +833,7 @@ const initializeSocketIO = (server) => {
       try {
         const { chatId, timerDuration } = data;
         
-        if (!chatId) {
+        if (typeof chatId !== 'string' || !chatId) {
           console.error(`❌ [TIMER MODE ACTIVATE] Missing chatId in request data`);
           return;
         }
@@ -889,7 +893,7 @@ const initializeSocketIO = (server) => {
       try {
         const { chatId } = data;
         
-        if (!chatId) {
+        if (typeof chatId !== 'string' || !chatId) {
           console.error(`❌ [TIMER MODE DEACTIVATE] Missing chatId in request data`);
           return;
         }
@@ -987,7 +991,7 @@ const initializeSocketIO = (server) => {
       try {
         const { chatId, timerDuration } = data;
         
-        if (!chatId) {
+        if (typeof chatId !== 'string' || !chatId) {
           console.error(`❌ [CONTINUOUS TIMER ACTIVATE] Missing chatId in request data`);
           return;
         }
@@ -1046,7 +1050,7 @@ const initializeSocketIO = (server) => {
       try {
         const { chatId } = data;
         
-        if (!chatId) {
+        if (typeof chatId !== 'string' || !chatId) {
           console.error(`❌ [CONTINUOUS TIMER DEACTIVATE] Missing chatId in request data`);
           return;
         }
@@ -1094,6 +1098,7 @@ const initializeSocketIO = (server) => {
       
       try {
         // Convert receiverId (userId) to MongoDB _id for socket lookup
+        if (typeof data?.receiverId !== 'string' || !data.receiverId) return;
         const receiver = await User.findOne({ userId: data.receiverId }).select('_id userId name');
         if (!receiver) {
           console.log(`❌ Receiver not found in database: ${data.receiverId}`);
@@ -1108,7 +1113,7 @@ const initializeSocketIO = (server) => {
         });
         
         // Broadcast typing indicator to the receiver using MongoDB _id
-        const receiverSocket = userSockets.get(receiverObjectId);
+        const receiverSocket = userSockets.get(receiver.userId);
         if (receiverSocket && receiverSocket.connected) {
           receiverSocket.emit('typing:start', {
             userId: socket.user.userId,
@@ -1130,6 +1135,7 @@ const initializeSocketIO = (server) => {
       
       try {
         // Convert receiverId (userId) to MongoDB _id for socket lookup
+        if (typeof data?.receiverId !== 'string' || !data.receiverId) return;
         const receiver = await User.findOne({ userId: data.receiverId }).select('_id userId name');
         if (!receiver) {
           console.log(`❌ Receiver not found in database: ${data.receiverId}`);
@@ -1144,7 +1150,7 @@ const initializeSocketIO = (server) => {
         });
         
         // Broadcast typing stop to the receiver using MongoDB _id
-        const receiverSocket = userSockets.get(receiverObjectId);
+        const receiverSocket = userSockets.get(receiver.userId);
         if (receiverSocket && receiverSocket.connected) {
           receiverSocket.emit('typing:stop', {
             userId: socket.user.userId,
@@ -1193,6 +1199,13 @@ const initializeSocketIO = (server) => {
         const { receiverId, callType, offer, transport, callNonce, e2ee } = data;
         const useLiveKit = transport === 'livekit';
 
+        // Receiver id must be a plain string: an object here would reach the
+        // Mongoose filter as query operators.
+        if (typeof receiverId !== 'string' || !receiverId || receiverId.length > 200) {
+          socket.emit('call:failed', { reason: 'Invalid receiver' });
+          return;
+        }
+
         // Never allow a call to oneself — fail before any DB writes.
         if (receiverId === userId) {
           socket.emit('call:failed', { reason: 'SELF_CALL', message: "You can't call yourself" });
@@ -1235,6 +1248,13 @@ const initializeSocketIO = (server) => {
         if (!receiver) {
           console.log(`❌ Receiver not found: ${receiverId}`);
           socket.emit('call:failed', { reason: 'User not found' });
+          return;
+        }
+
+        // Same mutual-block rule as REST chat: a blocked pair cannot call.
+        const callBlock = await Block.isMutuallyBlocked(userId, receiver.userId);
+        if (callBlock.anyBlocked) {
+          socket.emit('call:failed', { reason: 'BLOCKED', message: 'Cannot call this user' });
           return;
         }
         
@@ -1858,6 +1878,12 @@ const initializeSocketIO = (server) => {
         if (invitees.length !== v.inviteeIds.length) {
           return reply({ ok: false, reason: 'Some users not found' });
         }
+        const createBlocks = await Promise.all(
+          invitees.map(u => Block.isMutuallyBlocked(userId, u.userId)),
+        );
+        if (createBlocks.some(b => b.anyBlocked)) {
+          return reply({ ok: false, reason: 'BLOCKED' });
+        }
         const caller = await User.findOne({ userId }).select('userId name profileImage').lean();
         const callId = `gcall_${Date.now()}_${uuidv4().slice(0, 8)}`;
         const roomName = `gcall_${callId}`;
@@ -2084,6 +2110,12 @@ const initializeSocketIO = (server) => {
         if (!v.ok) return reply({ ok: false, reason: v.reason });
         const invitees = await User.find({ userId: { $in: v.inviteeIds } })
           .select('userId name profileImage').lean();
+        const inviteBlocks = await Promise.all(
+          invitees.map(u => Block.isMutuallyBlocked(userId, u.userId)),
+        );
+        if (inviteBlocks.some(b => b.anyBlocked)) {
+          return reply({ ok: false, reason: 'BLOCKED' });
+        }
         const me = await User.findOne({ userId }).select('userId name profileImage').lean();
         for (const u of invitees) {
           const p = {
@@ -2814,11 +2846,17 @@ const initializeSocketIO = (server) => {
         
         let broadcastCount = 0;
         
-        if (recipientIds && Array.isArray(recipientIds) && recipientIds.length > 0) {
+        // Dedupe and cap client-supplied recipients so one packet cannot fan
+        // out unboundedly; non-string ids cannot reach the socket map anyway.
+        const targetIds = Array.isArray(recipientIds)
+          ? [...new Set(recipientIds.filter(id => typeof id === 'string' && id))].slice(0, 500)
+          : [];
+
+        if (targetIds.length > 0) {
           // TARGETED BROADCASTING: Only send to specified recipients
-          console.log(`📡 [LOCATION] Targeted broadcast to ${recipientIds.length} active recipient(s)`);
-          
-          recipientIds.forEach(recipientId => {
+          console.log(`📡 [LOCATION] Targeted broadcast to ${targetIds.length} active recipient(s)`);
+
+          targetIds.forEach(recipientId => {
             const recipientSocket = userSockets.get(recipientId);
             if (recipientSocket) {
               recipientSocket.emit('location:friend_update', locationUpdateData);
@@ -2829,7 +2867,7 @@ const initializeSocketIO = (server) => {
             }
           });
           
-          console.log(`📡 [LOCATION] Location broadcasted to ${broadcastCount}/${recipientIds.length} active recipient(s)`);
+          console.log(`📡 [LOCATION] Location broadcasted to ${broadcastCount}/${targetIds.length} active recipient(s)`);
         } else {
           // FALLBACK: No active sessions - don't broadcast
           console.log(`📡 [LOCATION] No active sharing sessions - location not broadcasted`);
@@ -2839,7 +2877,10 @@ const initializeSocketIO = (server) => {
         // the sender included in `meetupIds`. Server re-verifies membership —
         // clients can't widen their audience by forging the list.
         const { meetupIds } = locationData;
-        if (meetupIds && Array.isArray(meetupIds) && meetupIds.length > 0) {
+        const cappedMeetupIds = Array.isArray(meetupIds)
+          ? [...new Set(meetupIds.filter(id => typeof id === 'string'))].slice(0, 20)
+          : [];
+        if (cappedMeetupIds.length > 0) {
           try {
             const Meetup = require('./models/Meetup');
             const ARRIVAL_RADIUS_M = Meetup.ARRIVAL_RADIUS_METERS || 100;
@@ -2855,7 +2896,7 @@ const initializeSocketIO = (server) => {
               return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             };
 
-            for (const meetupId of meetupIds) {
+            for (const meetupId of cappedMeetupIds) {
               try {
                 // Forged/garbage ids can't reach the query — cast would throw.
                 if (!mongoose.isValidObjectId(meetupId)) continue;

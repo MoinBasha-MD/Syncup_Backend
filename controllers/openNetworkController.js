@@ -407,7 +407,9 @@ const getPulse = asyncHandler(async (req, res) => {
     throw err;
   }
 
-  const cacheKey = country || 'world';
+  // The flag changes the cached query, so it must be part of the key —
+  // otherwise one caller poisons the shared cache for 60s.
+  const cacheKey = `${country || 'world'}:${req.query.excludePageHosted === '1' ? 'nopages' : 'all'}`;
   const hit = pulseCache.get(cacheKey);
   const nowMs = Date.now();
   if (hit && nowMs - hit.at < PULSE_CACHE_TTL_MS) {

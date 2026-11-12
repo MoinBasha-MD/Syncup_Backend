@@ -2002,11 +2002,17 @@ const setChatMute = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid contact' });
     }
     if (muted) {
-      await ChatMute.updateOne(
-        { userId: currentUserId, mutedUserId: contactId },
-        { $setOnInsert: { userId: currentUserId, mutedUserId: contactId, createdAt: new Date() } },
-        { upsert: true },
-      );
+      try {
+        await ChatMute.updateOne(
+          { userId: currentUserId, mutedUserId: contactId },
+          { $setOnInsert: { userId: currentUserId, mutedUserId: contactId, createdAt: new Date() } },
+          { upsert: true },
+        );
+      } catch (error) {
+        // Two concurrent upserts can race on the unique index; the row exists
+        // either way, so this is success.
+        if (error.code !== 11000) throw error;
+      }
     } else {
       await ChatMute.deleteOne({ userId: currentUserId, mutedUserId: contactId });
     }

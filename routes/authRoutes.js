@@ -5,6 +5,7 @@ const {
   loginUser,
   checkUserExists
 } = require('../controllers/authController');
+const { normalizePhoneNumber } = require('../utils/phoneUtils');
 
 // ✅ SECURITY FIX: Add rate limiting to prevent brute force attacks
 // Simple in-memory rate limiter (for production, use Redis)
@@ -12,7 +13,9 @@ const loginAttempts = new Map();
 let lastSweep = 0;
 
 const rateLimiter = (req, res, next) => {
-  const identifier = req.body.phoneNumber || req.ip;
+  // Key on the same normalized phone the controller looks up, otherwise
+  // "+91 ...", "91..." and the bare number get separate attempt budgets.
+  const identifier = normalizePhoneNumber(req.body.phoneNumber) || req.ip;
   const now = Date.now();
   const windowMs = 15 * 60 * 1000; // 15 minutes
   const maxAttempts = 5;

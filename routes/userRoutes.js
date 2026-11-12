@@ -33,6 +33,13 @@ const { authLimiter } = require('../middleware/securityMiddleware');
 const { sensitiveVerifyLimiter } = require('../middleware/rateLimiter');
 const { resetPasswordOTP } = require('../controllers/passwordResetController');
 
+// Only password re-auth attempts consume this budget; ordinary profile edits
+// (name, bio, photo) are unaffected.
+const reauthLimiter = (req, res, next) =>
+  typeof req.body?.currentPassword === 'string' && req.body.currentPassword
+    ? sensitiveVerifyLimiter(req, res, next)
+    : next();
+
 // Connection statistics routes (must be before generic routes)
 router.route('/connection-stats')
   .get(protect, getConnectionStats);
@@ -48,7 +55,7 @@ router.route('/profile/:username')
 // Protected routes
 router.route('/profile')
   .get(protect, getUserProfile)
-  .put(protect, updateUserProfileWithDiscovery);
+  .put(protect, reauthLimiter, updateUserProfileWithDiscovery);
 
 // Status routes - DEPRECATED: Use /api/status-management instead
 // router.route('/status')

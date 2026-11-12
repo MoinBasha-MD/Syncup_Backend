@@ -137,10 +137,13 @@ const errorHandler = (err, req, res, next) => {
 
   // Default to 500 server error
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  const isProd = process.env.NODE_ENV === 'production';
   res.status(statusCode).json({
     success: false,
-    message: redactSensitiveText(err.message) || 'Internal Server Error',
-    stack: process.env.NODE_ENV === 'production' ? undefined : redactSensitiveText(err.stack),
+    // In production, internal error text (file paths, driver messages) must
+    // not reach clients; operational errors were already answered above.
+    message: !isProd && err.message ? redactSensitiveText(err.message) : 'Internal Server Error',
+    stack: isProd ? undefined : redactSensitiveText(err.stack),
     error: err.name || 'Error'
   });
 };

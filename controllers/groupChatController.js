@@ -514,10 +514,17 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
       // Unlike a socket-only notification, the dispatcher also persists the
       // notification and sends FCM for members who are offline. Keep this
       // fan-out off the message acknowledgement path.
-      setImmediate(() => {
+      setImmediate(async () => {
         const body = isE2eeV2(groupMessage.e2ee)
           ? 'New message'
           : (groupMessage.message || `Sent a ${groupMessage.messageType}`);
+        // Mirror the DM path: honour each member's global chat-notification
+        // preference, not just the per-group mute flag.
+        const prefs = await User.find({ userId: { $in: activeMembers.map(m => m.userId) } })
+          .select('userId notificationSettings').lean().catch(() => []);
+        const chatPushEnabled = new Map(
+          prefs.map(u => [u.userId, u.notificationSettings?.chatMessages !== false]),
+        );
         const dispatches = activeMembers.map((member) => dispatchNotification({
           toUserId: member.userId,
           fromUserId: senderId,
@@ -536,7 +543,7 @@ const sendGroupMessage = asyncHandler(async (req, res) => {
           },
           inApp: 'none',
           socket: false,
-          push: member.notificationSettings?.muted !== true,
+          push: member.notificationSettings?.muted !== true && chatPushEnabled.get(member.userId) !== false,
           data: {
             groupId: String(groupId),
             groupName: groupChat.groupName,

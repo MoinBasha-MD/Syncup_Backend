@@ -256,13 +256,12 @@ class AISocketService {
    * @param {Object} socket - Socket.IO socket
    */
   async handleUserConnection(socket) {
-    socket.on('user:authenticate', async (data) => {
+    socket.on('user:authenticate', async () => {
       try {
-        const { userId, token } = data;
-        
-        // Validate user token (you can use existing auth middleware logic)
-        // For now, we'll assume it's valid
-        
+        // Identity comes from the authenticated handshake, never the payload.
+        const userId = socket.user?.userId;
+        if (!userId) return;
+
         this.userSockets.set(userId, socket);
         socket.userId = userId;
         socket.join(`user_${userId}`);

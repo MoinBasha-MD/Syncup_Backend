@@ -466,15 +466,13 @@ const checkUserExists = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ phoneNumber }).select('userId name');
+    const user = await User.findOne({ phoneNumber }).select('_id');
 
+    // Do not disclose name/userId to unauthenticated callers; the app only
+    // needs the boolean.
     res.json({
       success: true,
-      exists: !!user,
-      data: user ? {
-        userId: user.userId,
-        name: user.name
-      } : null
+      exists: !!user
     });
   } catch (error) {
     console.error('Check user error:', error);
