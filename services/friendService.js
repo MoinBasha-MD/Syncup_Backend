@@ -652,7 +652,7 @@ class FriendService {
       
       // Verify both friendships exist in database
       const verifyOriginal = await Friend.findById(friendRequest._id);
-      const verifyReciprocal = await Friend.findOne({
+      let verifyReciprocal = await Friend.findOne({
         userId: friendRequest.friendUserId,
         friendUserId: friendRequest.userId,
         status: 'accepted',

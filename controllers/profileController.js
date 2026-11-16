@@ -121,7 +121,7 @@ exports.getPublicProfile = async (req, res) => {
     const canSeePrivate = isSelf || isFriend || user.isPublic !== false;
 
     // Determine detailed connection status from the current user's POV
-    let canSendRequest = true;
+    let canSendRequest = !isSelf;
     let hasPendingRequest = false;
     let hasReceivedRequest = false;
     let connectionStatus = 'none';

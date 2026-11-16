@@ -466,7 +466,12 @@ const checkUserExists = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ phoneNumber }).select('_id');
+    // Registration stores the normalized number, so normalize the lookup too
+    // ("+91 98765 43210" and "9876543210" must resolve to the same user).
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    const user = normalizedPhone
+      ? await User.findOne({ phoneNumber: normalizedPhone }).select('_id')
+      : null;
 
     // Do not disclose name/userId to unauthenticated callers; the app only
     // needs the boolean.

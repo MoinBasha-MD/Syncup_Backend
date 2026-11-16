@@ -2,6 +2,19 @@ const asyncHandler = require('express-async-handler');
 const friendService = require('../services/friendService');
 const LogSanitizer = require('../utils/logSanitizer');
 
+// Keep in sync with Friend.source. Clients send UI contexts ("map_search",
+// "feed_post", ...); anything outside the schema enum is stored as app_search
+// instead of failing Mongoose validation and returning a 500.
+const FRIEND_SOURCES = new Set([
+  'device_contact',
+  'app_search',
+  'qr_code',
+  'invite_link',
+  'mutual_friend',
+  'suggested',
+  'open_network',
+]);
+
 /**
  * FriendController - HTTP handlers for friend management
  * Follows the same pattern as storyController and contactController
@@ -46,7 +59,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error getting friends:', LogSanitizer.sanitizeError(error));
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to get friends');
     }
   });
@@ -79,7 +92,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error getting friend requests:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to get friend requests');
     }
   });
@@ -136,7 +149,7 @@ class FriendController {
       
       const metadata = {
         message: message || '',
-        source: source || 'app_search'
+        source: FRIEND_SOURCES.has(source) ? source : 'app_search'
       };
       
       const result = await friendService.sendFriendRequest(userId, targetUserId, metadata);
@@ -161,7 +174,7 @@ class FriendController {
       }
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error sending friend request:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to send friend request');
     }
   });
@@ -198,7 +211,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error accepting friend request:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to accept friend request');
     }
   });
@@ -235,7 +248,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error rejecting friend request:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to reject friend request');
     }
   });
@@ -272,7 +285,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error cancelling friend request:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to cancel friend request');
     }
   });
@@ -309,7 +322,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error removing friend:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to remove friend');
     }
   });
@@ -351,7 +364,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error blocking user:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to block user');
     }
   });
@@ -388,7 +401,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error unblocking user:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to unblock user');
     }
   });
@@ -426,7 +439,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error syncing device contacts:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to sync device contacts');
     }
   });
@@ -468,7 +481,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error searching users:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to search users');
     }
   });
@@ -505,7 +518,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error getting mutual friends:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to get mutual friends');
     }
   });
@@ -543,7 +556,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error updating friend settings:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to update friend settings');
     }
   });
@@ -671,7 +684,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error checking friendship status:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to check friendship status');
     }
   });
@@ -702,7 +715,7 @@ class FriendController {
       });
     } catch (error) {
       console.error('❌ [FRIEND CONTROLLER] Error refreshing friend cache:', error);
-      res.status(error.statusCode || 500);
+      if (res.statusCode < 400) res.status(error.statusCode || 500);
       throw new Error(error.message || 'Failed to refresh friend cache');
     }
   });
