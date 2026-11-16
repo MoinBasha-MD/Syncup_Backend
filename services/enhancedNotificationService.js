@@ -449,6 +449,48 @@ class EnhancedNotificationService {
   }
 
   /**
+   * Generic notification for modules without a dedicated method (e.g. friend
+   * requests). Routes through the shared v2 dispatcher so it gets the same
+   * three channels as every other notification: in-app banner (socket),
+   * persisted Notification row (list + offline sync) and FCM tray push.
+   */
+  async sendNotification(userId, {
+    type,
+    title,
+    message,
+    data = {},
+    category = 'system',
+    action,
+    groupKey,
+    avatar,
+  } = {}) {
+    if (!userId || !type) return false;
+    try {
+      this.notificationStats.totalSent++;
+      // Lazy require — dispatcher ↔ notification services form a cycle.
+      const { dispatchNotification } = require('./notificationDispatcher');
+      await dispatchNotification({
+        toUserId: userId,
+        fromUserId: data.fromUserId,
+        type,
+        category,
+        title: title || 'Syncup',
+        body: message || '',
+        avatar,
+        groupKey,
+        action,
+        data,
+      });
+      this.notificationStats.totalDelivered++;
+      return true;
+    } catch (error) {
+      console.error('❌ [NOTIFICATION] sendNotification failed:', error);
+      this.notificationStats.totalFailed++;
+      return false;
+    }
+  }
+
+  /**
    * Note: Push notifications removed - using WebSocket notifications only
    * This method is kept for backward compatibility but does nothing
    */

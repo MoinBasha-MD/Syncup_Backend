@@ -414,6 +414,10 @@ class FriendService {
           type: 'friend_request',
           title: '👋 New Friend Request',
           message: `${user.name} wants to connect with you`,
+          category: 'social',
+          avatar: user.profileImage || undefined,
+          groupKey: 'friend_requests',
+          action: { screen: 'ConnectionRequests' },
           data: {
             requestId: friendRequest._id.toString(),
             fromUserId: userId,
@@ -589,6 +593,28 @@ class FriendService {
         });
       }
       
+      // Push the acceptance to the requester so an offline device finds out
+      // too — the socket broadcast above only reaches a live connection.
+      try {
+        const enhanced = require('./enhancedNotificationService');
+        await enhanced.sendNotification(friendRequest.userId, {
+          type: 'friend_request_accepted',
+          title: 'Connection accepted',
+          message: `${friendRequest.cachedData?.name || 'Your contact'} accepted your friend request`,
+          category: 'social',
+          groupKey: 'friend_requests',
+          action: { screen: 'Friends' },
+          data: {
+            fromUserId: friendRequest.friendUserId,
+            userId: friendRequest.friendUserId,
+            name: friendRequest.cachedData?.name || '',
+            action: 'friend_request_accepted',
+          },
+        });
+      } catch (notifError) {
+        console.error(`⚠️ [FRIEND SERVICE] Failed to send acceptance push:`, notifError.message);
+      }
+
       console.log(`✅ [FRIEND SERVICE] Friend request accepted successfully`);
       console.log(`📊 [FRIEND SERVICE] FINAL STATE: Both friendships created`);
       console.log(`   - ${friendRequest.userId} → ${friendRequest.friendUserId} (original request)`);

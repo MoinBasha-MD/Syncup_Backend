@@ -171,7 +171,9 @@ class FCMNotificationService {
           priority: 'high',
           ttl: 60000, // 1 minute
           notification: {
-            channelId: 'chat_messages',
+            // Must match the channel the app creates; an unknown id makes
+            // Android drop the notification.
+            channelId: 'syncup-chat-channel',
             sound: 'mess_tone', // Custom notification sound
             priority: 'high',
             defaultSound: false,

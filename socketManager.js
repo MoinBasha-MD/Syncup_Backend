@@ -1829,6 +1829,26 @@ const initializeSocketIO = (server) => {
                     data: { type: 'missed_call', callId: call.callId, callerId: inviterId, callType: call.callType, group: true },
                   });
                 } catch {}
+                // Same tray notification the 1:1 timeout path sends, so an
+                // offline group invitee learns the call was missed.
+                try {
+                  await fcmNotificationService.sendVisibleNotification(uid, {
+                    title: `Missed ${call.callType} group call`,
+                    body: `You missed a group call from ${payload.hostName || 'Unknown'}`,
+                    channelId: 'syncup-general-channel',
+                    sound: 'default',
+                    data: {
+                      type: 'missed_call',
+                      callId: call.callId,
+                      callerId: inviterId,
+                      callerName: payload.hostName || 'Unknown',
+                      callType: call.callType,
+                      group: true,
+                    },
+                  });
+                } catch (e) {
+                  console.error('❌ [GCALL] Missed-call FCM failed:', e.message);
+                }
               }
             } catch (e) {
               console.error('❌ [GCALL] ring timeout failed:', e.message);

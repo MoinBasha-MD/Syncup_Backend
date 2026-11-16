@@ -44,6 +44,14 @@ router.post('/register-fcm-token', protect, async (req, res) => {
       user.fcmTokens = [];
     }
 
+    // A device token belongs to exactly one account. Dropping it from any
+    // other user prevents the previous account's pushes reaching the new
+    // user after an account switch on the same device.
+    await User.updateMany(
+      { userId: { $ne: userId }, 'fcmTokens.token': fcmToken },
+      { $pull: { fcmTokens: { token: fcmToken } } }
+    );
+
     const currentPlatform = platform || 'android';
 
     // Atomic update: Remove existing tokens for this platform or token string
