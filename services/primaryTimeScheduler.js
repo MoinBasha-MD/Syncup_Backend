@@ -14,6 +14,7 @@ class PrimaryTimeSchedulerService {
   constructor() {
     this.cronJob = null;
     this.isRunning = false;
+    this.isProcessing = false;
     this.initialCheckTimeout = null;
   }
 
@@ -458,6 +459,12 @@ class PrimaryTimeSchedulerService {
    * Check all users with Primary Time profiles
    */
   async checkAllUsers() {
+    // cron fires every minute regardless; overlapping sweeps stack heap until OOM
+    if (this.isProcessing) {
+      console.log('⚠️ [PRIMARY TIME SCHEDULER] Previous run still active, skipping this tick');
+      return [];
+    }
+    this.isProcessing = true;
     try {
       const startTime = Date.now();
       console.log('\n⏰ [PRIMARY TIME SCHEDULER] ========== CRON JOB STARTED ==========');
@@ -474,10 +481,13 @@ class PrimaryTimeSchedulerService {
         return [];
       }
 
-      // Check each user
-      const results = await Promise.all(
-        userIds.map(userId => this.checkAndUpdateUserPrimaryTime(userId))
-      );
+      // Check each user in batches: one Promise.all over every user spikes the heap
+      const results = [];
+      for (let i = 0; i < userIds.length; i += 20) {
+        results.push(...await Promise.all(
+          userIds.slice(i, i + 20).map(userId => this.checkAndUpdateUserPrimaryTime(userId))
+        ));
+      }
 
       const updated = results.filter(r => r !== null);
       const duration = Date.now() - startTime;
@@ -500,6 +510,8 @@ class PrimaryTimeSchedulerService {
     } catch (error) {
       console.error('❌ [PRIMARY TIME SCHEDULER] Error in checkAllUsers:', error);
       return [];
+    } finally {
+      this.isProcessing = false;
     }
   }
 

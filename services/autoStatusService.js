@@ -34,6 +34,7 @@ class AutoStatusService {
   constructor() {
     this.cronJob = null;
     this.isRunning = false;
+    this.isProcessing = false;
   }
 
   /**
@@ -229,6 +230,12 @@ class AutoStatusService {
    * Check all users with daily schedules
    */
   async checkAllUsers() {
+    // cron fires every minute regardless; overlapping sweeps stack heap until OOM
+    if (this.isProcessing) {
+      console.log('⚠️ [AUTO-STATUS] Previous run still active, skipping this tick');
+      return [];
+    }
+    this.isProcessing = true;
     try {
       const startTime = Date.now();
       console.log('\n⏰ [AUTO-STATUS] ========== CRON JOB STARTED ==========');
@@ -248,10 +255,14 @@ class AutoStatusService {
         return [];
       }
       
-      // Check each user
-      const results = await Promise.all(
-        userIds.map(userId => this.checkAndUpdateUserStatus(userId))
-      );
+      // Check each user in batches: one Promise.all over every user (3 queries
+      // each) spikes the heap on large accounts
+      const results = [];
+      for (let i = 0; i < userIds.length; i += 20) {
+        results.push(...await Promise.all(
+          userIds.slice(i, i + 20).map(userId => this.checkAndUpdateUserStatus(userId))
+        ));
+      }
       
       const updated = results.filter(r => r !== null);
       const duration = Date.now() - startTime;
@@ -274,6 +285,8 @@ class AutoStatusService {
     } catch (error) {
       console.error('❌ [AUTO-STATUS] Error in checkAllUsers:', error);
       return [];
+    } finally {
+      this.isProcessing = false;
     }
   }
   

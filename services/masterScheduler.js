@@ -12,6 +12,7 @@ class MasterScheduler {
     this.oneHourJob = null;
     this.fifteenMinuteJob = null;
     this.isRunning = false;
+    this.isMinuteBusy = false;
   }
 
   /**
@@ -27,8 +28,14 @@ class MasterScheduler {
 
     // ⚡ PERFORMANCE OPTIMIZATION: Consolidate 1-minute tasks
     this.oneMinuteJob = cron.schedule('*/1 * * * *', async () => {
+      // A slow run (e.g. full user sweep) must not stack with the next tick
+      if (this.isMinuteBusy) {
+        console.log('⚠️ [MASTER SCHEDULER] 1-minute tasks still running, skipping this tick');
+        return;
+      }
+      this.isMinuteBusy = true;
       const startTime = Date.now();
-      
+
       try {
         // Run all 1-minute tasks in parallel
         await Promise.allSettled([
@@ -46,6 +53,8 @@ class MasterScheduler {
         }
       } catch (error) {
         console.error('❌ [MASTER SCHEDULER] Error in 1-minute tasks:', error);
+      } finally {
+        this.isMinuteBusy = false;
       }
     });
 
