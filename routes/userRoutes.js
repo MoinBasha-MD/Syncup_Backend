@@ -17,7 +17,8 @@ const {
   updateEncryptionSettings,
   getEncryptionSettings,
   verifyUserPassword,
-  getUserByUsername
+  getUserByUsername,
+  deleteMyAccount
 } = require('../controllers/userController');
 const {
   getConnectionStats,
@@ -103,6 +104,10 @@ router.route('/encryption-settings')
 
 router.route('/verify-password')
   .post(protect, sensitiveVerifyLimiter, verifyUserPassword);
+
+// Permanent account deletion — password re-auth required, rate-limited like
+// other credential checks.
+router.delete('/me', protect, sensitiveVerifyLimiter, deleteMyAccount);
 
 // OTP-related routes
 router.route('/verify-email')

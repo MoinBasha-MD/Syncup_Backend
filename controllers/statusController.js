@@ -158,8 +158,10 @@ const updateUserStatus = async (req, res) => {
 
       user.statusLocation.address = location.address || '';
 
-      // Always set to TRUE - no restrictions
-      user.statusLocation.shareWithContacts = true;
+      // Respect client's shareWithContacts flag when provided; default true for backwards compatibility
+      user.statusLocation.shareWithContacts = typeof location.shareWithContacts === 'boolean'
+        ? location.shareWithContacts
+        : true;
 
       // Update timestamp
       user.statusLocation.timestamp = new Date();
@@ -549,18 +551,18 @@ const forceSyncStatus = async (req, res) => {
     };
 
     // ✅ FIX Bug D: Pass validatedPrivacySettings to avoid slow per-user canUserSeeStatus path
-    let syncPrivacySettings = { visibility: 'public', allowedGroups: [], allowedContacts: [] };
+    let syncPrivacySettings = { visibility: 'private', allowedGroups: [], allowedContacts: [] };
     try {
       const privacyDoc = await StatusPrivacy.getPrivacySettings(updatedUser._id);
       if (privacyDoc) {
         syncPrivacySettings = {
-          visibility: privacyDoc.visibility || 'public',
+          visibility: privacyDoc.visibility || 'private',
           allowedGroups: privacyDoc.allowedGroups || [],
           allowedContacts: privacyDoc.allowedContacts || []
         };
       }
     } catch (privacyErr) {
-      console.warn('⚠️ [FORCE SYNC] Could not load privacy settings, defaulting to public');
+      console.warn('⚠️ [FORCE SYNC] Could not load privacy settings, withholding update (fail-closed)');
     }
     socketManager.broadcastStatusUpdate(updatedUser, statusData, syncPrivacySettings);
 

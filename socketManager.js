@@ -37,6 +37,9 @@ const socketLogger = connectionLogger;
 
 // Map to store active user socket connections
 const userSockets = new Map();
+// All connected sockets per user (multi-device). `userSockets` keeps pointing
+// at the most recently connected socket for backwards compatibility.
+const userSocketSets = new Map();
 // Map to store user's contacts for quick lookup
 const userContactsMap = new Map();
 // Enhanced connection statistics with analytics
@@ -305,6 +308,14 @@ const initializeSocketIO = (server) => {
     
     // Store user socket connection using userId (NOT MongoDB _id)
     userSockets.set(userId, socket);
+    if (userId) {
+      let set = userSocketSets.get(userId);
+      if (!set) {
+        set = new Set();
+        userSocketSets.set(userId, set);
+      }
+      set.add(socket);
+    }
     // Also join a room named after the userId so existing `io.to(userId)`
     // emitters (e.g. chat-game events) actually reach the user's devices.
     if (userId) socket.join(userId);
@@ -503,9 +514,25 @@ const initializeSocketIO = (server) => {
     socket.on('disconnect', async (reason) => {
       connectionStats.activeConnections--;
       connectionStats.totalDisconnections++;
-      
+
+      // Multi-device: drop this socket from the user's set. Only when no
+      // connected socket remains do we run the offline path below.
+      const remainingSet = userSocketSets.get(userId);
+      if (remainingSet) {
+        remainingSet.delete(socket);
+        if (remainingSet.size === 0) {
+          userSocketSets.delete(userId);
+        }
+      }
+      const stillConnected = !!(remainingSet && remainingSet.size > 0);
+      if (stillConnected) {
+        // Point userSockets at a remaining connected socket for compatibility.
+        const next = remainingSet.values().next().value;
+        if (next && next.connected) userSockets.set(userId, next);
+      }
+
       // ✅ Set user as offline in database
-      try {
+      if (!stillConnected) try {
         await User.findByIdAndUpdate(userObjectId, {
           isOnline: false,
           lastSeen: new Date(),
@@ -541,7 +568,7 @@ const initializeSocketIO = (server) => {
       }
       
       // 🤖 AI-to-AI Communication: Set AI offline
-      try {
+      if (!stillConnected) try {
         AIMessageService.setAIOffline(userId);
       } catch (error) {
         console.error('Error setting AI offline:', error);
@@ -555,9 +582,11 @@ const initializeSocketIO = (server) => {
         duration: Date.now() - socket.handshake.time,
         totalActive: connectionStats.activeConnections
       });
-      
-      userSockets.delete(userId);
-      userContactsMap.delete(userId);
+
+      if (!stillConnected) {
+        userSockets.delete(userId);
+        userContactsMap.delete(userId);
+      }
     });
     
     // Handle connection errors
@@ -1112,15 +1141,14 @@ const initializeSocketIO = (server) => {
           receiverName: receiver.name
         });
         
-        // Broadcast typing indicator to the receiver using MongoDB _id
-        const receiverSocket = userSockets.get(receiver.userId);
-        if (receiverSocket && receiverSocket.connected) {
-          receiverSocket.emit('typing:start', {
-            userId: socket.user.userId,
-            senderId: userId,
-            name: socket.user.name,
-            timestamp: new Date().toISOString()
-          });
+        // Broadcast typing indicator to all of the receiver's connected sockets
+        const sentTo = emitToUser(receiver.userId, 'typing:start', {
+          userId: socket.user.userId,
+          senderId: userId,
+          name: socket.user.name,
+          timestamp: new Date().toISOString()
+        });
+        if (sentTo.length > 0) {
           console.log(`✅ Typing start successfully broadcasted to ${receiver.name} (${receiverObjectId})`);
         } else {
           console.log(`❌ Receiver ${receiver.name} (${receiverObjectId}) not found or offline`);
@@ -1149,15 +1177,14 @@ const initializeSocketIO = (server) => {
           receiverName: receiver.name
         });
         
-        // Broadcast typing stop to the receiver using MongoDB _id
-        const receiverSocket = userSockets.get(receiver.userId);
-        if (receiverSocket && receiverSocket.connected) {
-          receiverSocket.emit('typing:stop', {
-            userId: socket.user.userId,
-            senderId: userId,
-            name: socket.user.name,
-            timestamp: new Date().toISOString()
-          });
+        // Broadcast typing stop to all of the receiver's connected sockets
+        const sentTo = emitToUser(receiver.userId, 'typing:stop', {
+          userId: socket.user.userId,
+          senderId: userId,
+          name: socket.user.name,
+          timestamp: new Date().toISOString()
+        });
+        if (sentTo.length > 0) {
           console.log(`✅ Typing stop successfully broadcasted to ${receiver.name} (${receiverObjectId})`);
         } else {
           console.log(`❌ Receiver ${receiver.name} (${receiverObjectId}) not found or offline`);
@@ -2379,13 +2406,10 @@ const initializeSocketIO = (server) => {
         const message = await findAuthorizedReceipt(Message, userId, payload.messageId);
         if (!message) return;
 
-        const senderSocket = userSockets.get(message.senderId);
-        if (senderSocket && senderSocket.connected) {
-          senderSocket.emit('message:delivered', {
-            messageId: message._id,
-            timestamp: new Date().toISOString()
-          });
-        }
+        emitToUser(message.senderId, 'message:delivered', {
+          messageId: message._id,
+          timestamp: new Date().toISOString()
+        });
       } catch (error) {
         console.error('❌ Error forwarding delivered receipt');
       }
@@ -2398,14 +2422,11 @@ const initializeSocketIO = (server) => {
         const message = await findAuthorizedReceipt(Message, userId, payload.messageId);
         if (!message) return;
 
-        const senderSocket = userSockets.get(message.senderId);
-        if (senderSocket && senderSocket.connected) {
-          senderSocket.emit('message:read', {
-            messageId: message._id,
-            readBy: userId,
-            timestamp: new Date().toISOString()
-          });
-        }
+        emitToUser(message.senderId, 'message:read', {
+          messageId: message._id,
+          readBy: userId,
+          timestamp: new Date().toISOString()
+        });
       } catch (error) {
         console.error('❌ Error forwarding read receipt');
       }
@@ -3124,22 +3145,46 @@ const initializeSocketIO = (server) => {
  * @param {Object} data - Data to send with the event
  * @param {Object} options - Additional options (priority, retry, etc.)
  */
+/**
+ * Emit an event to every connected socket a user has (multi-device).
+ * Returns the sockets the event was emitted to.
+ */
+const emitToUser = (userId, event, data) => {
+  const set = userSocketSets.get(userId?.toString());
+  const sockets = set && set.size > 0
+    ? Array.from(set)
+    : [userSockets.get(userId?.toString())].filter(Boolean);
+  const sent = [];
+  for (const s of sockets) {
+    if (s && s.connected) {
+      s.emit(event, data);
+      sent.push(s);
+    }
+  }
+  return sent;
+};
+
 const broadcastToUser = (userId, event, data, options = {}) => {
   try {
     const userIdString = userId.toString();
     const messageId = data.messageId || `msg_${Date.now()}`;
-    
+
     // Debug: Show all connected users for comparison
     const connectedUsers = Array.from(userSockets.keys());
     console.log(`🔍 Broadcasting ${event} to user: ${userIdString}`);
     console.log(`🔍 Currently connected users (${connectedUsers.length}):`, connectedUsers);
-    
-    const socket = userSockets.get(userIdString);
-    
-    if (socket && socket.connected) {
-      console.log(`📨 Broadcasting ${event} to user ${userIdString}`);
+
+    const socketSet = userSocketSets.get(userIdString);
+    const sockets = socketSet && socketSet.size > 0
+      ? Array.from(socketSet)
+      : [userSockets.get(userIdString)].filter(Boolean);
+    const connectedSockets = sockets.filter((s) => s && s.connected);
+    const socket = connectedSockets[0];
+
+    if (connectedSockets.length > 0) {
+      console.log(`📨 Broadcasting ${event} to user ${userIdString} (${connectedSockets.length} socket(s))`);
       console.log(`📨 Broadcasting new message from ${socket.user?.name || 'Unknown'}`);
-      
+
       // Enhanced data with delivery tracking
       const enhancedData = {
         ...data,
@@ -3148,26 +3193,28 @@ const broadcastToUser = (userId, event, data, options = {}) => {
         serverTime: Date.now(),
         priority: options.priority || 'normal'
       };
-      
-      // Emit with acknowledgment callback for delivery confirmation
-      // PERF FIX: Clear delivery timeout on ack to prevent timer leak
-      let deliveryTimer = null;
-      socket.emit(event, enhancedData, (ack) => {
-        if (deliveryTimer) { clearTimeout(deliveryTimer); deliveryTimer = null; }
-        if (ack && ack.received) {
-          connectionStats.messageDeliveryCount++;
-        }
-      });
-      
-      // Update statistics
-      connectionStats.messagesSent++;
-      
-      // Set delivery timeout - cleared on ack above
-      deliveryTimer = setTimeout(() => {
-        deliveryTimer = null;
-        if (socket.connected) socket.emit('delivery_timeout', { messageId, event });
-      }, options.timeout || 30000);
-      
+
+      for (const s of connectedSockets) {
+        // Emit with acknowledgment callback for delivery confirmation
+        // PERF FIX: Clear delivery timeout on ack to prevent timer leak
+        let deliveryTimer = null;
+        s.emit(event, enhancedData, (ack) => {
+          if (deliveryTimer) { clearTimeout(deliveryTimer); deliveryTimer = null; }
+          if (ack && ack.received) {
+            connectionStats.messageDeliveryCount++;
+          }
+        });
+
+        // Update statistics
+        connectionStats.messagesSent++;
+
+        // Set delivery timeout - cleared on ack above
+        deliveryTimer = setTimeout(() => {
+          deliveryTimer = null;
+          if (s.connected) s.emit('delivery_timeout', { messageId, event });
+        }, options.timeout || 30000);
+      }
+
       return true;
     } else {
       console.log(`❌ Message receiver ${userIdString} not found or offline.`);
@@ -3612,6 +3659,12 @@ module.exports = {
   broadcastSystemAnnouncement,
   getConnectionStats,
   getUserSockets: () => userSockets,
-  getConnectionStats: () => connectionStats,
+  // Forcibly disconnect every socket a user has (e.g. account deletion).
+  disconnectUser: (userId) => {
+    const sockets = emitToUser(userId, 'account:deleted', { userId });
+    const set = userSocketSets.get(userId?.toString());
+    const all = set ? Array.from(set) : sockets;
+    all.forEach((s) => { try { s.disconnect(true); } catch (_) { /* ignore */ } });
+  },
   getSocketManager: () => io // Export io instance for game events
 };

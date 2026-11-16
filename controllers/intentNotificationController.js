@@ -38,13 +38,16 @@ exports.sendIntentNotification = async (req, res) => {
     // Calculate expiry based on user's status end time
     let expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // Default 24 hours
     
-    // Check if user has an active status with end time
-    if (toUser.statusEndTime && new Date(toUser.statusEndTime) > new Date()) {
-      expiresAt = new Date(toUser.statusEndTime);
+    // Check if user has an active status with end time - expire at the earliest
+    // future end among main status, legacy statusUntil, and sub-status
+    const now = new Date();
+    const futureEnds = [toUser.mainEndTime, toUser.statusUntil, toUser.subEndTime]
+      .map(d => d ? new Date(d) : null)
+      .filter(d => d && d > now)
+      .sort((a, b) => a - b);
+    if (futureEnds.length > 0) {
+      expiresAt = futureEnds[0];
       console.log(`⏰ Intent will expire with status at: ${expiresAt}`);
-    } else if (toUser.subEndTime && new Date(toUser.subEndTime) > new Date()) {
-      expiresAt = new Date(toUser.subEndTime);
-      console.log(`⏰ Intent will expire with sub-status at: ${expiresAt}`);
     }
 
     // Check if there's already an active intent from this user to target

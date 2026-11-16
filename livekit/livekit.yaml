@@ -22,9 +22,16 @@ keys:
   # Generate your own with: docker run --rm livekit/livekit-server generate-keys
   YOUR_API_KEY: YOUR_API_SECRET
 
-# Optional but recommended once this is public-facing:
-# turn:
-#   enabled: true
-#   domain: turn.yourdomain.com
-#   tls_port: 5349
-#   udp_port: 3478
+# Embedded TURN — relays media for clients on networks that block everything
+# except outbound UDP/3478. UDP TURN works without a domain; the domain is only
+# needed to issue a TLS cert for TURN-over-TLS.
+turn:
+  enabled: true
+  udp_port: 3478
+  # PLACEHOLDER: set to your TURN hostname (e.g. turn.yourdomain.com) when you
+  # want TURN-over-TLS; required for cert issuance, not for plain UDP TURN.
+  domain: YOUR_TURN_DOMAIN
+  # TURN-over-TLS requires a certificate for `domain` — uncomment once a cert
+  # is provisioned (cert_file/key_file or letsencrypt) or the server will fail
+  # to start.
+  # tls_port: 5349

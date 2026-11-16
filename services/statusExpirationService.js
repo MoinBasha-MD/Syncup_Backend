@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const User = require('../models/userModel');
+const IntentNotification = require('../models/IntentNotification');
 const socketManager = require('../socketManager');
 
 /**
@@ -86,6 +87,10 @@ class StatusExpirationService {
         console.log(`📡 [STATUS EXPIRATION] Broadcasting cleared main status for ${user.name}`);
         socketManager.broadcastStatusUpdate(user, statusData);
 
+        // Notify senders who left a pending intent for this user that they are now available
+        this.notifyPendingIntentSenders(user).catch(err =>
+          console.error('⚠️ [STATUS EXPIRATION] Intent sender notification failed:', err.message));
+
         mainStatusCleared++;
       }
 
@@ -159,6 +164,57 @@ class StatusExpirationService {
     } catch (error) {
       console.error('❌ [STATUS EXPIRATION] Error checking expired statuses:', error);
       return 0;
+    }
+  }
+
+  /**
+   * Notify senders with pending intent notifications for a user whose status
+   * just ended that the recipient is now available. Marks those intents expired.
+   */
+  async notifyPendingIntentSenders(user) {
+    try {
+      const intents = await IntentNotification.find({
+        toUserId: user.userId,
+        status: 'pending',
+        expiresAt: { $gt: new Date() }
+      });
+      if (!intents.length) return;
+
+      const fcmService = require('./fcmNotificationService');
+      const recipientName = user.name || 'Your contact';
+
+      for (const intent of intents) {
+        try {
+          socketManager.broadcastToUser(intent.fromUserId, 'intent:recipient_available', {
+            toUserId: user.userId,
+            name: recipientName,
+            phoneNumber: user.phoneNumber,
+            profileImage: user.profileImage,
+            intentType: intent.intentType
+          });
+
+          if (fcmService.isEnabled()) {
+            await fcmService.sendVisibleNotification(intent.fromUserId, {
+              title: 'Available now',
+              body: `${recipientName} is available now`,
+              data: {
+                type: 'intent_recipient_available',
+                toUserId: String(user.userId),
+                intentType: String(intent.intentType)
+              },
+              channelId: 'syncup-general-channel'
+            });
+          }
+
+          intent.status = 'expired';
+          await intent.save();
+          console.log(`🔔 [STATUS EXPIRATION] Notified ${intent.fromUserId} that ${user.userId} is available`);
+        } catch (innerErr) {
+          console.error('⚠️ [STATUS EXPIRATION] Failed to notify intent sender:', innerErr.message);
+        }
+      }
+    } catch (error) {
+      console.error('❌ [STATUS EXPIRATION] notifyPendingIntentSenders error:', error);
     }
   }
 

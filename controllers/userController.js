@@ -1427,6 +1427,38 @@ const getUserByUsername = async (req, res) => {
   }
 };
 
+// @desc    Permanently delete the authenticated user's account
+// @route   DELETE /api/users/me
+// @access  Private
+const deleteMyAccount = async (req, res) => {
+  try {
+    const { password } = req.body || {};
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ success: false, message: 'Password is required' });
+    }
+
+    const user = await User.findById(req.user.id).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isValidPassword = await user.matchPassword(password);
+    if (!isValidPassword) {
+      console.log(`❌ [BACKEND] Account deletion blocked — wrong password for ${user.userId}`);
+      return res.status(401).json({ success: false, message: 'Invalid password' });
+    }
+
+    const { deleteUserAccount } = require('../services/accountDeletionService');
+    await deleteUserAccount(user);
+
+    console.log(`✅ [BACKEND] Account deleted for ${user.userId}`);
+    res.status(200).json({ success: true, message: 'Account deleted' });
+  } catch (error) {
+    console.error('❌ [BACKEND] Error deleting account:', error);
+    res.status(500).json({ success: false, message: 'Server error while deleting account' });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -1446,5 +1478,6 @@ module.exports = {
   updateEncryptionSettings,
   getEncryptionSettings,
   verifyUserPassword,
-  getUserByUsername
+  getUserByUsername,
+  deleteMyAccount
 };

@@ -63,6 +63,28 @@ exports.sendSOSAlert = async (req, res) => {
       // Broadcast to specific user
       broadcastToUser(contact.userId, 'sos_alert', notification);
 
+      // High-priority FCM so offline recipients still get the alert.
+      try {
+        const fcmService = require('../services/fcmNotificationService');
+        if (fcmService.isEnabled()) {
+          await fcmService.sendVisibleNotification(contact.userId, {
+            title: 'SOS Alert',
+            body: `${user.name} needs help — tap to see their location`,
+            data: {
+              type: 'sos_alert',
+              senderId: String(userId),
+              senderName: String(user.name || ''),
+              latitude: String(location.latitude),
+              longitude: String(location.longitude),
+            },
+            channelId: 'syncup-sos-channel',
+            sound: 'default',
+          });
+        }
+      } catch (fcmErr) {
+        console.error('⚠️ [SOS CONTROLLER] FCM alert failed:', fcmErr.message);
+      }
+
       console.log(`📲 [SOS CONTROLLER] SOS alert sent to ${contact.name} (${contact.userId})`);
     }
 

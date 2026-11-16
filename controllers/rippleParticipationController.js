@@ -199,6 +199,16 @@ const joinRipple = asyncHandler(async (req, res) => {
     throw err(ForbiddenError, 'This Ripple is invite-only', 'RIPPLE_INVITE_ONLY');
   }
 
+  // verifiedOnly: joiner needs a verified account (emailVerified is the flag
+  // real OTP/signup flows set); host/cohosts are exempt.
+  if (
+    ripple.settings?.verifiedOnly === true &&
+    !isManager(ripple, existing, userId) &&
+    req.user.emailVerified !== true
+  ) {
+    throw err(ForbiddenError, 'This Ripple is for verified accounts only', 'VERIFIED_ONLY');
+  }
+
   const approveNow = ripple.joinPolicy === 'open' || acceptingInvite;
   const sendFull = () =>
     res.status(409).json({

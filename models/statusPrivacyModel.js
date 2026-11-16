@@ -19,7 +19,7 @@ const statusPrivacySchema = mongoose.Schema(
     },
     visibility: {
       type: String,
-      enum: ['public', 'contacts_only', 'app_connections_only', 'selected_groups', 'custom_list', 'private', 'friends'],
+      enum: ['public', 'contacts_only', 'app_connections_only', 'selected_groups', 'selected_friends', 'custom_list', 'private', 'friends'],
       default: 'public',
       required: true,
     },
@@ -99,7 +99,7 @@ statusPrivacySchema.statics.getDefaultPrivacySettings = async function(userId) {
     // Create default privacy settings if they don't exist
     defaultSettings = await this.create({
       userId: userObjectId,
-      visibility: 'public',
+      visibility: 'contacts_only',
       allowedGroups: [],
       allowedContacts: [],
       allowedFriends: [],
@@ -127,7 +127,7 @@ statusPrivacySchema.statics.getPrivacySettings = async function(userId) {
       // Create default privacy settings if none exist
       privacySettings = await this.create({
         userId,
-        visibility: 'public', // Default to public for better UX
+        visibility: 'contacts_only', // Default to contacts-only for safer privacy
         allowedGroups: [],
         allowedContacts: [],
         allowedFriends: [],
@@ -165,11 +165,11 @@ statusPrivacySchema.statics.getPrivacySettings = async function(userId) {
     return privacySettings;
   } catch (error) {
     console.error('❌ Error getting privacy settings:', error);
-    console.log(`🔒 [Privacy] Falling back to PUBLIC default for user ${userId} due to error`);
-    // Return default settings on error - PUBLIC for maximum compatibility
+    console.log(`🔒 [Privacy] Falling back to CONTACTS_ONLY default for user ${userId} due to error`);
+    // Return default settings on error - fail closed to contacts-only
     return {
       userId,
-      visibility: 'public',
+      visibility: 'contacts_only',
       allowedGroups: [],
       allowedContacts: [],
       blockedContacts: [],

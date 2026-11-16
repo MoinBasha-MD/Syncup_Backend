@@ -916,7 +916,13 @@ const listChats = asyncHandler(async (req, res) => {
     success: true,
     chats: page.map((c) => {
       const otherId = otherParticipant(c, userId);
-      return toChatSummary(c, toPersonMini(profileById[otherId], userById[otherId]), {
+      // The peer may have deleted their account (and ON profile) — keep the
+      // chat visible with a placeholder person instead of crashing on
+      // `profile.userId`.
+      const mini = profileById[otherId]
+        ? toPersonMini(profileById[otherId], userById[otherId])
+        : { userId: otherId, name: 'Deleted user', avatar: null, headline: '', city: '' };
+      return toChatSummary(c, mini, {
         userId,
         connected: connectedPairs.has(pairKey(userId, otherId)),
       });

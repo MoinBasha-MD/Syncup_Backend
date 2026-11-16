@@ -1962,7 +1962,29 @@ const getConversations = async (req, res) => {
     const conversations = rows
       .map((row) => {
         const user = usersById.get(row._id);
-        if (!user) return null;
+        // A deleted account leaves its sent messages behind — keep the
+        // conversation and render a placeholder instead of dropping it.
+        if (!user) {
+          return {
+            userId: row._id,
+            name: 'Deleted user',
+            username: null,
+            phoneNumber: null,
+            email: null,
+            profileImage: null,
+            status: null,
+            isOnline: false,
+            lastSeen: null,
+            lastMessage: row.lastMessage,
+            lastMessageType: row.lastMessageType,
+            lastMessageAt: row.lastMessageAt,
+            lastMessageStatus: row.lastMessageStatus,
+            lastMessageSenderId: row.lastMessageSenderId,
+            unreadCount: row.unreadCount,
+            deletedUser: true,
+            ...(row.lastE2ee && row.lastE2ee.v === 2 ? { lastE2ee: row.lastE2ee } : {})
+          };
+        }
         return {
           userId: user.userId,
           name: user.name,

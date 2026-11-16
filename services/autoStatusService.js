@@ -1,6 +1,30 @@
 const StatusSchedule = require('../models/statusScheduleModel');
+const PrimaryTimeProfile = require('../models/PrimaryTimeProfile');
 const User = require('../models/userModel');
 const cron = require('node-cron');
+const { activeScheduleWindow, minutesOfDayInTimezone } = require('../utils/scheduleWindow');
+const { localDate } = require('../utils/primaryTimeClock');
+const saveStatusIfUnchanged = require('./statusCompareAndSet');
+
+const DEFAULT_TIMEZONE = 'Asia/Kolkata';
+
+/**
+ * Resolve the timezone a user's schedule windows should be evaluated in:
+ * their most recent Primary Time profile's timezone, else a timezone field on
+ * the user doc when present, else the app's default.
+ */
+const resolveUserTimezone = async (user) => {
+  try {
+    const profile = await PrimaryTimeProfile.findOne({ userId: user._id })
+      .sort({ updatedAt: -1 })
+      .select('timezone')
+      .lean();
+    if (profile?.timezone) return profile.timezone;
+  } catch (error) {
+    console.error('⚠️ [AUTO-STATUS] Timezone lookup failed, using default:', error.message);
+  }
+  return user.timezone || DEFAULT_TIMEZONE;
+};
 
 /**
  * Auto Status Service
@@ -27,15 +51,25 @@ class AutoStatusService {
       if (schedules.length === 0) {
         return null;
       }
-      
-      // Get current time and day
+
+      // Fetch the user up front — we need their timezone to evaluate windows.
+      const user = await User.findOne({ userId });
+      if (!user) {
+        console.log(`❌ [AUTO-STATUS] User ${userId} not found`);
+        return null;
+      }
+      const timezone = await resolveUserTimezone(user);
+
+      // Get current time and day IN THE USER'S TIMEZONE (not server-local)
       const now = new Date();
-      const currentDay = now.getDay(); // 0-6 (Sun-Sat)
-      const currentMinutes = now.getHours() * 60 + now.getMinutes();
-      
+      const localNow = localDate({ timezone }, now);
+      const currentDay = localNow.getUTCDay(); // 0-6 (Sun-Sat)
+      const currentMinutes = localNow.getUTCHours() * 60 + localNow.getUTCMinutes();
+
       console.log(`🔍 [AUTO-STATUS] Checking ${userId}`);
+      console.log(`   🌍 Timezone: ${timezone}`);
       console.log(`   📅 Current Day: ${currentDay} (0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)`);
-      console.log(`   🕐 Current Time: ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} (${currentMinutes} minutes)`);
+      console.log(`   🕐 Current Time: ${localNow.getUTCHours()}:${localNow.getUTCMinutes().toString().padStart(2, '0')} (${currentMinutes} minutes)`);
       console.log(`   📊 Found ${schedules.length} schedule(s)`);
       
       // Find matching schedule
@@ -74,39 +108,23 @@ class AutoStatusService {
         }
         
         console.log(`      ✅ Today IS in schedule days`);
-        
-        // Get schedule time range
-        const startDate = new Date(schedule.startTime);
-        const endDate = new Date(schedule.endTime);
-        
-        let startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
-        let endMinutes = endDate.getHours() * 60 + endDate.getMinutes();
-        
-        console.log(`      ⏰ Schedule Time: ${startDate.getHours()}:${startDate.getMinutes().toString().padStart(2, '0')} to ${endDate.getHours()}:${endDate.getMinutes().toString().padStart(2, '0')}`);
-        console.log(`      ⏰ Minutes: ${startMinutes} to ${endMinutes}`);
-        
-        // Handle cross-midnight
-        let isInRange = false;
+
+        // Evaluate the window in the user's timezone — returns the window's
+        // end instant when `now` is inside it, else null.
+        const startMinutes = minutesOfDayInTimezone(schedule.startTime, timezone);
+        const endMinutes = minutesOfDayInTimezone(schedule.endTime, timezone);
+        const window = activeScheduleWindow(schedule, timezone, now);
+
+        console.log(`      ⏰ Schedule Time: ${Math.floor(startMinutes / 60)}:${String(startMinutes % 60).padStart(2, '0')} to ${Math.floor(endMinutes / 60)}:${String(endMinutes % 60).padStart(2, '0')} (${timezone})`);
         if (endMinutes < startMinutes) {
-          // Cross-midnight case (e.g., 11 PM to 5 AM)
-          isInRange = currentMinutes >= startMinutes || currentMinutes < endMinutes;
           console.log(`      🌙 Cross-midnight schedule`);
         } else {
-          // Same-day case (e.g., 9 AM to 6 PM)
-          isInRange = currentMinutes >= startMinutes && currentMinutes < endMinutes;
           console.log(`      ☀️ Same-day schedule`);
         }
-        
-        console.log(`      ${isInRange ? '✅' : '❌'} Current time ${isInRange ? 'IS' : 'is NOT'} in range`);
-        
-        if (isInRange) {
-          // Get user
-          const user = await User.findOne({ userId });
-          if (!user) {
-            console.log(`❌ [AUTO-STATUS] User ${userId} not found`);
-            return null;
-          }
-          
+
+        console.log(`      ${window ? '✅' : '❌'} Current time ${window ? 'IS' : 'is NOT'} in range`);
+
+        if (window) {
           // Check if status needs updating
           console.log(`      👤 Current user status: "${user.status}"`);
           console.log(`      🎯 Target status: "${schedule.status}"`);
@@ -127,57 +145,62 @@ class AutoStatusService {
           
           if (user.status !== schedule.status) {
             const oldStatus = user.status;
-            const oldSubStatus = user.subStatus;
             console.log(`      🔄 Status needs updating!`);
-            
-            // ✅ FIX BUG #2: Preserve sub-status during auto-status change
-            // Only update main status, keep sub-status intact
-            console.log(`      📌 Preserving sub-status: "${oldSubStatus || 'none'}"`);
-            
-            // Update user status
+
+            // Write the hierarchical status fields too (same shape the
+            // primary-time scheduler writes) and clear any sub-status —
+            // the schedule defines the user's whole status for the window.
             user.status = schedule.status;
             user.customStatus = schedule.customStatus || '';
             user.statusUpdatedAt = now;
             user.wasAutoApplied = true;
-            // Note: user.subStatus is NOT modified - it's preserved!
-            await user.save();
-            
-            if (oldSubStatus) {
-              console.log(`      ✅ Sub-status "${oldSubStatus}" preserved after main status change`);
+            user.mainStatus = schedule.status;
+            user.mainStartTime = now;
+            user.mainEndTime = window.endAt;
+            user.statusUntil = window.endAt;
+            user.subStatus = null;
+            user.subDuration = 0;
+            user.subDurationLabel = '';
+            user.subStartTime = null;
+            user.subEndTime = null;
+
+            // Compare-and-set save so a concurrent manual write wins.
+            const saved = await saveStatusIfUnchanged(user, {}, now);
+            if (!saved) {
+              console.log(`⏸️ [AUTO-STATUS] ${userId} changed concurrently — skipping auto-apply`);
+              return null;
             }
-            
-            console.log(`✅ [AUTO-STATUS] Updated ${userId}: "${oldStatus}" → "${schedule.status}"`);
-            
+
+            console.log(`✅ [AUTO-STATUS] Updated ${userId}: "${oldStatus}" → "${schedule.status}" (until ${window.endAt.toISOString()})`);
+
             // Broadcast to friends via socket
             try {
               const io = require('../socketManager').getIO();
               if (io) {
+                const payload = {
+                  userId: user.userId,
+                  status: user.status,
+                  customStatus: user.customStatus,
+                  mainStatus: user.mainStatus,
+                  mainStartTime: user.mainStartTime,
+                  mainEndTime: user.mainEndTime,
+                  statusUntil: user.statusUntil,
+                  subStatus: null,
+                  timestamp: now,
+                  wasAutoApplied: true
+                };
                 // Broadcast to all connected clients
-                io.emit('status_update', {
-                  userId: user.userId,
-                  status: user.status,
-                  customStatus: user.customStatus,
-                  subStatus: user.subStatus, // ✅ Include sub-status
-                  timestamp: now,
-                  wasAutoApplied: true
-                });
-                
+                io.emit('status_update', payload);
+
                 // Also emit specific event for this user's contacts
-                io.emit('contact_status_update', {
-                  userId: user.userId,
-                  status: user.status,
-                  customStatus: user.customStatus,
-                  subStatus: user.subStatus, // ✅ Include sub-status
-                  timestamp: now,
-                  wasAutoApplied: true
-                });
-                
+                io.emit('contact_status_update', payload);
+
                 console.log(`📡 [AUTO-STATUS] Broadcasted status update for ${userId}`);
               }
             } catch (socketError) {
               console.error(`❌ [AUTO-STATUS] Socket broadcast error:`, socketError.message);
             }
-            
+
             return {
               userId,
               oldStatus,
