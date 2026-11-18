@@ -10,7 +10,11 @@ const Rippler = require('../models/Rippler');
 
 const canView = (ripple, member, ctx, userId) => {
   if (ctx.blockedIds.has(ripple.hostUserId)) return false;
-  if (ripple.lifecycle === 'removed') return ripple.hostUserId === userId;
+  // Drafts share the removed rule: host-only. A draft is not published
+  // content — it must never be viewable by link to anyone else.
+  if (ripple.lifecycle === 'removed' || ripple.lifecycle === 'draft') {
+    return ripple.hostUserId === userId;
+  }
   if (
     ripple.hostUserId === userId ||
     (member && Rippler.VIEWING_STATUSES.includes(member.status))

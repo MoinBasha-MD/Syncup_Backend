@@ -41,9 +41,13 @@ const getSocketManager = () => require('../socketManager');
 const { validateEnvelope, isE2eeV2, e2eeOpenEnforced } = require('../utils/e2eeEnvelope');
 
 const OPEN_TO = OpenNetworkProfile.OPEN_TO;
+const isDiscoverable = OpenNetworkProfile.isDiscoverable;
+const DISCOVERY_FILTER = OpenNetworkProfile.DISCOVERY_FILTER;
 const DISCOVERABLE_LIFECYCLES = ['active', 'wrapping', 'scheduled'];
 const DAY_MS = 24 * 60 * 60 * 1000;
-const ACTIVE_WINDOW_MS = 30 * DAY_MS;
+// People search shows who is around NOW — a 30-day window carried members
+// who opened the app once a month ago, which is not current availability.
+const PEOPLE_ACTIVITY_WINDOW_MS = DAY_MS;
 const PRESENCE_REFRESH_MS = 15 * 60 * 1000;
 const CONNECT_RATE_LIMIT = 25;
 const CONNECT_COOLDOWN_MS = 7 * DAY_MS;
@@ -62,6 +66,35 @@ const err = (ErrorClass, message, code, statusCode) => {
 const num = (v) => {
   const n = parseFloat(v);
   return Number.isFinite(n) ? n : null;
+};
+
+/** Strict coordinate parse — number or nonempty numeric string only.
+ *  Booleans, arrays, and blank strings all coerce through Number()/parseFloat()
+ *  into plausible values (true→1, []→0, ''→0); they must be rejected instead.
+ *  Zero is a valid coordinate. */
+const strictCoord = (v) => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
+
+/**
+ * A peer must be a joined member neither side has blocked before a new chat
+ * or accept can proceed. Reads/history stay intact — this only gates NEW
+ * sends/accepts (sendMessage enforces the same rule independently).
+ */
+const requireAvailablePeer = async (userId, otherId, userObjectId) => {
+  const [ctx, joined] = await Promise.all([
+    getViewerContext(userId, userObjectId),
+    OpenNetworkProfile.exists({ userId: otherId, joined: true }),
+  ]);
+  if (!joined || ctx.blockedIds.has(otherId)) {
+    throw err(NotFoundError, 'Person not found', 'PERSON_NOT_FOUND');
+  }
+  return ctx;
 };
 
 const sanitizeInterests = (input) =>
@@ -116,14 +149,28 @@ const updatePersona = asyncHandler(async (req, res) => {
 });
 
 // @route POST /api/open-network/presence — coarse home anchor + activity tick
+//
+// Publishes ONLY with explicit consent: the write is a conditional atomic
+// updateOne whose filter requires joined + discoverable + discoveryConsent,
+// so a presence ping in flight when the member opts out can never restore
+// the home anchor the opt-out just cleared. Without consent this endpoint
+// rejects before any geocode or write; a stale request whose conditional
+// update matches nothing gets the same rejection.
 const updatePresence = asyncHandler(async (req, res) => {
-  const lng = num(req.body?.lng);
-  const lat = num(req.body?.lat);
-  if (lng === null || lat === null) {
-    throw err(BadRequestError, 'lng and lat are required numbers', 'BAD_LOCATION');
+  const profile = req.openNetworkProfile;
+  if (!isDiscoverable(profile)) {
+    throw err(ForbiddenError, 'Nearby visibility is off', 'PRESENCE_DISABLED');
   }
 
-  const profile = req.openNetworkProfile;
+  const lng = strictCoord(req.body?.lng);
+  const lat = strictCoord(req.body?.lat);
+  if (
+    lng === null || lat === null ||
+    Math.abs(lng) > 180 || Math.abs(lat) > 90
+  ) {
+    throw err(BadRequestError, 'lng and lat are required numbers in range', 'BAD_LOCATION');
+  }
+
   const [clng, clat] = coarsenPoint(lng, lat);
   const existing = profile.home?.point?.coordinates;
   const coarseUnchanged =
@@ -135,32 +182,56 @@ const updatePresence = asyncHandler(async (req, res) => {
     profile.home?.updatedAt &&
     Date.now() - new Date(profile.home.updatedAt).getTime() < PRESENCE_REFRESH_MS;
 
-  profile.lastActiveAt = new Date();
+  const presenceFilter = { userId: profile.userId, joined: true, ...DISCOVERY_FILTER };
+  const now = new Date();
+  let home;
+
+  let update;
   if (recentlyResolved && coarseUnchanged) {
-    // Same ~5km cell seen recently — skip the reverse geocode.
-    await profile.save();
+    // Same ~5km cell seen recently — skip the reverse geocode, just tick.
+    update = await OpenNetworkProfile.updateOne(presenceFilter, {
+      $set: { lastActiveAt: now },
+    });
+    home = profile.home || {};
   } else {
-    const place = await resolvePlace(lng, lat); // never throws
-    profile.home = {
-      city: place.city || '',
-      state: place.state || '',
-      country: place.country || '',
-      countryCode: place.countryCode || '',
-      cityKey: place.cityKey || '',
-      label: place.label || place.city || '',
-      point: { type: 'Point', coordinates: [clng, clat] },
-      // Flat copies for bbox queries — the pre-save hook re-derives them on
-      // save; writing both keeps updateMany paths consistent too.
-      lng: clng,
-      lat: clat,
-      updatedAt: new Date(),
-    };
-    await profile.save();
+    // Reverse-geocode the SNAPPED point only — the precise coordinate never
+    // leaves this handler and never reaches the geocoder.
+    const place = await resolvePlace(clng, clat); // never throws
+    update = await OpenNetworkProfile.updateOne(presenceFilter, {
+      $set: {
+        lastActiveAt: now,
+        'home.city': place.city || '',
+        'home.state': place.state || '',
+        'home.country': place.country || '',
+        'home.countryCode': place.countryCode || '',
+        'home.cityKey': place.cityKey || '',
+        'home.label': place.label || place.city || '',
+        'home.point': { type: 'Point', coordinates: [clng, clat] },
+        // Flat copies for bbox queries — updateOne skips the pre-save hook,
+        // so they are written here in lockstep.
+        'home.lng': clng,
+        'home.lat': clat,
+        'home.updatedAt': now,
+      },
+    });
+    home = update.matchedCount > 0
+      ? {
+          city: place.city || '',
+          country: place.country || '',
+          label: place.label || place.city || '',
+        }
+      : profile.home || {};
   }
 
-  const home = profile.home || {};
+  // A stale request that raced an opt-out matched nothing — report it
+  // exactly like a hidden member instead of returning a false success.
+  if (!update.matchedCount) {
+    throw err(ForbiddenError, 'Nearby visibility is off', 'PRESENCE_DISABLED');
+  }
+
   res.status(200).json({
     success: true,
+    published: true,
     home: { city: home.city || '', country: home.country || '', label: home.label || '' },
   });
 });
@@ -237,13 +308,33 @@ const listPeople = asyncHandler(async (req, res) => {
   const myProfile = req.openNetworkProfile;
   const ctx = await getViewerContext(userId, req.user._id);
 
-  // Origin: a coarsened query point, else the viewer's coarse home anchor.
+  // Origin: a coarsened query point, else the viewer's coarse home anchor —
+  // but only when the viewer's own consent is current. Legacy rows can still
+  // carry a home anchor they never opted into; it must not power browsing.
+  // The home fallback applies only when NEITHER coordinate was supplied —
+  // a half/invalid point is a client bug and must surface as BAD_LOCATION,
+  // not silently browse around the anchor.
   let origin = null;
-  const qlng = num(req.query.lng);
-  const qlat = num(req.query.lat);
-  if (qlng !== null && qlat !== null) {
+  const qlng = strictCoord(req.query.lng);
+  const qlat = strictCoord(req.query.lat);
+  const lngGiven = req.query.lng !== undefined && req.query.lng !== '';
+  const latGiven = req.query.lat !== undefined && req.query.lat !== '';
+  if (lngGiven || latGiven) {
+    if (
+      qlng === null || qlat === null ||
+      Math.abs(qlng) > 180 || Math.abs(qlat) > 90
+    ) {
+      throw err(
+        BadRequestError,
+        'lng and lat must both be numbers in range when supplied',
+        'BAD_LOCATION',
+      );
+    }
     origin = coarsenPoint(qlng, qlat);
-  } else if (myProfile.home?.point?.coordinates?.length === 2) {
+  } else if (
+    isDiscoverable(myProfile) &&
+    myProfile.home?.point?.coordinates?.length === 2
+  ) {
     origin = myProfile.home.point.coordinates;
   }
   if (!origin) {
@@ -267,10 +358,10 @@ const listPeople = asyncHandler(async (req, res) => {
 
   const query = {
     joined: true,
-    'settings.discoverable': true,
+    ...DISCOVERY_FILTER,
     // blockedIds covers both directions (I blocked them / they blocked me).
     userId: { $ne: userId, $nin: [...ctx.blockedIds] },
-    lastActiveAt: { $gte: new Date(Date.now() - ACTIVE_WINDOW_MS) },
+    lastActiveAt: { $gte: new Date(Date.now() - PEOPLE_ACTIVITY_WINDOW_MS) },
     'home.point': { $exists: true },
   };
   if (openTo.length) query['persona.openTo'] = { $in: openTo };
@@ -326,6 +417,9 @@ const peopleHeat = asyncHandler(async (req, res) => {
   }
 
   const boxes = normalizeBbox({ swLng, swLat, neLng, neLat });
+  // Blocked members must never appear on the heat map — a count that
+  // silently includes someone who blocked the viewer is still a leak.
+  const ctx = await getViewerContext(req.user.userId, req.user._id);
   // Flat numeric ranges on home.lng/home.lat — $geoWithin $box is a
   // legacy-coordinate operator and does not reliably match GeoJSON
   // (mirrors the viewport path's bboxOr on Ripple.lng/lat).
@@ -333,8 +427,9 @@ const peopleHeat = asyncHandler(async (req, res) => {
     {
       $match: {
         joined: true,
-        'settings.discoverable': true,
-        lastActiveAt: { $gte: new Date(Date.now() - ACTIVE_WINDOW_MS) },
+        ...DISCOVERY_FILTER,
+        userId: { $nin: [...ctx.blockedIds] },
+        lastActiveAt: { $gte: new Date(Date.now() - PEOPLE_ACTIVITY_WINDOW_MS) },
         'home.cityKey': { $ne: '' },
         $or: boxes.map((b) => ({
           'home.lng': { $gte: b.swLng, $lte: b.neLng },
@@ -392,7 +487,7 @@ const getPerson = asyncHandler(async (req, res) => {
     !profile.joined ||
     (!isSelf &&
       (ctx.blockedIds.has(targetId) ||
-        (!profile.settings?.discoverable && !connected && !isFriend)))
+        (!isDiscoverable(profile) && !connected && !isFriend)))
   ) {
     throw err(NotFoundError, 'Person not found', 'PERSON_NOT_FOUND');
   }
@@ -601,7 +696,7 @@ const createConnection = asyncHandler(async (req, res) => {
   }
 
   // Non-discoverable members are only reachable through a shared Ripple.
-  if (!targetProfile.settings?.discoverable && !(await sharesRipple(userId, toUserId))) {
+  if (!isDiscoverable(targetProfile) && !(await sharesRipple(userId, toUserId))) {
     throw err(NotFoundError, 'Person not found', 'PERSON_NOT_FOUND');
   }
 
@@ -798,6 +893,10 @@ const acceptConnectionEndpoint = asyncHandler(async (req, res) => {
   if (conn.recipientId !== req.user.userId) {
     throw err(ForbiddenError, 'Only the recipient can accept', 'FORBIDDEN');
   }
+  // Accepting after the peer left or a block landed must not open a chat or
+  // fire a notification — gate every path that writes/accepts.
+  const otherId = conn.requesterId === req.user.userId ? conn.recipientId : conn.requesterId;
+  await requireAvailablePeer(req.user.userId, otherId, req.user._id);
   if (conn.status === 'accepted') {
     const chat = await OpenChat.findOrCreate(conn.requesterId, conn.recipientId, conn._id);
     return res.status(200).json({
@@ -935,13 +1034,16 @@ const listChats = asyncHandler(async (req, res) => {
 const chatWith = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const otherId = String(req.params.userId);
+  // A peer who left or is blocked can never get a new (or re-fetched) chat —
+  // the check runs before the connection lookup so the accepted branch can't
+  // skip it. Historical reads (listMessages/loadChat) stay untouched.
+  const ctx = await requireAvailablePeer(userId, otherId, req.user._id);
   let conn = await OpenConnection.findOne({
     pairKey: pairKey(userId, otherId),
     status: 'accepted',
   }).lean();
   if (!conn) {
     // Syncup friends are implicitly connected — materialize the row on demand.
-    const ctx = await getViewerContext(userId, req.user._id);
     if (ctx.friendIds.has(otherId) && !ctx.blockedIds.has(otherId)) {
       conn = await ensureFriendConnection(userId, otherId);
     }

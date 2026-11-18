@@ -42,12 +42,24 @@ const MIN_CLUSTER_EXACT_COUNT = 3;
 
 // home returns only the city-level label — the stored point is coarse but
 // still never leaves the server (the people layer renders distance labels).
-const profileView = (p) => ({
+// Settings are the EFFECTIVE values: lean docs and legacy rows may miss
+// discoveryConsent entirely, so it is normalised here rather than trusted.
+const profileView = (p) => {
+  const raw = p.settings?.toObject?.() ?? p.settings ?? {};
+  return {
   userId: p.userId,
   joined: p.joined,
   joinedAt: p.joinedAt,
   leftAt: p.leftAt,
-  settings: p.settings,
+  settings: {
+    // The EFFECTIVE switch — a legacy row with raw discoverable:true and no
+    // recorded consent reports OFF so the client never re-publishes on it.
+    discoverable: OpenNetworkProfile.isDiscoverable(p),
+    discoveryConsent: raw.discoveryConsent === true,
+    defaultReach: raw.defaultReach || 'city',
+    defaultVisibility: raw.defaultVisibility || 'public',
+    notifyNearby: raw.notifyNearby !== false,
+  },
   reputation: p.reputation,
   persona: p.persona || null,
   home: p.home
@@ -58,7 +70,8 @@ const profileView = (p) => ({
         label: p.home.label || '',
       }
     : null,
-});
+  };
+};
 
 // @route GET /api/open-network/me — no join requirement (drives the gate UI)
 const getMe = asyncHandler(async (req, res) => {
@@ -79,11 +92,35 @@ const joinOpenNetwork = asyncHandler(async (req, res) => {
 });
 
 // @route POST /api/open-network/leave
+// Wipe the published home anchor + activity stamp — called both by the
+// discoverable-off write and by leave, so neither can leave location behind.
+const clearHomeAndActivity = (profile) => {
+  // Written out field-by-field so a nested merge can't keep leftovers.
+  profile.home = {
+    city: '',
+    state: '',
+    country: '',
+    countryCode: '',
+    cityKey: '',
+    label: '',
+    point: undefined,
+    lng: null,
+    lat: null,
+    updatedAt: null,
+  };
+  profile.lastActiveAt = null;
+};
+
 const leaveOpenNetwork = asyncHandler(async (req, res) => {
   const profile = await OpenNetworkProfile.getOrCreate(req.user.userId);
   if (profile.joined) {
     profile.joined = false;
     profile.leftAt = new Date();
+    // Leaving retracts the People consent too — a later re-join starts
+    // hidden and must opt in again explicitly.
+    profile.settings.discoverable = false;
+    profile.settings.discoveryConsent = false;
+    clearHomeAndActivity(profile);
     await profile.save();
   }
   res.status(200).json({ success: true, profile: profileView(profile) });
@@ -106,6 +143,20 @@ const updateSettings = asyncHandler(async (req, res) => {
         throw new BadRequestError(`settings.${key} must be a boolean`);
       }
       profile.settings[key] = patch[key];
+      // The discoverable switch IS the consent: flipping it on records
+      // agreement; flipping it off retracts it and wipes the published
+      // home anchor + activity stamp immediately.
+      if (key === 'discoverable') {
+        if (patch[key] === true && profile.settings.discoveryConsent !== true) {
+          // Recording NEW consent: a legacy row can still hold a stale home
+          // anchor from before consent existed. Clear it BEFORE saving the
+          // consent so the old point is never republished ahead of a fresh
+          // presence ping.
+          clearHomeAndActivity(profile);
+        }
+        profile.settings.discoveryConsent = patch[key];
+        if (patch[key] === false) clearHomeAndActivity(profile);
+      }
     } else if (SETTINGS_ENUMS[key]) {
       if (!SETTINGS_ENUMS[key].includes(patch[key])) {
         throw new BadRequestError(
@@ -124,6 +175,21 @@ const updateSettings = asyncHandler(async (req, res) => {
 const num = (v) => {
   const n = parseFloat(v);
   return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Strict coordinate parse — number or nonempty numeric string only.
+ * Booleans, arrays and blank strings coerce into plausible numbers through
+ * Number()/parseFloat() (true→1, []→0, ''→0); they must be rejected.
+ * Zero is a valid coordinate.
+ */
+const strictCoord = (v) => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 };
 
 /**
@@ -456,7 +522,7 @@ const getPulse = asyncHandler(async (req, res) => {
     }),
     OpenNetworkProfile.countDocuments({
       joined: true,
-      'settings.discoverable': true,
+      ...OpenNetworkProfile.DISCOVERY_FILTER,
       lastActiveAt: { $gte: dayAgo },
       ...(country ? { 'home.countryCode': country } : {}),
     }),
@@ -527,10 +593,13 @@ const getPulse = asyncHandler(async (req, res) => {
 // @route GET /api/open-network/nearby?lng&lat&radiusKm
 const getNearby = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
-  const lng = num(req.query.lng);
-  const lat = num(req.query.lat);
-  if (lng === null || lat === null) {
-    const err = new BadRequestError('lng and lat are required numbers');
+  const lng = strictCoord(req.query.lng);
+  const lat = strictCoord(req.query.lat);
+  if (
+    lng === null || lat === null ||
+    Math.abs(lng) > 180 || Math.abs(lat) > 90
+  ) {
+    const err = new BadRequestError('lng and lat are required numbers in range');
     err.code = 'BAD_COORDS';
     throw err;
   }

@@ -230,8 +230,12 @@ const joinRipple = asyncHandler(async (req, res) => {
     Array.isArray(cc) && cc.length === 2 && cc.every(Number.isFinite) ? cc : undefined;
 
   // The client doesn't send these — fall back to the joiner's coarse home
-  // anchor (already a snapped ~5km point, so this never leaks precision).
-  const home = req.openNetworkProfile?.home;
+  // anchor (already a snapped ~5km point, so this never leaks precision) —
+  // but only while their discovery consent is current. A legacy anchor must
+  // not keep filling join origins after consent was never given or revoked.
+  const home = OpenNetworkProfile.isDiscoverable(req.openNetworkProfile)
+    ? req.openNetworkProfile.home
+    : null;
   if (home) {
     if (!originCityKey && home.cityKey) originCityKey = home.cityKey;
     if (!originCentroid && home.point?.coordinates?.length === 2) {

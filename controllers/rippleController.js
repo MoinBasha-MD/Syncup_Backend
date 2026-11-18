@@ -221,9 +221,21 @@ const createRipple = asyncHandler(async (req, res) => {
   let discoverability = body.discoverability || 'listed';
   const reach = body.reach || 'city';
   const isOnline = reach === 'online';
-  const lng = body.lng != null ? Number(body.lng) : null;
-  const lat = body.lat != null ? Number(body.lat) : null;
-  if (!isOnline && (!Number.isFinite(lng) || !Number.isFinite(lat))) {
+  // Strict coordinates: a number or a nonempty numeric string only —
+  // booleans, arrays and blank strings all coerce through Number() into
+  // plausible values (true→1, []→0, ''→0) and must be rejected. Zero is
+  // a valid coordinate and must survive.
+  const parseCoord = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  };
+  const lng = parseCoord(body.lng);
+  const lat = parseCoord(body.lat);
+  if (!isOnline && (lng === null || lat === null)) {
     const err = new BadRequestError('lng and lat are required unless reach is online');
     err.code = 'VALIDATION';
     throw err;

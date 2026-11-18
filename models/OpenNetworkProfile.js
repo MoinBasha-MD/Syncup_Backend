@@ -38,7 +38,13 @@ const openNetworkProfileSchema = new mongoose.Schema(
     joinedAt: { type: Date, default: null },
     leftAt: { type: Date, default: null },
     settings: {
-      discoverable: { type: Boolean, default: true },
+      // People visibility is OFF until the member explicitly turns it on.
+      // `discoverable` is the member's switch; `discoveryConsent` records
+      // that the switch was flipped deliberately (presence writes and the
+      // discovery surfaces require BOTH — a passive ping can never publish
+      // someone who never opted in).
+      discoverable: { type: Boolean, default: false },
+      discoveryConsent: { type: Boolean, default: false },
       defaultReach: {
         type: String,
         enum: ['neighborhood', 'city', 'region', 'global', 'online'],
@@ -150,5 +156,21 @@ openNetworkProfileSchema.index({ 'home.lng': 1, 'home.lat': 1 });
 
 const OpenNetworkProfile = mongoose.model('OpenNetworkProfile', openNetworkProfileSchema);
 OpenNetworkProfile.OPEN_TO = OPEN_TO;
+
+/**
+ * Effective People visibility: joined AND the member's switch AND recorded
+ * consent. Legacy rows default-true on `discoverable` but have no consent,
+ * so they stay invisible until the member re-confirms — exactly the point.
+ */
+OpenNetworkProfile.isDiscoverable = (p) =>
+  p?.joined === true &&
+  p.settings?.discoverable === true &&
+  p.settings?.discoveryConsent === true;
+// Query-side twin of isDiscoverable — spread into every people-surface
+// filter so a profile can never appear where it shouldn't.
+OpenNetworkProfile.DISCOVERY_FILTER = {
+  'settings.discoverable': true,
+  'settings.discoveryConsent': true,
+};
 
 module.exports = OpenNetworkProfile;

@@ -6,6 +6,7 @@ tests/
 !tests/
 tests/*
 !tests/rippleOngoing.node.test.js
+!tests/openNetworkDiscovery.node.test.js
 components.zip
 *.md
 

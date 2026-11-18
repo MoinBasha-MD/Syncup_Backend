@@ -12,6 +12,16 @@ const pairKey = (a, b) => [String(a), String(b)].sort().join('|');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Effective People consent — mirrors OpenNetworkProfile.isDiscoverable.
+ * Legacy rows still carry home/activity fields they never opted into;
+ * DTOs must mask them rather than re-publish what consent never covered.
+ */
+const hasDiscoveryConsent = (profile) =>
+  profile?.joined === true &&
+  profile.settings?.discoverable === true &&
+  profile.settings?.discoveryConsent === true;
+
 /** 'Active today' (<24h), 'Active this week' (<7d), else hidden. */
 const activeLabel = (lastActiveAt, now = Date.now()) => {
   if (!lastActiveAt) return null;
@@ -28,7 +38,7 @@ const toPersonMini = (profile, user) => ({
   name: user?.name || 'Someone',
   avatar: user?.profileImage || null,
   headline: profile.persona?.headline || '',
-  city: profile.home?.city || '',
+  city: hasDiscoveryConsent(profile) ? profile.home?.city || '' : '',
 });
 
 /**
@@ -49,6 +59,7 @@ const toPersonSummary = (profile, user, extras = {}) => {
     : [];
   const mine = Array.isArray(extras.viewerInterests) ? extras.viewerInterests : [];
   const mySet = new Set(mine);
+  const consented = hasDiscoveryConsent(profile);
   return {
     userId: profile.userId,
     name: user?.name || 'Someone',
@@ -56,16 +67,18 @@ const toPersonSummary = (profile, user, extras = {}) => {
     headline: profile.persona?.headline || '',
     interests,
     openTo: Array.isArray(profile.persona?.openTo) ? profile.persona.openTo : [],
-    city: profile.home?.city || '',
-    country: profile.home?.country || '',
+    city: consented ? profile.home?.city || '' : '',
+    country: consented ? profile.home?.country || '' : '',
     distanceLabel:
-      extras.distanceKm != null ? distanceLabel(extras.distanceKm) : null,
+      consented && extras.distanceKm != null
+        ? distanceLabel(extras.distanceKm)
+        : null,
     sharedInterests: interests.filter((i) => mySet.has(i)),
     connection: extras.connection || 'none',
     connectionId: extras.connectionId || null,
     isFriend: !!extras.isFriend,
     activeRippleCount: extras.activeRippleCount ?? 0,
-    activeLabel: activeLabel(profile.lastActiveAt),
+    activeLabel: consented ? activeLabel(profile.lastActiveAt) : null,
   };
 };
 

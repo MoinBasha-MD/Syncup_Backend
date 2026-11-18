@@ -124,6 +124,10 @@ const notifyRippleNearby = (ripple) => {
 
       const profiles = await OpenNetworkProfile.find({
         joined: true,
+        // Only members who consented to People discovery get pinged about
+        // who/what is near their home anchor — the anchor itself is
+        // consent-gated, so the notification must be too.
+        ...OpenNetworkProfile.DISCOVERY_FILTER,
         'settings.notifyNearby': true,
         userId: { $ne: ripple.hostUserId },
         'home.point': {
