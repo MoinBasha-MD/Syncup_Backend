@@ -13,6 +13,7 @@
     "test:admin": "node --test tests/*.node.test.js",
     "create-admin": "node scripts/create-admin.js",
     "reset-admin-password": "node scripts/reset-admin-password.js",
+    "send-waitlist-welcome": "node sendWaitlistWelcomeEmails.js",
     "monitor:ai": "node scripts/monitor-ai-logs.js",
     "monitor:connections": "node scripts/monitor-connection-logs.js",
     "monitor:all": "concurrently \"npm run dev\" \"npm run monitor:ai\" \"npm run monitor:connections\"",

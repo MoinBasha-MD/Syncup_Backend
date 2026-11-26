@@ -2,6 +2,8 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const WaitlistEntry = require('../models/WaitlistEntry');
 const { verifyToken } = require('./adminAuthRoutes');
+const emailService = require('../services/emailService');
+const { verifyWaitlistPassword } = require('../config/waitlistAccess');
 
 const router = express.Router();
 
@@ -17,9 +19,39 @@ const joinLimiter = rateLimit({
   },
 });
 
+// Wrong guesses are rejected here; the shared password never reaches the client.
+// Only failures count toward the limit, so the owner can reopen the list freely.
+const unlockLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many attempts. Please try again later.',
+  },
+});
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 const countEntries = () => WaitlistEntry.countDocuments();
+
+// Fire-and-forget: a crash right after signup loses one welcome email; rerun
+// sendWaitlistWelcomeEmails.js to send any that were missed.
+const sendWelcomeEmail = (entryId, name, email) => {
+  emailService
+    .sendWaitlistWelcome(email, name)
+    .then((result) => {
+      if (result.success) {
+        return WaitlistEntry.updateOne(
+          { _id: entryId },
+          { $set: { welcomeEmailSentAt: new Date() } }
+        );
+      }
+    })
+    .catch((error) => console.error('[waitlist] welcome email failed:', error.message));
+};
 
 // POST /api/waitlist — public join
 router.post('/', joinLimiter, async (req, res) => {
@@ -41,11 +73,14 @@ router.post('/', joinLimiter, async (req, res) => {
   }
 
   try {
-    await WaitlistEntry.updateOne(
+    const result = await WaitlistEntry.updateOne(
       { email },
       { $setOnInsert: { name, email, source: 'website' } },
       { upsert: true }
     );
+    if (result.upsertedId) {
+      sendWelcomeEmail(result.upsertedId, name, email);
+    }
     return res.json({ success: true, count: await countEntries() });
   } catch (error) {
     // Unique-index race between two identical submissions is still a success.
@@ -71,6 +106,31 @@ router.get('/count', async (_req, res) => {
       success: false,
       message: 'Could not load the waitlist count.',
     });
+  }
+});
+
+// POST /api/waitlist/entries — password-protected joined-people list for the site owner
+router.post('/entries', unlockLimiter, async (req, res) => {
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  try {
+    if (!(await verifyWaitlistPassword(password))) {
+      return res.status(401).json({ success: false, message: 'Incorrect password.' });
+    }
+
+    const [entries, count] = await Promise.all([
+      WaitlistEntry.find()
+        .sort({ createdAt: -1 })
+        .limit(1000)
+        .select('name email createdAt')
+        .lean(),
+      countEntries(),
+    ]);
+    res.set('Cache-Control', 'no-store');
+    return res.json({ success: true, count, entries });
+  } catch (error) {
+    console.error('[waitlist] joined list failed:', error);
+    return res.status(500).json({ success: false, message: 'Could not load the waitlist.' });
   }
 });
 

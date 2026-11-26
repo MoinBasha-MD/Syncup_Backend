@@ -21,6 +21,10 @@ const waitlistEntrySchema = new mongoose.Schema(
       default: 'website',
       maxlength: 40,
     },
+    welcomeEmailSentAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

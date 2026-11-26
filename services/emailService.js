@@ -99,6 +99,59 @@ class EmailService {
     }
   }
 
+  async sendWaitlistWelcome(email, name) {
+    try {
+      if (!this.initialized) {
+        this.initialize();
+      }
+
+      const firstName = String(name || '').trim().split(/\s+/)[0] || 'there';
+      const info = await this.transporter.sendMail({
+        from: `"Crackman" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: 'Welcome to the Crackman family 💜',
+        html: this.getWaitlistWelcomeTemplate(this.escapeHtml(firstName)),
+      });
+
+      console.log('✅ [EMAIL SERVICE] Waitlist welcome sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('❌ [EMAIL SERVICE] Waitlist welcome failed:', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  getWaitlistWelcomeTemplate(firstName) {
+    const year = new Date().getFullYear();
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f5f5f5;">
+        <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+          <div style="background: linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%); color: white; padding: 40px 30px; text-align: center;">
+            <h1 style="margin: 0; font-size: 26px;">Welcome to the Crackman family</h1>
+          </div>
+          <div style="padding: 40px 30px;">
+            <p style="margin: 15px 0; color: #555;">Hi ${firstName},</p>
+            <p style="margin: 15px 0; color: #555;">You&apos;re officially on the Syncup early-access list — welcome to the Crackman family.</p>
+            <p style="margin: 15px 0; color: #555;">Syncup keeps your life in sync with your activities and the people who matter, so your social life feels effortless instead of scheduled. We&apos;ll email you the moment your invite is ready.</p>
+            <p style="margin-top: 30px; color: #555;">Best regards,<br><strong>Crackman Team</strong></p>
+          </div>
+          <div style="text-align: center; padding: 30px; background: #f8f9fa; color: #666; font-size: 13px; border-top: 1px solid #e9ecef;">
+            <p style="margin: 5px 0;"><strong>Crackman · Syncup</strong></p>
+            <p style="margin: 5px 0;">This is an automated message, please do not reply.</p>
+            <p style="margin: 5px 0;">© ${year} Crackman. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
   getRegistrationTemplate(otp) {
     return `
       <!DOCTYPE html>
