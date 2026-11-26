@@ -27,3 +27,6 @@ config/firebase-service-account.json
 
 # Dev fallback key for admin TOTP secrets (never commit)
 .admin-totp-key
+
+# Local env backups must never be tracked
+.env.redis-fix
