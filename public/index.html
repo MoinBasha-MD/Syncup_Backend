@@ -73,14 +73,70 @@
     text-transform: uppercase; color: var(--brand-2);
   }
   .join-count {
-    margin-top: 6px; font-size: 40px; font-weight: 800; line-height: 1.05;
-    letter-spacing: -0.03em; color: var(--brand-2); font-variant-numeric: tabular-nums;
+    display: block; width: 100%; margin-top: 6px; padding: 0;
+    border: 0; background: none; font-family: inherit; font-size: 40px;
+    font-weight: 800; line-height: 1.05; letter-spacing: -0.03em;
+    color: var(--brand-2); font-variant-numeric: tabular-nums; cursor: pointer;
   }
+  .join-count:hover { color: var(--brand-1); }
+  .join-count:focus-visible { outline: 2px solid var(--brand-2); outline-offset: 4px; border-radius: 8px; }
   .join-count .heart { font-size: 28px; vertical-align: 2px; }
   .join-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
   .join-cta { margin-top: 10px; font-size: 13px; }
   .join-cta a { color: var(--brand-2); font-weight: 700; text-decoration: none; }
   .join-cta a:hover { text-decoration: underline; }
+
+  .joined-overlay {
+    position: fixed; inset: 0; z-index: 50; display: flex; align-items: center;
+    justify-content: center; padding: 20px; background: rgba(23, 20, 43, 0.55);
+  }
+  .joined-overlay[hidden] { display: none; }
+  .joined-modal {
+    position: relative; width: 100%; max-width: 460px; max-height: min(90vh, 640px);
+    overflow-y: auto; padding: 24px; border-radius: 20px; background: #FFFFFF;
+    border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(23, 20, 43, 0.25);
+    text-align: left;
+  }
+  .joined-close {
+    position: absolute; top: 10px; right: 10px; width: 36px; height: 36px;
+    border-radius: 50%; border: 1px solid var(--line); background: #FFFFFF;
+    color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer;
+  }
+  .joined-close:hover { color: var(--ink); }
+  .joined-label { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--brand-2); }
+  .joined-title { margin: 6px 0 4px; font-size: 24px; letter-spacing: -0.02em; }
+  .joined-sub { margin-bottom: 16px; font-size: 14px; line-height: 1.5; color: var(--muted); }
+  .joined-input-label {
+    display: block; margin-bottom: 6px; font-size: 11px; font-weight: 700;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  }
+  .joined-input {
+    width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--bg); color: var(--ink); font: inherit; font-size: 16px;
+  }
+  .joined-input:focus {
+    outline: none; border-color: var(--brand-1);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+  }
+  .joined-error { margin-top: 10px; font-size: 13px; color: var(--bad); }
+  .joined-submit {
+    width: 100%; margin-top: 14px; padding: 12px 16px; border: 0; border-radius: 12px;
+    background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); color: #FFFFFF;
+    font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  .joined-submit:disabled { opacity: .65; cursor: wait; }
+  .joined-list {
+    list-style: none; max-height: min(50vh, 380px); overflow-y: auto;
+    margin-top: 6px; border-top: 1px solid var(--line);
+  }
+  .joined-person {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding: 10px 2px; border-bottom: 1px solid #F4F1FE;
+  }
+  .joined-person-main { min-width: 0; }
+  .joined-person-name { display: block; font-size: 14px; font-weight: 600; }
+  .joined-person-email { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .joined-person-date { flex: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
 
   .links { display: flex; gap: 10px; margin-top: 22px; }
   .links a {
@@ -125,7 +181,9 @@
 
   <div class="join-card">
     <div class="join-label">Syncup launch</div>
-    <div class="join-count"><span id="joinCount">—</span> <span class="heart">💜</span></div>
+    <button type="button" class="join-count" id="joinCountBtn" aria-haspopup="dialog" title="View joined people">
+      <span id="joinCount">—</span> <span class="heart">💜</span>
+    </button>
     <div class="join-sub" id="joinSub">people in sync</div>
     <div class="join-cta"><a href="https://crackman.in">Join them at crackman.in →</a></div>
   </div>
@@ -138,6 +196,27 @@
   </div>
 
   <footer><b>Syncup</b> · api.crackman.in</footer>
+</div>
+
+<div class="joined-overlay" id="joinedOverlay" hidden>
+  <div class="joined-modal" role="dialog" aria-modal="true" aria-labelledby="joinedTitle">
+    <button type="button" class="joined-close" id="joinedClose" aria-label="Close">×</button>
+    <div class="joined-label" id="joinedLabel">Owner access</div>
+    <h2 class="joined-title" id="joinedTitle">Joined people</h2>
+    <p class="joined-sub" id="joinedSub">Enter the password to view the waitlist.</p>
+
+    <form id="joinedForm">
+      <label class="joined-input-label" for="joinedPassword">Password</label>
+      <input class="joined-input" id="joinedPassword" type="password" autocomplete="off" maxlength="128" required>
+      <p class="joined-error" id="joinedError" role="alert" hidden></p>
+      <button class="joined-submit" id="joinedSubmit" type="submit">Unlock</button>
+    </form>
+
+    <div id="joinedListView" hidden>
+      <ul class="joined-list" id="joinedList"></ul>
+      <button class="joined-submit" id="joinedDone" type="button">Close</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -206,6 +285,142 @@
   loadWaitlist();
   setInterval(check, 30000);
   setInterval(loadWaitlist, 60000);
+
+  var joinedOverlay = document.getElementById('joinedOverlay');
+  var joinedBtn = document.getElementById('joinCountBtn');
+  var joinedClose = document.getElementById('joinedClose');
+  var joinedForm = document.getElementById('joinedForm');
+  var joinedPassword = document.getElementById('joinedPassword');
+  var joinedError = document.getElementById('joinedError');
+  var joinedSubmit = document.getElementById('joinedSubmit');
+  var joinedListView = document.getElementById('joinedListView');
+  var joinedList = document.getElementById('joinedList');
+  var joinedLabel = document.getElementById('joinedLabel');
+  var joinedSub = document.getElementById('joinedSub');
+  var joinedDone = document.getElementById('joinedDone');
+
+  function resetJoinedModal() {
+    joinedForm.hidden = false;
+    joinedListView.hidden = true;
+    joinedList.textContent = '';
+    joinedPassword.value = '';
+    joinedError.hidden = true;
+    joinedError.textContent = '';
+    joinedSubmit.disabled = false;
+    joinedSubmit.textContent = 'Unlock';
+    joinedLabel.textContent = 'Owner access';
+    joinedSub.textContent = 'Enter the password to view the waitlist.';
+  }
+
+  function openJoinedModal() {
+    resetJoinedModal();
+    joinedOverlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+    window.setTimeout(function () { joinedPassword.focus(); }, 30);
+  }
+
+  function closeJoinedModal() {
+    joinedOverlay.hidden = true;
+    document.body.style.overflow = '';
+    joinedBtn.focus();
+  }
+
+  function showJoinedError(message) {
+    joinedError.textContent = message;
+    joinedError.hidden = false;
+    joinedSubmit.disabled = false;
+    joinedSubmit.textContent = 'Unlock';
+    joinedPassword.focus();
+  }
+
+  function renderJoinedList(data) {
+    var entries = Array.isArray(data.entries) ? data.entries : [];
+    var total = typeof data.count === 'number' ? data.count : entries.length;
+
+    joinedForm.hidden = true;
+    joinedListView.hidden = false;
+    joinedLabel.textContent = 'Waitlist';
+    joinedSub.textContent = entries.length === 0
+      ? 'No one has joined yet.'
+      : entries.length < total
+        ? 'Newest first. Showing the latest ' + entries.length.toLocaleString() + ' of ' + total.toLocaleString() + '.'
+        : 'Newest first. ' + total.toLocaleString() + ' total.';
+
+    joinedList.textContent = '';
+    entries.forEach(function (entry) {
+      var item = document.createElement('li');
+      item.className = 'joined-person';
+
+      var main = document.createElement('div');
+      main.className = 'joined-person-main';
+
+      var name = document.createElement('span');
+      name.className = 'joined-person-name';
+      name.textContent = entry.name || '';
+
+      var email = document.createElement('span');
+      email.className = 'joined-person-email';
+      email.textContent = entry.email || '';
+
+      main.appendChild(name);
+      main.appendChild(email);
+      item.appendChild(main);
+
+      var date = document.createElement('time');
+      date.className = 'joined-person-date';
+      date.dateTime = entry.createdAt || '';
+      date.textContent = entry.createdAt
+        ? new Date(entry.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+        : '';
+      item.appendChild(date);
+
+      joinedList.appendChild(item);
+    });
+
+    if (!joinedOverlay.hidden) joinedDone.focus();
+  }
+
+  joinedBtn.addEventListener('click', openJoinedModal);
+  joinedClose.addEventListener('click', closeJoinedModal);
+  joinedDone.addEventListener('click', closeJoinedModal);
+  joinedOverlay.addEventListener('mousedown', function (event) {
+    if (event.target === joinedOverlay) closeJoinedModal();
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !joinedOverlay.hidden) closeJoinedModal();
+  });
+
+  joinedForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    var password = joinedPassword.value;
+    if (!password) {
+      showJoinedError('Enter the password.');
+      return;
+    }
+
+    joinedSubmit.disabled = true;
+    joinedSubmit.textContent = 'Checking…';
+    joinedError.hidden = true;
+
+    fetch('/api/waitlist/entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ password: password })
+    })
+      .then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          if (!response.ok) throw new Error(data.message || 'Could not unlock the list.');
+          return data;
+        });
+      })
+      .then(function (data) {
+        joinedPassword.value = '';
+        renderJoinedList(data);
+      })
+      .catch(function (error) {
+        showJoinedError(error.message || 'Could not unlock the list.');
+      });
+  });
 })();
 </script>
 </body>
