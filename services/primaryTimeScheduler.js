@@ -2,8 +2,12 @@ const PrimaryTimeProfile = require('../models/PrimaryTimeProfile');
 const User = require('../models/userModel');
 const StatusHistory = require('../models/statusHistoryModel');
 const cron = require('node-cron');
-const { activeWindow } = require('../utils/primaryTimeClock');
+const { activeWindow, nextWindow } = require('../utils/primaryTimeClock');
 const saveStatusIfUnchanged = require('./statusCompareAndSet');
+const { primaryTimeText } = require('../utils/primaryTimeText');
+
+const HEADS_UP_MS = 15 * 60 * 1000;
+const PRECHECK_MS = 20 * 60 * 1000;
 
 /**
  * Primary Time Scheduler Service
@@ -47,12 +51,18 @@ class PrimaryTimeSchedulerService {
       if (enabledProfiles.length === 0) {
         return null;
       }
+      // Equal priority: the user's own routines win over Autobot's.
+      enabledProfiles.sort((a, b) => ((b.priority || 1) - (a.priority || 1)) ||
+        (Number(a.source === 'autobot') - Number(b.source === 'autobot')));
 
       console.log(`🔍 [PRIMARY TIME SCHEDULER] Checking user ${userId}`);
       console.log(`   📊 Found ${enabledProfiles.length} enabled profile(s)`);
 
-      // Find enabled profiles that should be active right now (within time window)
-      const shouldBeActiveProfiles = enabledProfiles.filter(p => this.shouldProfileBeActive(p, now));
+      await this.sendAutobotPrechecks(enabledProfiles, now);
+      await this.sendHeadsUps(enabledProfiles, now);
+
+      // Find enabled profiles that should be active right now (within time window, not skipped)
+      const shouldBeActiveProfiles = enabledProfiles.filter(p => this.shouldProfileBeActive(p, now) && !(p.skipUntil > now));
 
       if (shouldBeActiveProfiles.length === 0) {
         // No profiles should be active right now — deactivate any that are currently active
@@ -83,8 +93,15 @@ class PrimaryTimeSchedulerService {
         // (statusController), so we only re-apply while the profile is still
         // linked — manual overrides mid-window keep their status.
         const user = await User.findById(userId);
-        if (user && user.primaryTimeProfileId &&
-            user.primaryTimeProfileId.toString() === targetProfile._id.toString()) {
+        const linked = user && user.primaryTimeProfileId &&
+            user.primaryTimeProfileId.toString() === targetProfile._id.toString();
+        if (!linked) {
+          if (user && targetProfile.source === 'autobot' && await this.settleAutobot(targetProfile, user, now)) {
+            console.log(`   ↩️ "${targetProfile.name}" resumes: the user's own status ran out`);
+            await this.activateProfile(targetProfile, userId);
+            return { userId, action: 'resumed', profile: targetProfile.name, status: targetProfile.status };
+          }
+        } else {
           const expired = user.statusUntil && new Date(user.statusUntil) <= now;
           const expectedEnd = this.getProfileEndTime(targetProfile, now);
           const drifted = user.status !== targetProfile.status ||
@@ -105,6 +122,16 @@ class PrimaryTimeSchedulerService {
           }
         }
         return null; // Already running (or intentionally detached), nothing to do
+      }
+
+      // Autobot never cuts off a status that is already running: it waits for it to end.
+      if (targetProfile.source === 'autobot') {
+        const user = await User.findById(userId);
+        const busy = user && this.otherRunningStatus(user, targetProfile, now);
+        if (busy) {
+          await this.notifyDeferred(targetProfile, user, busy, now);
+          return { userId, action: 'deferred', profile: targetProfile.name, status: busy };
+        }
       }
 
       // Deactivate any other active profiles first
@@ -147,6 +174,7 @@ class PrimaryTimeSchedulerService {
 
       // Update profile as active
       profile.isActive = true;
+      profile.resumeAfter = null;
       await profile.save();
 
       // Update user status
@@ -212,6 +240,7 @@ class PrimaryTimeSchedulerService {
           startTime: now,
           endTime: endTime,
           duration: durationMinutes,
+          source: profile.source === 'autobot' ? 'autobot' : 'primary_time',
         });
       } catch (histErr) {
         console.error(`   ⚠️ StatusHistory error:`, histErr.message);
@@ -246,11 +275,11 @@ class PrimaryTimeSchedulerService {
       // contacts, and tray notifications never run app code while asleep.
       await this.pushDeviceSignal(user, profile, 'apply');
 
-      // Send notification if enabled
+      // Send notification if enabled. FCM looks users up by the UUID userId, not the Mongo _id.
       if (profile.notifications.onStart) {
-        await this.sendNotification(userId, {
-          title: 'Primary Time Started',
-          body: `${profile.status} is now active`,
+        await this.sendNotification(user.userId, {
+          title: primaryTimeText(user.language, 'startedTitle'),
+          body: primaryTimeText(user.language, 'startedBody', { status: profile.status }),
           channelId: 'primary-time-channel',
           data: {
             type: 'primary_time_start',
@@ -275,6 +304,7 @@ class PrimaryTimeSchedulerService {
 
       // Update profile as inactive
       profile.isActive = false;
+      profile.resumeAfter = null;
       await profile.save();
 
       // Update user status back to Available
@@ -357,11 +387,11 @@ class PrimaryTimeSchedulerService {
       // Signal the OWNER's device(s) to restore the original ringer mode.
       await this.pushDeviceSignal(user, profile, 'restore');
 
-      // Send notification if enabled
+      // Send notification if enabled (UUID userId, see activateProfile)
       if (profile.notifications.onEnd) {
-        await this.sendNotification(userId, {
-          title: 'Primary Time Ended',
-          body: `${profile.status} has ended`,
+        await this.sendNotification(user.userId, {
+          title: primaryTimeText(user.language, 'endedTitle'),
+          body: primaryTimeText(user.language, 'endedBody', { status: profile.status }),
           channelId: 'primary-time-channel',
           data: {
             type: 'primary_time_end',
@@ -402,6 +432,7 @@ class PrimaryTimeSchedulerService {
       statusUntil: user.statusUntil ? new Date(user.statusUntil).toISOString() : '',
       startTime: profile.startTime,
       endTime: profile.endTime,
+      source: profile.source || 'manual', // the phone's Autobot learns from Primary Time, not from itself
     };
 
     // 1) Real-time path — app running with a connected socket
@@ -427,6 +458,127 @@ class PrimaryTimeSchedulerService {
     } catch (fcmErr) {
       console.error(`   ⚠️ [DEVICE SIGNAL] FCM data push failed:`, fcmErr.message);
     }
+  }
+
+  /**
+   * Warn the owner 15 minutes before an enabled profile's next window starts
+   * (the "notify before start" option), once per window, unless it was skipped.
+   */
+  async sendHeadsUps(profiles, now = new Date()) {
+    for (const profile of profiles) {
+      try {
+        if (!profile.notifications?.beforeStart) continue;
+        const window = nextWindow(profile, now);
+        if (!window || window.startAt <= now || window.startAt - now > HEADS_UP_MS) continue;
+        if (profile.skipUntil && profile.skipUntil > window.startAt) continue;
+        if (!(await this.claimOnce(profile, 'headsUpFor', window.startAt))) continue;
+        const user = await User.findById(profile.userId);
+        if (!user) continue;
+        const minutes = Math.max(1, Math.round((window.startAt - now) / 60000));
+        const autobot = profile.source === 'autobot';
+        await this.sendNotification(user.userId, {
+          title: autobot ? 'Autobot' : 'Primary Time',
+          body: primaryTimeText(user.language, autobot ? 'autobotUpcomingBody' : 'upcomingBody', { status: profile.status, minutes }),
+          channelId: 'primary-time-channel',
+          data: {
+            type: 'primary_time_upcoming',
+            profileId: profile._id.toString(),
+            status: profile.status,
+            startAt: window.startAt.toISOString(),
+            source: profile.source || 'manual', // the app opens Autobot or Primary Time on tap
+          },
+        });
+      } catch (error) {
+        console.error(`   ⚠️ [PRIMARY TIME] Heads-up failed for "${profile.name}":`, error.message);
+      }
+    }
+  }
+
+  // Atomic claim: overlapping ticks or server instances act once per window.
+  async claimOnce(profile, field, startAt) {
+    const claim = await PrimaryTimeProfile.updateOne(
+      { _id: profile._id, [field]: { $ne: startAt } },
+      { $set: { [field]: startAt } }
+    );
+    return claim.modifiedCount > 0;
+  }
+
+  /**
+   * About 20 minutes before an Autobot routine, ask the phone (data-only push,
+   * handled even while the app is closed) to check whether the user is away.
+   * A skip it sends then also cancels the 15-minute warning.
+   */
+  async sendAutobotPrechecks(profiles, now = new Date()) {
+    for (const profile of profiles) {
+      try {
+        if (profile.source !== 'autobot') continue;
+        const window = nextWindow(profile, now);
+        const lead = window ? window.startAt - now : 0;
+        if (lead <= HEADS_UP_MS || lead > PRECHECK_MS) continue;
+        if (profile.skipUntil && profile.skipUntil > window.startAt) continue;
+        if (!(await this.claimOnce(profile, 'precheckFor', window.startAt))) continue;
+        const fcmService = require('./fcmNotificationService');
+        const user = await User.findById(profile.userId);
+        if (!user || !fcmService.isEnabled()) continue;
+        await fcmService.sendDataNotification(user.userId, {
+          type: 'autobot_precheck',
+          profileId: profile._id.toString(),
+          startAt: window.startAt.toISOString(),
+        }, { ttlMs: 5 * 60 * 1000 });
+      } catch (error) {
+        console.error(`   ⚠️ [PRIMARY TIME] Autobot precheck failed for "${profile.name}":`, error.message);
+      }
+    }
+  }
+
+  /**
+   * The status the user has running now that an Autobot routine must not cut
+   * off, or null: nothing running, it already expired, it is this routine's
+   * own status, or it is the same status the routine would set anyway.
+   */
+  otherRunningStatus(user, profile, now = new Date()) {
+    const label = String(user.customStatus || user.mainStatus || user.status || '').trim();
+    if (!label || label.toLowerCase() === 'available') return null;
+    if (user.statusUntil && new Date(user.statusUntil) <= now) return null;
+    if (user.primaryTimeProfileId && user.primaryTimeProfileId.toString() === profile._id.toString()) return null;
+    if (label.toLowerCase() === String(profile.status || '').trim().toLowerCase()) return null;
+    return label;
+  }
+
+  /** Tell the user once per window that Autobot waits for their running status to end. */
+  async notifyDeferred(profile, user, busy, now = new Date()) {
+    const window = activeWindow(profile, now);
+    if (!window || !(await this.claimOnce(profile, 'deferredFor', window.startAt))) return;
+    await this.sendNotification(user.userId, {
+      title: 'Autobot',
+      body: primaryTimeText(user.language, 'deferredBody', { busy, status: profile.status }),
+      channelId: 'primary-time-channel',
+      data: { type: 'autobot_deferred', profileId: profile._id.toString(), status: profile.status, busy },
+    });
+  }
+
+  /**
+   * The user's own status interrupted a running Autobot routine. Remember when
+   * it runs out; return true when the routine should come back now. A status
+   * the user ended early themselves does not bring the routine back.
+   */
+  async settleAutobot(profile, user, now = new Date()) {
+    const busy = this.otherRunningStatus(user, profile, now);
+    if (busy || !profile.resumeAfter) {
+      const resumeAfter = busy && user.statusUntil ? new Date(user.statusUntil) : null;
+      if ((profile.resumeAfter ? new Date(profile.resumeAfter).getTime() : null) !== (resumeAfter ? resumeAfter.getTime() : null)) {
+        profile.resumeAfter = resumeAfter;
+        await profile.save();
+      }
+      return false;
+    }
+    const resumeAt = new Date(profile.resumeAfter);
+    // Ran out on its own: the expiry job cleared it, or it expired and that job (same minute) hasn't run yet.
+    const ranOut = (Boolean(user.statusChangedAt) && new Date(user.statusChangedAt) >= resumeAt) ||
+      (Boolean(user.statusUntil) && new Date(user.statusUntil) >= resumeAt && new Date(user.statusUntil) <= now);
+    profile.resumeAfter = null;
+    await profile.save();
+    return ranOut;
   }
 
   /**

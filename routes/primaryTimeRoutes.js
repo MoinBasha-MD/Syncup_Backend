@@ -16,6 +16,7 @@ router.delete('/profiles/:id', primaryTimeController.deleteProfile);
 // Profile activation
 router.post('/activate/:id', primaryTimeController.activateProfile);
 router.post('/deactivate/:id', primaryTimeController.deactivateProfile);
+router.post('/skip/:id', primaryTimeController.skipProfile);
 
 // Get active/scheduled profiles
 router.get('/active', primaryTimeController.getActiveProfile);

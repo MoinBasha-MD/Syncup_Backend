@@ -104,12 +104,28 @@ const primaryTimeProfileSchema = new mongoose.Schema({
   },
   // 'calendar-sync' marks profiles upserted by calendar recurrence
   // detection — only those are safe to overwrite on later syncs.
+  // 'autobot' marks routines the on-device Autobot learned and owns.
   source: {
     type: String,
-    enum: ['manual', 'calendar-sync'],
+    enum: ['manual', 'calendar-sync', 'autobot'],
     default: 'manual',
     index: true,
   },
+  // Start of the window the owner was last warned about (one warning per window).
+  headsUpFor: {
+    type: Date,
+    default: null,
+  },
+  // The scheduler ignores the profile until this instant ("skip this time").
+  skipUntil: {
+    type: Date,
+    default: null,
+  },
+  // Autobot only: window starts already handled, so each happens once per window.
+  precheckFor: { type: Date, default: null }, // phone asked to check "away" before the warning
+  deferredFor: { type: Date, default: null }, // told the user Autobot waits for a running status
+  // Autobot only: when the user's own status that interrupted the routine runs out.
+  resumeAfter: { type: Date, default: null },
   patternKey: {
     type: String,
     default: null,

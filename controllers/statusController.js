@@ -11,6 +11,11 @@ const contactService = require('../services/contactService');
  * @route   PUT /api/status
  * @access  Private
  */
+const MAX_STATUS_LENGTH = 100;
+const MAX_DURATION_MINUTES = 366 * 24 * 60; // a year: longer dates overflow into invalid deadlines
+// Who asked the app for the change; kept in status history, which the phone's Autobot learns from.
+const CLIENT_ORIGINS = ['user', 'maya', 'schedule'];
+
 const updateUserStatus = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -26,7 +31,7 @@ const updateUserStatus = async (req, res) => {
       status, customStatus, duration, location,
       // NEW: Hierarchical status fields
       mainStatus, mainDuration, mainDurationLabel, mainEndTime,
-      subStatus, subDuration, subDurationLabel, subEndTime
+      subStatus, subDuration, subDurationLabel, subEndTime, origin
     } = req.body;
 
     console.log('📥 [BACKEND] Received status update request');
@@ -41,10 +46,18 @@ const updateUserStatus = async (req, res) => {
         details: 'Please provide a valid status value'
       });
     }
+    if ([status, customStatus, mainStatus, subStatus].some(value =>
+      value != null && (typeof value !== 'string' || value.length > MAX_STATUS_LENGTH)
+    )) {
+      return res.status(400).json({ success: false, message: `Status text must be ${MAX_STATUS_LENGTH} characters or fewer` });
+    }
     if ([duration, mainDuration, subDuration].some(value =>
-      value != null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+      value != null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_DURATION_MINUTES)
     )) {
       return res.status(400).json({ success: false, message: 'Invalid status duration' });
+    }
+    if (origin != null && !CLIENT_ORIGINS.includes(origin)) {
+      return res.status(400).json({ success: false, message: 'Invalid status origin' });
     }
 
     // Log the status being used
@@ -219,6 +232,7 @@ const updateUserStatus = async (req, res) => {
           startTime: statusChangeTime,
           endTime: expirationTime || new Date(statusChangeTime.getTime() + 24 * 60 * 60 * 1000), // Default to 24 hours if no expiration
           duration: effectiveDuration || 1440, // Default to 24 hours (1440 minutes) if no duration specified
+          source: origin || 'user',
         });
       } catch (historyErr) {
         console.error('Status history save failed:', historyErr.message);

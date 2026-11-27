@@ -10,10 +10,13 @@ const getStatusHistory = asyncHandler(async (req, res) => {
 
   // Add date range filter if provided
   if (startDate && endDate) {
-    query.startTime = { 
-      $gte: new Date(startDate), 
-      $lte: new Date(endDate) 
-    };
+    const from = new Date(startDate);
+    const to = new Date(endDate);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+      res.status(400);
+      throw new Error('Invalid date range');
+    }
+    query.startTime = { $gte: from, $lte: to };
   }
 
   const statusHistory = await StatusHistory.find(query).sort({ startTime: -1 });

@@ -31,6 +31,12 @@ const statusHistorySchema = mongoose.Schema(
       type: Number, // Duration in minutes
       required: true,
     },
+    // Who set it, so the user's own choices can be told apart from automatic ones.
+    source: {
+      type: String,
+      enum: ['user', 'maya', 'primary_time', 'autobot', 'schedule', 'admin'],
+      default: 'user',
+    },
     // Location data for status history
     statusLocation: {
       placeName: {

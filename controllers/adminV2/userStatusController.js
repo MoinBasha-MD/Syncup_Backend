@@ -39,6 +39,7 @@ const recordHistory = async (user, status, customStatus, statusUntil) => {
       startTime: now,
       endTime,
       duration: Math.max(0, Math.floor((endTime.getTime() - now.getTime()) / 60000)),
+      source: 'admin',
     });
   } catch (error) {
     console.error('⚠️ [ADMIN STATUS] history write failed:', error.message);

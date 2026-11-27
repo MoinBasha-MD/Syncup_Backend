@@ -3,7 +3,9 @@ const User = require('../models/userModel');
 const primaryTimeScheduler = require('../services/primaryTimeScheduler');
 const fcmService = require('../services/fcmNotificationService');
 const socketManager = require('../socketManager');
-const { isValidTimezone, localDate } = require('../utils/primaryTimeClock');
+const { isValidObjectId } = require('mongoose');
+const { isValidTimezone, localDate, nextWindow } = require('../utils/primaryTimeClock');
+const { validateProfileInput } = require('../utils/primaryTimeInput');
 const saveStatusIfUnchanged = require('../services/statusCompareAndSet');
 
 /**
@@ -28,43 +30,36 @@ async function pushProfileSyncSignal(userId) {
   }
 }
 
+const MAX_PROFILES_PER_USER = 50;
+
+const notFound = (res) => res.status(404).json({ success: false, message: 'Profile not found' });
+
 // Create a new Primary Time profile
 exports.createProfile = async (req, res) => {
   try {
-    const { name, status, days, startTime, endTime, location, timezoneOffset, timezone, notifications, recurrence, priority } = req.body;
     const userId = req.user._id;
-
-    // Validate required fields
-    if (!name || !status || !days || !startTime || !endTime) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields: name, status, days, startTime, endTime',
-      });
-    }
-    if (timezone != null && !isValidTimezone(timezone)) {
-      return res.status(400).json({ success: false, message: 'Invalid timezone' });
+    const { value, error } = validateProfileInput(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
     }
 
-    // Create profile
+    // Autobot retries after a lost response must not create a second copy.
+    if (value.source === 'autobot') {
+      const existing = await PrimaryTimeProfile.findOne({ userId, source: 'autobot', patternKey: value.patternKey });
+      if (existing) return res.status(200).json(existing);
+    }
+    if (await PrimaryTimeProfile.countDocuments({ userId }) >= MAX_PROFILES_PER_USER) {
+      return res.status(400).json({ success: false, message: `You can have up to ${MAX_PROFILES_PER_USER} Primary Time routines` });
+    }
+
     const profile = new PrimaryTimeProfile({
       userId,
-      name,
-      status,
-      days,
-      startTime,
-      endTime,
-      location,
-      timezoneOffset: timezoneOffset != null ? timezoneOffset : new Date().getTimezoneOffset(),
-      timezone: timezone || null,
-      notifications: notifications || {
-        beforeStart: true,
-        onStart: true,
-        onEnd: true,
-      },
-      recurrence: recurrence || {
-        type: 'weekly',
-      },
-      priority: priority || 1,
+      ...value,
+      timezoneOffset: value.timezoneOffset ?? new Date().getTimezoneOffset(),
+      timezone: value.timezone || null,
+      notifications: value.notifications || { beforeStart: true, onStart: true, onEnd: true },
+      recurrence: value.recurrence || { type: 'weekly' },
+      priority: value.priority || 1,
     });
 
     await profile.save();
@@ -135,6 +130,7 @@ exports.getProfile = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
+    if (!isValidObjectId(id)) return notFound(res);
 
     const profile = await PrimaryTimeProfile.findOne({ _id: id, userId });
 
@@ -161,26 +157,18 @@ exports.updateProfile = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
-    const updates = req.body;
-    if (updates.timezone != null && !isValidTimezone(updates.timezone)) {
-      return res.status(400).json({ success: false, message: 'Invalid timezone' });
+    if (!isValidObjectId(id)) return notFound(res);
+
+    const profile = await PrimaryTimeProfile.findOne({ _id: id, userId });
+    if (!profile) return notFound(res);
+
+    // Only user-editable fields, checked against the stored profile (no isActive/source/userId writes).
+    const { value, error } = validateProfileInput(req.body, { current: profile });
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
     }
-
-    // Don't allow updating userId
-    delete updates.userId;
-
-    const profile = await PrimaryTimeProfile.findOneAndUpdate(
-      { _id: id, userId },
-      { $set: updates },
-      { new: true, runValidators: true }
-    );
-
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found',
-      });
-    }
+    Object.assign(profile, value);
+    await profile.save();
 
     console.log(`✅ [PRIMARY TIME] Profile updated: ${profile.name}`);
 
@@ -209,6 +197,7 @@ exports.deleteProfile = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
+    if (!isValidObjectId(id)) return notFound(res);
 
     const profile = await PrimaryTimeProfile.findOne({ _id: id, userId });
 
@@ -250,6 +239,28 @@ exports.deleteProfile = async (req, res) => {
   }
 };
 
+// Skip the running or next window once (from the 15-minute warning).
+exports.skipProfile = async (req, res) => {
+  try {
+    if (!isValidObjectId(req.params.id)) return notFound(res);
+    const profile = await PrimaryTimeProfile.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!profile) return notFound(res);
+    const window = nextWindow(profile);
+    if (!window) {
+      return res.status(400).json({ success: false, message: 'No upcoming time to skip' });
+    }
+    profile.skipUntil = window.endAt;
+    await profile.save();
+    // Ends the window now if it is running; otherwise it simply won't start.
+    await primaryTimeScheduler.checkAndUpdateUserPrimaryTime(req.user._id);
+    pushProfileSyncSignal(req.user.userId).catch(() => {});
+    res.json({ success: true, skipUntil: profile.skipUntil });
+  } catch (error) {
+    console.error('❌ [PRIMARY TIME] Skip profile error:', error);
+    res.status(500).json({ success: false, message: 'Failed to skip profile' });
+  }
+};
+
 // Enable a profile schedule (user taps "activate")
 // Multiple profiles can be isEnabled simultaneously — the scheduler picks the
 // correct one based on the current time window and priority.
@@ -259,6 +270,7 @@ exports.activateProfile = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
+    if (!isValidObjectId(id)) return notFound(res);
 
     // Enable the requested profile (do NOT disable other profiles —
     // multiple schedules can be enabled for different time windows)
@@ -282,8 +294,12 @@ exports.activateProfile = async (req, res) => {
 
     let statusApplied = false;
 
-    // Only apply status immediately if the current time is within the schedule window
-    if (isWithinWindow) {
+    if (profile.source === 'autobot') {
+      // Autobot routines go through the scheduler, which waits for a running status to end.
+      await primaryTimeScheduler.checkAndUpdateUserPrimaryTime(userId);
+      pushProfileSyncSignal(req.user.userId).catch(() => {});
+    } else if (isWithinWindow) {
+      // Only apply status immediately if the current time is within the schedule window
       try {
         // Deactivate any other currently-active profile first (only one status at a time)
         await PrimaryTimeProfile.updateMany(
@@ -400,6 +416,7 @@ exports.deactivateProfile = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
+    if (!isValidObjectId(id)) return notFound(res);
 
     // Get the profile first to check if it was actively applied
     const profile = await PrimaryTimeProfile.findOne({ _id: id, userId });

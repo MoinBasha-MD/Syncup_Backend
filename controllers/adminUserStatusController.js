@@ -88,7 +88,8 @@ const updateUserStatus = async (req, res) => {
         customStatus: customStatus || '',
         startTime: now,
         endTime: endTime,
-        duration: durationMinutes
+        duration: durationMinutes,
+        source: 'admin'
       });
     } catch (historyError) {
       console.error('⚠️ [ADMIN] Failed to save status history:', historyError);

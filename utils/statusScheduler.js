@@ -212,6 +212,7 @@ class StatusScheduler {
           startTime: statusChangeTime,
           endTime: schedule.endTime,
           duration: duration > 0 ? duration : 60, // Default to 60 minutes if calculation is negative
+          source: 'schedule',
         });
       }
       

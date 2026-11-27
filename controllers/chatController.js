@@ -208,8 +208,11 @@ const sendMessage = async (req, res) => {
     // });
 
     // Add privacy mode options if provided (manual timer mode)
+    // Timed messages are always tagged, so the cleanup scheduler and the timer-off purge can find them.
     if (privacyMode) {
       messageData.privacyMode = privacyMode;
+    } else if (timerDuration) {
+      messageData.privacyMode = 'timer';
     }
 
     if (timerDuration) {
@@ -277,6 +280,9 @@ const sendMessage = async (req, res) => {
         // ✅ FIX: Include ghost mode fields
         isGhost: savedMessage.isGhost,
         ghostSessionId: savedMessage.ghostSessionId,
+        privacyMode: savedMessage.privacyMode,
+        timerDuration: savedMessage.timerDuration,
+        expiresAt: savedMessage.expiresAt,
         viewedBy: savedMessage.viewedBy || [],
         // E2EE Phase 2 - Include encrypted payload
         e2ee: savedMessage.e2ee || { enabled: false }
@@ -1453,6 +1459,18 @@ const sendVoiceMessage = async (req, res) => {
       timestamp: new Date()
     };
 
+    // Timer and ghost fields from the app (plaintext metadata; same contract as the text send).
+    const voiceTimerMs = Number(req.body.timerDuration);
+    if (Number.isFinite(voiceTimerMs) && voiceTimerMs > 0) {
+      messageData.privacyMode = 'timer';
+      messageData.timerDuration = voiceTimerMs;
+      messageData.expiresAt = new Date(Date.now() + voiceTimerMs);
+    }
+    if (req.body.isGhost === true && typeof req.body.ghostSessionId === 'string' && req.body.ghostSessionId) {
+      messageData.isGhost = true;
+      messageData.ghostSessionId = req.body.ghostSessionId;
+    }
+
     const newMessage = new Message(messageData);
     const savedMessage = await newMessage.save();
 
@@ -1496,7 +1514,7 @@ const sendVoiceMessage = async (req, res) => {
           messageId: savedMessage._id.toString() 
         });
         if (deliveryConfirmation) {
-          console.log('✅ Game message delivery confirmation sent to sender:', senderId);
+          console.log('✅ Voice delivery confirmation sent to sender:', senderId);
         }
       }
     } catch (broadcastError) {

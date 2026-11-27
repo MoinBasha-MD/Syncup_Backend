@@ -44,29 +44,47 @@ function resolveLocalTime(profile, wallTime) {
   return candidates.filter(c => c.delta > 0).sort((a, b) => a.delta - b.delta)[0]?.instant || candidates[0].instant;
 }
 
-function activeWindow(profile, now = new Date()) {
+// The profile's local calendar day containing `now`, as a UTC-midnight date.
+function localToday(profile, now) {
   const localNow = localDate(profile, now);
-  const today = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate()));
+  return new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate()));
+}
+
+// The window that starts on local calendar `day`, or null when the profile skips that day.
+function windowOn(profile, day) {
+  if (!profile.days.includes(day.getUTCDay())) return null;
+  if (profile.recurrence?.type === 'date_range') {
+    const dayKey = day.toISOString().slice(0, 10);
+    if (profile.recurrence.startDate && dayKey < new Date(profile.recurrence.startDate).toISOString().slice(0, 10)) return null;
+    if (profile.recurrence.endDate && dayKey > new Date(profile.recurrence.endDate).toISOString().slice(0, 10)) return null;
+  }
   const [startHour, startMinute] = profile.startTime.split(':').map(Number);
   const [endHour, endMinute] = profile.endTime.split(':').map(Number);
+  const start = new Date(day);
+  start.setUTCHours(startHour, startMinute);
+  const end = new Date(day);
+  end.setUTCHours(endHour, endMinute);
+  if (profile.endTime <= profile.startTime) end.setUTCDate(end.getUTCDate() + 1);
+  return { startAt: resolveLocalTime(profile, start), endAt: resolveLocalTime(profile, end) };
+}
+
+function activeWindow(profile, now = new Date()) {
+  const today = localToday(profile, now);
   for (const delta of [0, -1]) {
-    const day = new Date(today.getTime() + delta * 86400000);
-    if (!profile.days.includes(day.getUTCDay())) continue;
-    if (profile.recurrence?.type === 'date_range') {
-      const dayKey = day.toISOString().slice(0, 10);
-      if (profile.recurrence.startDate && dayKey < new Date(profile.recurrence.startDate).toISOString().slice(0, 10)) continue;
-      if (profile.recurrence.endDate && dayKey > new Date(profile.recurrence.endDate).toISOString().slice(0, 10)) continue;
-    }
-    const start = new Date(day);
-    start.setUTCHours(startHour, startMinute);
-    const end = new Date(day);
-    end.setUTCHours(endHour, endMinute);
-    if (profile.endTime <= profile.startTime) end.setUTCDate(end.getUTCDate() + 1);
-    const startAt = resolveLocalTime(profile, start);
-    const endAt = resolveLocalTime(profile, end);
-    if (startAt <= now && now < endAt) return { startAt, endAt };
+    const window = windowOn(profile, new Date(today.getTime() + delta * 86400000));
+    if (window && window.startAt <= now && now < window.endAt) return window;
   }
   return null;
 }
 
-module.exports = { activeWindow, isValidTimezone, localDate, resolveLocalTime };
+// The running or next window within a week (heads-up warnings and skips).
+function nextWindow(profile, now = new Date()) {
+  const today = localToday(profile, now);
+  for (let delta = -1; delta <= 7; delta++) {
+    const window = windowOn(profile, new Date(today.getTime() + delta * 86400000));
+    if (window && now < window.endAt) return window;
+  }
+  return null;
+}
+
+module.exports = { activeWindow, nextWindow, isValidTimezone, localDate, resolveLocalTime };
