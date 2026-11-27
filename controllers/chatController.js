@@ -1953,7 +1953,7 @@ const getConversations = async (req, res) => {
       },
       { $sort: { lastMessageAt: -1 } },
       { $limit: limit }
-    ]);
+    ]).allowDiskUse(true); // the sort above can exceed the 100MB in-memory limit for long histories
 
     const users = await User.find({ userId: { $in: rows.map((row) => row._id) } })
       .select('userId name username phoneNumber email profileImage status customStatus isOnline lastSeen')

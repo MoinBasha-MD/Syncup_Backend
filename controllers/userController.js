@@ -546,7 +546,8 @@ const getRegisteredUsers = async (req, res) => {
         userId: user.userId,
         name: user.name, // Use 'name' instead of 'fullName' for consistency
         fullName: user.name,
-        phoneNumber: user.phoneNumber,
+        // This directory is open to every signed-in user, so phone numbers go only to accepted friends and to the caller.
+        phoneNumber: friendshipData?.status === 'accepted' || user.userId === requestingUserId ? user.phoneNumber : undefined,
         profileImage: user.profileImage,
         dateOfBirth: user.dateOfBirth,
         gender: user.gender,
