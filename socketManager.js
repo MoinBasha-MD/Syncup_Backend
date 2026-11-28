@@ -25,6 +25,16 @@ const { resumeCall, deliverCallNotification, decideInitiate, applyHold } = requi
 const liveKitService = require('./services/liveKitService');
 const { validateEnvelope, isE2eeV2 } = require('./utils/e2eeEnvelope');
 const Notification = require('./models/Notification');
+const GroupChat = require('./models/groupChatModel');
+const { createTypingRelay } = require('./services/typingRelay');
+
+// Typing presence relay. broadcastToUser is looked up when a notice is sent, not when this module loads.
+const typingRelay = createTypingRelay({
+  User,
+  GroupChat,
+  Block,
+  broadcastToUser: (userId, event, payload) => broadcastToUser(userId, event, payload),
+});
 const {
   findAuthorizedCall,
   findAuthorizedReceipt,
@@ -512,6 +522,7 @@ const initializeSocketIO = (server) => {
 
     // Handle disconnection with detailed logging
     socket.on('disconnect', async (reason) => {
+      typingRelay.clearFor(socket); // people this socket was typing to stop showing it
       connectionStats.activeConnections--;
       connectionStats.totalDisconnections++;
 
@@ -1121,79 +1132,15 @@ const initializeSocketIO = (server) => {
       }
     });
     
-    // 💬 CHAT FEATURES: Typing Indicators
-    socket.on('typing_start', async (data) => {
-      console.log(`✍️ User ${socket.user.name} started typing to ${data.receiverId}`);
-      
-      try {
-        // Convert receiverId (userId) to MongoDB _id for socket lookup
-        if (typeof data?.receiverId !== 'string' || !data.receiverId) return;
-        const receiver = await User.findOne({ userId: data.receiverId }).select('_id userId name');
-        if (!receiver) {
-          console.log(`❌ Receiver not found in database: ${data.receiverId}`);
-          return;
-        }
-        
-        const receiverObjectId = receiver._id.toString();
-        console.log(`🎯 Typing indicator receiver details:`, {
-          receiverId: receiver.userId,
-          receiverObjectId,
-          receiverName: receiver.name
-        });
-        
-        // Broadcast typing indicator to all of the receiver's connected sockets
-        const sentTo = emitToUser(receiver.userId, 'typing:start', {
-          userId: socket.user.userId,
-          senderId: userId,
-          name: socket.user.name,
-          timestamp: new Date().toISOString()
-        });
-        if (sentTo.length > 0) {
-          console.log(`✅ Typing start successfully broadcasted to ${receiver.name} (${receiverObjectId})`);
-        } else {
-          console.log(`❌ Receiver ${receiver.name} (${receiverObjectId}) not found or offline`);
-        }
-      } catch (error) {
-        console.error(`❌ Error broadcasting typing start:`, error);
-      }
+    // 💬 Typing presence (services/typingRelay.js). The app sends typing:start / typing:stop with { receiverId, isGroup }.
+    const typingSender = { senderId: userId, senderName: socket.user.name };
+    socket.on('typing:start', (data) => {
+      typingRelay.update(socket, typingSender, data, true).catch((error) => console.error('❌ Typing relay failed:', error.message));
     });
-    
-    socket.on('typing_stop', async (data) => {
-      console.log(`⏹️ User ${socket.user.name} stopped typing to ${data.receiverId}`);
-      
-      try {
-        // Convert receiverId (userId) to MongoDB _id for socket lookup
-        if (typeof data?.receiverId !== 'string' || !data.receiverId) return;
-        const receiver = await User.findOne({ userId: data.receiverId }).select('_id userId name');
-        if (!receiver) {
-          console.log(`❌ Receiver not found in database: ${data.receiverId}`);
-          return;
-        }
-        
-        const receiverObjectId = receiver._id.toString();
-        console.log(`🎯 Typing stop receiver details:`, {
-          receiverId: receiver.userId,
-          receiverObjectId,
-          receiverName: receiver.name
-        });
-        
-        // Broadcast typing stop to all of the receiver's connected sockets
-        const sentTo = emitToUser(receiver.userId, 'typing:stop', {
-          userId: socket.user.userId,
-          senderId: userId,
-          name: socket.user.name,
-          timestamp: new Date().toISOString()
-        });
-        if (sentTo.length > 0) {
-          console.log(`✅ Typing stop successfully broadcasted to ${receiver.name} (${receiverObjectId})`);
-        } else {
-          console.log(`❌ Receiver ${receiver.name} (${receiverObjectId}) not found or offline`);
-        }
-      } catch (error) {
-        console.error(`❌ Error broadcasting typing stop:`, error);
-      }
+    socket.on('typing:stop', (data) => {
+      typingRelay.update(socket, typingSender, data, false).catch((error) => console.error('❌ Typing relay failed:', error.message));
     });
-    
+
     // Note: Client-side 'message:send' socket path is deprecated.
     // New messages are sent via REST controller, which persists and broadcasts.
     

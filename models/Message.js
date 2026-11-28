@@ -194,6 +194,11 @@ const messageSchema = new mongoose.Schema({
     ref: 'Message',
     default: null
   },
+  // Client-generated id of a 1:1 text send: a retry with the same id returns the saved message.
+  clientMessageId: {
+    type: String,
+    default: undefined
+  },
   // Privacy modes (Burn, Ghost, Timer)
   privacyMode: {
     type: String,
@@ -463,7 +468,8 @@ messageSchema.statics.getUnreadCount = async function(senderId, receiverId) {
   return this.countDocuments({
     senderId: senderId,
     receiverId: receiverId,
-    status: { $ne: 'read' }
+    status: { $ne: 'read' },
+    expiresAt: { $not: { $lte: new Date() } }
   });
 };
 
@@ -473,7 +479,8 @@ messageSchema.statics.getAllUnreadCounts = async function(userId) {
     {
       $match: {
         receiverId: userId,
-        status: { $ne: 'read' }
+        status: { $ne: 'read' },
+        expiresAt: { $not: { $lte: new Date() } }
       }
     },
     {
@@ -598,7 +605,9 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
           { senderId: userId2, receiverId: userId1 }
         ],
         // ✅ CRITICAL FIX: Exclude messages deleted by current user (userId1)
-        deletedFor: { $ne: userId1 }
+        deletedFor: { $ne: userId1 },
+        // Timer messages past their expiry wait for the hourly purge; hide them before it runs.
+        expiresAt: { $not: { $lte: new Date() } }
       }
     },
     {
@@ -651,6 +660,7 @@ messageSchema.statics.getConversationOptimized = async function(userId1, userId2
         replyToMessage: 1,
         isGhost: 1,
         ghostSessionId: 1,
+        expiresAt: 1, // the app drops timer messages when they expire
         burnAfterReading: 1,
         burnViewDuration: 1,
         burnViewedAt: 1,

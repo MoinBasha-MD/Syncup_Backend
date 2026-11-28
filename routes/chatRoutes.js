@@ -31,7 +31,6 @@ const {
   exchangeEncryptionKeys,
   getPublicKey,
   deleteGhostMessages,
-  markGhostMessagesViewed, // ✅ FIX #3
   deleteViewedGhostMessages, // ✅ FIX #3
   markBurnViewed,
   cleanupExpiredMessages,
@@ -88,7 +87,6 @@ router.get('/encryption/public-key/:userId', getPublicKey);
 
 // Privacy mode routes
 router.post('/ghost/delete', deleteGhostMessages);
-router.post('/ghost/mark-viewed', markGhostMessagesViewed); // ✅ FIX #3
 router.post('/ghost/delete-viewed', deleteViewedGhostMessages); // ✅ FIX #3
 router.put('/burn/:messageId/viewed', markBurnViewed);
 router.post('/timer/cleanup', cleanupExpiredMessages);

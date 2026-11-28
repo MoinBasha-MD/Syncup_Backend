@@ -38,7 +38,8 @@ const sendMessage = async (req, res) => {
       // E2EE Phase 2 - Encrypted payload
       e2ee,             // Encrypted message payload
       broadcastRequestId,
-      broadcastSenderId
+      broadcastSenderId,
+      clientMessageId // the app's id for a text send; a retry with the same id returns the saved message
     } = req.body;
     const senderId = req.user.userId;
 
@@ -53,6 +54,17 @@ const sendMessage = async (req, res) => {
       }
     }
     
+    // A retried text send (the first request timed out after the server saved it) gets that message back, not a duplicate.
+    const clientId = typeof clientMessageId === 'string' && clientMessageId.length > 0 && clientMessageId.length <= 64
+      ? clientMessageId
+      : undefined;
+    if (clientId && typeof receiverId === 'string' && !req.broadcastSend) {
+      const saved = await Message.findOne({ senderId, receiverId, clientMessageId: clientId });
+      if (saved) {
+        return res.status(200).json({ success: true, data: saved, message: 'Message sent successfully' });
+      }
+    }
+
     console.log('[CHAT] Send message:', {
       messageLength: message?.length,
       hasSharedPost: !!sharedPost,
@@ -229,6 +241,8 @@ const sendMessage = async (req, res) => {
     if (burnViewTime) {
       messageData.burnViewTime = burnViewTime;
     }
+
+    if (clientId) messageData.clientMessageId = clientId;
 
     if (isGhost) {
       messageData.isGhost = true;
@@ -468,7 +482,8 @@ const getChatHistory = async (req, res) => {
           { senderId: userId, receiverId: contactId },
           { senderId: contactId, receiverId: userId }
         ],
-        deletedFor: { $ne: userId } // ✅ WhatsApp-style: Exclude messages deleted by current user
+        deletedFor: { $ne: userId }, // ✅ WhatsApp-style: Exclude messages deleted by current user
+        expiresAt: { $not: { $lte: new Date() } } // expired timer messages wait for the hourly purge
       })
       .sort({ timestamp: -1 })
       .skip(skip)
@@ -551,71 +566,34 @@ const markMessagesAsRead = async (req, res) => {
       });
     }
 
-    const contactObjectId = contact._id.toString();
-    console.log('🎯 Contact details for read receipt:', {
-      contactId: contact.userId,
-      contactObjectId,
-      contactName: contact.name
-    });
-
-    // Mark messages as read in database
-    const updateResult = markAll
-      ? await Message.markAsRead(contactId, userId)
-      : await Message.updateMany(
-          {
-            _id: { $in: messageIds },
-            receiverId: userId,
-            senderId: contactId
-          },
-          {
-            $set: { status: 'read' }
-          }
-        );
+    // Only messages this user received from the contact and has not read yet change state here.
+    // Their ids are returned to the sender below, so the sender's ticks turn blue live.
+    const unreadFilter = {
+      senderId: contactId,
+      receiverId: userId,
+      status: { $ne: 'read' },
+      ...(markAll ? {} : { _id: { $in: messageIds } })
+    };
+    const newlyReadIds = await Message.distinct('_id', unreadFilter);
+    const updateResult = await Message.updateMany(
+      { _id: { $in: newlyReadIds } },
+      { $set: { status: 'read' } }
+    );
 
     console.log(`✅ Marked ${updateResult.modifiedCount} messages as read`);
 
-    // Broadcast read status to sender via WebSocket using userId (NOT MongoDB _id)
-    try {
-      console.log('📡 [READ RECEIPT] Broadcasting read receipts to contact...');
-      console.log('📡 [READ RECEIPT] Broadcasting to contactId (userId):', contactId);
-      console.log('📡 [READ RECEIPT] Contact MongoDB ObjectId:', contactObjectId);
-      console.log('📡 [READ RECEIPT] Number of messages marked as read:', markAll ? 'ALL' : (messageIds?.length || 0));
-      
-      let successCount = 0;
-      let failCount = 0;
-      
-      if (!markAll && messageIds && messageIds.length > 0) {
-        messageIds.forEach(messageId => {
-          console.log(`📤 [READ RECEIPT] Attempting to broadcast for message: ${messageId}`);
-          const broadcastSuccess = broadcastToUser(contactId, 'message:read', { messageId });
-          
-          if (broadcastSuccess) {
-            successCount++;
-            console.log(`✅ [READ RECEIPT] Successfully broadcasted for message ${messageId}`);
-          } else {
-            failCount++;
-            console.log(`⚠️ [READ RECEIPT] Failed to broadcast for message ${messageId}`);
-            console.log(`⚠️ [READ RECEIPT] Reason: Contact is offline or not connected`);
-            console.log(`⚠️ [READ RECEIPT] Status saved to DB - will be loaded when contact reopens chat`);
-          }
-        });
-      }
-      
-      console.log('📡 [READ RECEIPT] Broadcasting summary:', {
-        total: markAll ? 'ALL' : (messageIds?.length || 0),
-        success: successCount,
-        failed: failCount
-      });
-      
-      if (failCount > 0) {
-        console.log('💾 [READ RECEIPT] Failed broadcasts saved to database');
-        console.log('💾 [READ RECEIPT] Contact will see updated status when they reopen the chat');
-      }
-      
-      console.log('📡 [READ RECEIPT] Read status broadcasting completed');
-    } catch (socketError) {
-      console.error('❌ [READ RECEIPT] Error broadcasting read status:', socketError);
-    }
+    // A ghost message counts as viewed once its receiver reads it, including ones that arrive
+    // while the chat is open; closing the chat then deletes it (deleteViewedGhostMessages).
+    await Message.updateMany(
+      { isGhost: true, senderId: contactId, receiverId: userId, ...(markAll ? {} : { _id: { $in: messageIds } }) },
+      { $addToSet: { viewedBy: userId } }
+    );
+
+    // Tell the sender about each message that just turned read. An offline sender gets nothing now
+    // and sees the saved status the next time the chat loads.
+    newlyReadIds.forEach((messageId) => {
+      broadcastToUser(contactId, 'message:read', { messageId: String(messageId) });
+    });
 
     res.status(200).json({
       success: true,
@@ -1661,58 +1639,6 @@ const deleteGhostMessages = async (req, res) => {
   }
 };
 
-// ✅ FIX #3: Mark ghost messages as viewed
-const markGhostMessagesViewed = async (req, res) => {
-  try {
-    const { ghostSessionId } = req.body;
-    // Always act as the authenticated user, never the body-supplied userId.
-    const userId = req.user.userId;
-
-    console.log('👁️ [GHOST MODE] Marking messages as viewed:', { ghostSessionId, userId });
-
-    if (!ghostSessionId || typeof ghostSessionId !== 'string') {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing ghostSessionId'
-      });
-    }
-    const ownsSession = await Message.exists({
-      isGhost: true,
-      ghostSessionId,
-      $or: [{ senderId: userId }, { receiverId: userId }],
-    });
-    if (!ownsSession) {
-      return res.status(404).json({ success: false, message: 'Ghost session not found' });
-    }
-
-    const result = await Message.updateMany(
-      {
-        isGhost: true,
-        ghostSessionId: ghostSessionId,
-        viewedBy: { $ne: userId } // Not already viewed by this user
-      },
-      {
-        $addToSet: { viewedBy: userId }, // Add userId to viewedBy array
-        $set: { viewedAt: new Date() }
-      }
-    );
-    
-    console.log('✅ [GHOST MODE] Marked', result.modifiedCount, 'messages as viewed by', userId);
-    
-    res.status(200).json({
-      success: true,
-      markedCount: result.modifiedCount
-    });
-  } catch (error) {
-    console.error('❌ [GHOST MODE] Mark viewed error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to mark messages as viewed',
-      error: error.message
-    });
-  }
-};
-
 // ✅ FIX #3: Delete viewed ghost messages
 const deleteViewedGhostMessages = async (req, res) => {
   try {
@@ -1740,6 +1666,7 @@ const deleteViewedGhostMessages = async (req, res) => {
     const result = await Message.deleteMany({
       isGhost: true,
       ghostSessionId: ghostSessionId,
+      receiverId: userId, // a sender's own messages wait for the receiver to view them
       viewedBy: { $in: [userId] } // Only delete if user viewed it
     });
     
@@ -1938,7 +1865,8 @@ const getConversations = async (req, res) => {
       {
         $match: {
           $or: [{ senderId: userId }, { receiverId: userId }],
-          deletedFor: { $ne: userId }
+          deletedFor: { $ne: userId },
+          expiresAt: { $not: { $lte: new Date() } } // expired timer messages wait for the hourly purge
         }
       },
       { $sort: { timestamp: -1 } },
@@ -2097,7 +2025,6 @@ module.exports = {
   exchangeEncryptionKeys,
   getPublicKey,
   deleteGhostMessages,
-  markGhostMessagesViewed, // ✅ FIX #3
   deleteViewedGhostMessages, // ✅ FIX #3
   markBurnViewed,
   cleanupExpiredMessages,

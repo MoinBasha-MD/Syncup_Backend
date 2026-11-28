@@ -59,13 +59,9 @@ const messageCleanupScheduler = {
       
       console.log(`⏳ [MESSAGE CLEANUP] Found ${expiredMessages.length} expired messages`);
       
-      // Get socket.io instance from app
-      const io = global.io;
-      if (!io) {
-        console.error('❌ [MESSAGE CLEANUP] Socket.IO instance not available');
-        return;
-      }
-      
+      // Announcements go to the two people in the chat only (see below); no socket gate needed.
+      const { broadcastToUser } = require('../socketManager');
+
       // Delete messages and notify users
       for (const message of expiredMessages) {
         try {
@@ -91,15 +87,11 @@ const messageCleanupScheduler = {
           console.log(`   - Receiver: ${message.receiverId}`);
           console.log(`   - Message ID: ${message._id}`);
           
-          // Emit to ALL connected sockets (broadcast)
-          io.emit(`message-expired:${message.senderId}`, notificationData);
-          io.emit(`message-expired:${message.receiverId}`, notificationData);
-          io.emit('message:expired', notificationData);
+          // Only the two people in the chat hear about it. io.emit would reach every connected user.
+          broadcastToUser(message.senderId, 'message:expired', notificationData);
+          broadcastToUser(message.receiverId, 'message:expired', notificationData);
           
-          console.log(`✅ [MESSAGE CLEANUP] Broadcast events emitted:`)
-          console.log(`   - message-expired:${message.senderId}`);
-          console.log(`   - message-expired:${message.receiverId}`);
-          console.log(`   - message:expired`);
+          console.log('Told both participants (message:expired)');
           
         } catch (deleteError) {
           console.error(`❌ [MESSAGE CLEANUP] Error deleting message ${message._id}:`, deleteError);
